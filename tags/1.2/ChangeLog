@@ -1,0 +1,175 @@
+recvmail revision history
+=========================
+
+1.1  Thursday, May 18th 2006
+
+* Fixed a non-exploitable memory allocation error in the accept(2) loop.
+
+* New configuration options: --with-uid and --with-gid
+
+1.0  Friday, December 3rd 2005
+
+* Make the stream I/O respect the config.max_message_bytes limit.
+
+* Rewrote parse_address() to be half as large, more strict, and less ugly.
+
+* Changed the default GID from `_recvmail' to `vmail' to allow other programs
+  (e.g. imapd) to share the same group.
+
+* New stack-based string library functions: strpnew, strpcpy, strpcat, strprintf
+
+* New throwf() function accepts format strings when throwing an exception.
+
+* New ethrowf() function prints errno along with a formatted exception string.
+
+* New configuration option 'log_level' controls verbosity of logging.
+
+* New command line options for mailuser(1) including password, uid, and gid.
+
+* New command line option '-d' sets the new system root for chroot(1).
+
+* New command line option '-t' enables POSIX threading.
+
+* New (sort of) command line option '-s' enables stealth mode.
+
+* mailuser(1) now creates or modifies /var/mail/etc/passwd.
+
+* Converted unused function get_mailbox_owner() into get_file_owner()
+
+* Removed SpamAssassin client code and created skeleton of scanmail(1) program.
+
+* Removed whole-message buffering code.
+
+* Use symbolic UID and GIDs instead of numeric ones. Default is _recvmail:vmail
+
+* New abstract thread API in "thread.c" can fallback to fork(2) as desired and
+  isolates all ugly #ifdef code into a single module.
+
+* Documented the -g (gid) and -u (uid) command line options.
+
+* New command line option -q (quiet)
+
+* In systrace.policy, allow system files to be read prior to chroot(2).
+
+* Use the environment variable RECVMAIL_DEBUG to enable debugging options.
+
+* Give each connection a separate logfile in /var/mail/log/log.<1.2.3.4>
+
+* New filesystem layout: /var/mail/{bin,etc,log,store,spool}
+
+* Removed the enable-recvmail script and moved it to the main OpenMTA source directory
+
+* Improved mailuser(1) now generates MHS-compliant mailboxes with proper permissions.
+
+* Split the doc/index.html page into multiple pages.
+
+* Split util.c into exception.h, syslog.h, strlib.h
+
+* Combined elements of util.c and libsmtpd.c to form server.c
+
+* Improved valid_domain(), valid_address(), and valid_mail_addr().
+
+* New function file_exists() checks for operating system errors when calling stat(2).
+
+* Removed util.c, renaming it to file.c.
+
+* Don't allow special characters ([/`{}|]) in email usernames.
+  
+* Fixed valid_filename() to accept numbers in the filename.
+
+* Fixed parse_smtp_data() in the case of dot-stuffed lines.
+
+* Only use static linking when systrace(1) is available.
+
+* Don't include t/ lib/ or ports/ in the source tarball. These are somewhat broken.
+
+0.9  Sun Nov 27 15:21:11 EST 2005
+
+* New utility 'mailuser' for creating and removing mailboxes
+
+* Don't use -pedantic and --std=c99 in CFLAGS
+
+* Run under systrace by default. Tested on OpenBSD.
+
+* Include enable-recvmail script for OpenBSD.
+
+* Created OpenBSD packaging infrastructure in /usr/ports
+
+* Finished implementing "stealth mode" and make it the default.
+
+* Use a single global config struct instead of multiple individual variables.
+
+* Added an experimental multi-threaded process model (-DMULTITHREADED)
+
+* Imported smtpsend from the smtp-benchmark project, replacing smtp-benchmark.pl
+
+* Allow non-privileged users to run recvmail(1) for debugging purposes
+
+* Removed the session counter code; there are now no limits on connections.
+
+* Removed the spooling code; now use streaming I/O operations.
+
+* Write the message data directly to the destination file instead of using
+  a temporary buffer. 
+
+* Use waitpid(2) to clean up zombies instead of SIG_IGN, which was non-portable.
+
+0.8	 Sun Nov  6 19:07:13 EST 2005
+
+* [SECURITY FIX] Always perform a chroot(2) call. 
+  Previous versions of recvmail would always silently fail to perform a chroot(2) call,
+  causing the daemon to operate with full access to the filesystem.
+
+* Do not permit maildir pathnames to be '.' or '..'   
+
+* Force synchronous I/O by adding a fsync(2) call after closing the message file.
+
+* Remove unused functions mask_signals() and unmask_signals().
+
+* Build a staticly linked binary and enable all compiler warnings
+
+* Include a systrace(1) policy that prevents the daemon from reading any files.
+
+
+0.7 October 25th, 2005
+
+* Massive, massive rewrite and overhaul. Extensively audited, tested, and
+  re-tested. This is "the good one".
+
+0.6 June 3rd, 2005
+
+* Call signal(SIGCHLD, SIG_IGN) to prevent zombies from arising.
+
+
+0.5  June 2nd, 2005
+
+* Improved the systrace policy
+
+* Remove throttle.c and related throttling code since pf(4) now supports
+  max-src-conn-rate option.
+
+* Updated configure script to Autoperl 1.24
+
+* EHLO response ends with "250 8BITMIME" instead of "250-8BITMIME" to be
+  more conformant and to prevent Postfix from timing out
+
+* Permit, but ignore, SIZE declarations in RCPT commands. 
+
+* Add '-n' option to advertise a specific hostname during EHLO/HELO
+
+
+0.4  May 4th, 2005
+
+* Fix OpenBSD package installer when _recvmail uid/gid exists in the system
+* Removed pkg/ directory and use Autoperl to generate OpenBSD package
+* Upgraded autoperl to version 1.03pre
+
+0.3  April 9th 2005
+
+* Switched from Autoconf/Automake to Autoperl
+* Tested with OpenBSD/amd64; a few fixups made
+* Workaround: Disabled setrlimit() calls
+
+0.1  March 27th 2005 
+
+* First public release 
