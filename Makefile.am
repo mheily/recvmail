@@ -37,4 +37,6 @@ debug:
 hammer:
 	while [ 1 -eq 1 ] ; do echo -e 'helo\nmail from:a@b.com\nrcpt to:test@test.com\ndata\nhi\n.\nquit' | nc localhost 1025 ; rm /srv/mail/store/test.com/test/new/*; done
 
-
+# Use GNU indent to re-indent the entire source tree
+indent:
+	indent -orig -ncdb -nfc1 *.[ch]

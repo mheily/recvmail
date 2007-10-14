@@ -32,18 +32,18 @@
 int
 domain_exists(const char *domain)
 {
-	char *path = NULL;
-	int result;
+    char           *path = NULL;
+    int             result;
 
-	if ( valid_domain(domain) < 0)
-		return -EINVAL;
+    if (valid_domain(domain) < 0)
+	return -EINVAL;
 
-	if (asprintf(&path, "store/%s", domain) < 0)
-		return -ENOMEM;
+    if (asprintf(&path, "store/%s", domain) < 0)
+	return -ENOMEM;
 
-	result = file_exists(domain);
-	free(path);
-	return result;
+    result = file_exists(domain);
+    free(path);
+    return result;
 }
 
 
@@ -55,29 +55,31 @@ domain_exists(const char *domain)
  * Returns: 0 if domain is valid, -1 if invalid
  *
  */
-int valid_domain(const char *domain)
+int
+valid_domain(const char *domain)
 {
-	int i;
-	size_t len;
-	static const char *dtext = "abcdefghijklmnopqrstuvwxyz.ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
+    int             i;
+    size_t          len;
+    static const char *dtext =
+	"abcdefghijklmnopqrstuvwxyz.ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
 
-	/* Check the length */
-	len = strlen(domain);
-	if (len == 0 || len > DOMAIN_MAX)
-		return -EINVAL;
+    /* Check the length */
+    len = strlen(domain);
+    if (len == 0 || len > DOMAIN_MAX)
+	return -EINVAL;
 
-	/* Disallow leading dots */
-	if (domain[0] == '.')
-		return -EINVAL;
+    /* Disallow leading dots */
+    if (domain[0] == '.')
+	return -EINVAL;
 
-	/* Check for illegal characters */
-	for (i = 0; i < len; i++) {
-		if ( strchr(dtext, domain[i]) == NULL ) {
-			return -EINVAL;
-		}
+    /* Check for illegal characters */
+    for (i = 0; i < len; i++) {
+	if (strchr(dtext, domain[i]) == NULL) {
+	    return -EINVAL;
 	}
+    }
 
-	return 0;
+    return 0;
 }
 
 
@@ -89,35 +91,37 @@ int valid_domain(const char *domain)
  * Returns: 0 if address is valid, -1 if it is invalid
  *
  */
-int valid_address(const struct rfc2822_addr *addr)
+int
+valid_address(const struct rfc2822_addr *addr)
 {
-	static const char *atext = "abcdefghijklmnopqrstuvwxyz.ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&*+-=?^_~";
-	int 	i;
-	size_t	len;
+    static const char *atext =
+	"abcdefghijklmnopqrstuvwxyz.ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&*+-=?^_~";
+    int             i;
+    size_t          len;
 
-	assert(addr);
+    assert(addr);
 
-	/* Sanitize variables */
-	if (valid_domain(addr->domain) < 0)
-		return -EINVAL;
-	len = strlen(addr->user);
-	if (len == 0 || len > USERNAME_MAX || addr->user[0] == '.')
-		return -EINVAL;
+    /* Sanitize variables */
+    if (valid_domain(addr->domain) < 0)
+	return -EINVAL;
+    len = strlen(addr->user);
+    if (len == 0 || len > USERNAME_MAX || addr->user[0] == '.')
+	return -EINVAL;
 
-	/* Check for illegal characters */
-	for (i = 0; i < len; i++) {
-		if ( !strchr(atext, addr->user[i]) ) 
-			return -EINVAL;
-	}
+    /* Check for illegal characters */
+    for (i = 0; i < len; i++) {
+	if (!strchr(atext, addr->user[i]))
+	    return -EINVAL;
+    }
 
-	return 0;
+    return 0;
 }
 
 
-struct rfc2822_addr * 
+struct rfc2822_addr *
 rfc2822_addr_new()
 {
-	return calloc(1, sizeof(struct rfc2822_addr));
+    return calloc(1, sizeof(struct rfc2822_addr));
 }
 
 /**
@@ -130,63 +134,64 @@ rfc2822_addr_new()
  *
  */
 int
-rfc2822_addr_parse(struct rfc2822_addr * dest, const char *src) 
+rfc2822_addr_parse(struct rfc2822_addr *dest, const char *src)
 {
-	char user[64];
-	char domain[64];
-	char	*p;
-	int 	i;
-	size_t	len;
+    char            user[64];
+    char            domain[64];
+    char           *p;
+    int             i;
+    size_t          len;
 
-	/* Initialize variables */
-	len = strlen(src);
+    /* Initialize variables */
+    len = strlen(src);
 
-	/* Ignore the SIZE parameter*/
-	if ((p = strstr(src, " SIZE=")))
-		memset(p, 0, 1);
+    /* Ignore the SIZE parameter */
+    if ((p = strstr(src, " SIZE=")))
+	memset(p, 0, 1);
 
-	/* Replace '<' and '>' with whitespace */
-	if ((p = strchr(src, '<')) != NULL)
-		memset(p, ' ', 1);
-	if ((p = strchr(src, '>')) != NULL)
-		memset(p, ' ', 1);
+    /* Replace '<' and '>' with whitespace */
+    if ((p = strchr(src, '<')) != NULL)
+	memset(p, ' ', 1);
+    if ((p = strchr(src, '>')) != NULL)
+	memset(p, ' ', 1);
 
-	/* Split the string into two parts */
-	i = sscanf(src, " %63[a-zA-Z0-9_.+=%#?~^-]@%63[a-zA-Z0-9_.-] ", 
-				(char *) &user, (char *) &domain);
-	if (i < 2 || i == EOF) {
-		log_warning("%s", "unable to parse address");
-		return -EINVAL;
-	}
-	//log_debug("parsed %s as [%s], [%s]", src, dest->user, dest->domain);
+    /* Split the string into two parts */
+    i = sscanf(src, " %63[a-zA-Z0-9_.+=%#?~^-]@%63[a-zA-Z0-9_.-] ",
+	       (char *) &user, (char *) &domain);
+    if (i < 2 || i == EOF) {
+	log_warning("%s", "unable to parse address");
+	return -EINVAL;
+    }
+    // log_debug("parsed %s as [%s], [%s]", src, dest->user,
+    // dest->domain);
 
-	/* Copy the buffers to the caller */
-	if ((dest->user = strdup((char *) &user)) == NULL)
-		return -ENOMEM;
-	if ((dest->domain = strdup((char *) &domain)) == NULL) {
-		free(dest->user);
-		return -ENOMEM;
-	}
+    /* Copy the buffers to the caller */
+    if ((dest->user = strdup((char *) &user)) == NULL)
+	return -ENOMEM;
+    if ((dest->domain = strdup((char *) &domain)) == NULL) {
+	free(dest->user);
+	return -ENOMEM;
+    }
 
-	/* Compute the path to the mailbox */
-	if (asprintf(&dest->path, "store/%s/%s", dest->domain, dest->user) < 0) {
-		free(dest->user);
-		free(dest->domain);
-		return -ENOMEM;
-	}
+    /* Compute the path to the mailbox */
+    if (asprintf(&dest->path, "store/%s/%s", dest->domain, dest->user) < 0) {
+	free(dest->user);
+	free(dest->domain);
+	return -ENOMEM;
+    }
 
-	/* Test if the mailbox exists */
-	dest->exists = (file_exists(dest->path) == 1);
+    /* Test if the mailbox exists */
+    dest->exists = (file_exists(dest->path) == 1);
 
-	return 0;
+    return 0;
 }
 
 
 void
-rfc2822_addr_free(struct rfc2822_addr * addr)
+rfc2822_addr_free(struct rfc2822_addr *addr)
 {
-	free(addr->user);
-	free(addr->domain);
-	free(addr->path);
-	free(addr);
+    free(addr->user);
+    free(addr->domain);
+    free(addr->path);
+    free(addr);
 }

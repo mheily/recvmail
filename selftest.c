@@ -19,20 +19,20 @@
 #include "recvmail.h"
 
 #define test(func,...) if (func(__VA_ARGS__) != 0) errx(1, "%s", "func failed")
-void run_testsuite()
+void
+run_testsuite()
 {
-	struct rfc2822_addr *addr;
+    struct rfc2822_addr *addr;
 
-	addr = rfc2822_addr_new();
-	test(rfc2822_addr_parse, addr, "hi@bye.com");
-	test(strcmp,addr->user,"hi");
-	test(strcmp,addr->domain,"bye.com");
-	rfc2822_addr_free(addr);
-	
-	struct rfc2822_msg *msg;
-	msg = rfc2822_msg_new();
-	//test(rfc2822_msg_se, addr, "hi@bye.com");
+    addr = rfc2822_addr_new();
+    test(rfc2822_addr_parse, addr, "hi@bye.com");
+    test(strcmp, addr->user, "hi");
+    test(strcmp, addr->domain, "bye.com");
+    rfc2822_addr_free(addr);
 
-	printf("+OK\n");
+    struct rfc2822_msg *msg;
+    msg = rfc2822_msg_new();
+    // test(rfc2822_msg_se, addr, "hi@bye.com");
+
+    printf("+OK\n");
 }
-

@@ -27,19 +27,20 @@
  * Returns: 1 if the file exists, 0 if it does not, or -1 if there was a system error
  *
  */
-int file_exists(const char *path)
+int
+file_exists(const char *path)
 {
-	struct stat st;
-	
-	if (stat(path, &st) < 0) {
-		if ( errno != ENOENT ) {
-			log_errno("stat(2)");
-			return -1;
-		}
-		return 0;
-	} else {
-		return 1;
+    struct stat     st;
+
+    if (stat(path, &st) < 0) {
+	if (errno != ENOENT) {
+	    log_errno("stat(2)");
+	    return -1;
 	}
+	return 0;
+    } else {
+	return 1;
+    }
 }
 
 
@@ -51,27 +52,28 @@ int file_exists(const char *path)
  * Returns: 0 if pathname is legal, or -1 if it is illegal.
  *
  */
-int valid_pathname(const char *pathname)
+int
+valid_pathname(const char *pathname)
 {
-	static const char *ftext = "0123456789abcdefghijklmnopqrstuvwxyz./ABCDEFGHIKJLMNOPQRSTUVWXYZ-_";
-	size_t	len;
-	int i;
+    static const char *ftext =
+	"0123456789abcdefghijklmnopqrstuvwxyz./ABCDEFGHIKJLMNOPQRSTUVWXYZ-_";
+    size_t          len;
+    int             i;
 
-	assert (pathname);
+    assert(pathname);
 
-	/* Validate inputs */
-	len = strlen(pathname);
-	if (len == 0 || len > PATH_MAX)
-		return -EINVAL;
+    /* Validate inputs */
+    len = strlen(pathname);
+    if (len == 0 || len > PATH_MAX)
+	return -EINVAL;
 
-	/* Check each character */
-	for (i = 0; i < len; i++) {
-                if ( strchr(ftext, pathname[i]) == NULL ) {
-                                log_warning("invalid pathname: illegal characters");
-				return -EINVAL;
-                }
-        }
+    /* Check each character */
+    for (i = 0; i < len; i++) {
+	if (strchr(ftext, pathname[i]) == NULL) {
+	    log_warning("invalid pathname: illegal characters");
+	    return -EINVAL;
+	}
+    }
 
-	return 0;
+    return 0;
 }
-

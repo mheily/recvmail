@@ -16,7 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #ifndef _RECVMAIL_H
-#define _RECVMAIL_H 
+#define _RECVMAIL_H
 
 #if HAVE_CONFIG_H
 # include "config.h"
@@ -54,7 +54,7 @@
 
 #define _log_all(level, format,...) syslog(level,			\
    "%s(%s:%d): "format"\n", 						\
-   __func__, __FILE__, __LINE__, ## __VA_ARGS__) 
+   __func__, __FILE__, __LINE__, ## __VA_ARGS__)
 
 #define log_error(format,...) _log_all(LOG_ERR, "**ERROR** "format, ## __VA_ARGS__)
 #define log_warning(format,...) _log_all(LOG_WARNING, "WARNING: "format, ## __VA_ARGS__)
@@ -88,9 +88,9 @@
 #endif
 
 struct options {
-	bool	debugging;
- 	char	*mailname,
-		*prefix;
+    bool            debugging;
+    char           *mailname,
+                   *prefix;
 };
 
 extern struct options OPT;
@@ -99,208 +99,210 @@ struct session;
 
 /** An Internet email address */
 struct rfc2822_addr {
-	
+
 	/** The username portion of the address (left-hand side) */
-	char *user;
+    char           *user;
 
 	/** The domain portion of the address (right-hand side) */
-	char *domain;
+    char           *domain;
 
 	/** If TRUE, the address exists within the mailsystem */
-	bool exists;
+    bool            exists;
 
 	/** The path to the mailbox associated with the address */
-	char *path;
+    char           *path;
 };
 
-int mailbox_exists(const struct rfc2822_addr * addr);
+int             mailbox_exists(const struct rfc2822_addr *addr);
 
 /** An RFC-2822 message */
 struct rfc2822_msg {
 
 	/** A file descriptor opened for writing the message */
-	int fd;
+    int             fd;
 
 	/** The path to the message */
-	char    *path;
+    char           *path;
 
 	/** The email address of the sender */
-	struct rfc2822_addr *sender; 
+    struct rfc2822_addr *sender;
 
 	/** The IP address of the client */
-	struct in_addr  remote_addr;
+    struct in_addr  remote_addr;
 
 	/** The remote IP address, converted to string format */
-	char remote_addr_str[INET_ADDRSTRLEN + 1];
+    char            remote_addr_str[INET_ADDRSTRLEN + 1];
 
-	struct rfc2822_addr *rcpt_to[RECIPIENT_MAX + 1];
-	int		num_recipients;   
-	size_t	size;
+    struct rfc2822_addr *rcpt_to[RECIPIENT_MAX + 1];
+    int             num_recipients;
+    size_t          size;
 
 	/** The Maildir message-ID */
-	char 	*filename;
+    char           *filename;
 };
 
 /** A server */
 struct server {
 
 	/** If TRUE, the server will run as a daemon */
-	bool daemon;
+    bool            daemon;
 
 	/** The symbolic user-ID to setuid(2) to */
-	char *uid;
+    char           *uid;
 
 	/** The symbolic group-ID to setgid(2) to */
-	char *gid;
+    char           *gid;
 
 	/** The directory to chroot(2) to */
-	char *chrootdir;
+    char           *chrootdir;
 
 	/** The port number to bind(2) to */
-	int port;
-	
+    int             port;
+
 	/** The IP address to listen(2) to */
-	struct in_addr  addr;
+    struct in_addr  addr;
 
 	/** The file descriptor returned by socket(2) */
-	int fd;
+    int             fd;
 
 	/** The socket address of the server */
-	struct sockaddr sa;
+    struct sockaddr sa;
 
 	/** The log facility to provide to syslog(3) */
-	int log_facility;
+    int             log_facility;
 
 	/** The log level to provide to setlogmask(3) */
-	int log_level;
+    int             log_level;
 
 	/** The number of seconds to wait for incoming data from the client */
-	int timeout_read;
+    int             timeout_read;
 
 	/** The number of seconds to wait to send data to the client */
-	int timeout_write;
+    int             timeout_write;
 
 	/** The function that sends the initial greeting to the client */
-	int (*accept_hook)(struct session *);
+    int             (*accept_hook) (struct session *);
 
 	/** Parses a line of input from the client */
-	int (*read_hook)(struct session *, char *, size_t);
+    int             (*read_hook) (struct session *, char *, size_t);
 
 	/** Called prior to closing a session */
-	int (*close_hook)(struct session *);
+    int             (*close_hook) (struct session *);
 
 	/** Sends a 'fatal internal error' message to the client before closing */
-	void (*abort_hook)(struct session *);
+    void            (*abort_hook) (struct session *);
 
 	/** Sends a 'timeout' message to a client that is idle too long */
-	void (*timeout_hook)(struct session *);
+    void            (*timeout_hook) (struct session *);
 
 	/** Sends a 'too many errors' message to a misbehaving client before closing */
-	void (*reject_hook)(struct session *);
+    void            (*reject_hook) (struct session *);
 };
 
 /** Protocol-specific SMTP session data */
 struct session_data {
-	int	num_recipients;
+    int             num_recipients;
 
 	/** An Internet message object */
-	struct rfc2822_msg *msg;
+    struct rfc2822_msg *msg;
 
 	/** The state determines which SMTP commands are valid */
-	enum {
-		SMTP_STATE_HELO,
-		SMTP_STATE_MAIL,
-		SMTP_STATE_RCPT,
-		SMTP_STATE_DATA,
-		SMTP_STATE_FSYNC,
-		SMTP_STATE_QUIT,
-	} smtp_state;
+    enum {
+	SMTP_STATE_HELO,
+	SMTP_STATE_MAIL,
+	SMTP_STATE_RCPT,
+	SMTP_STATE_DATA,
+	SMTP_STATE_FSYNC,
+	SMTP_STATE_QUIT,
+    } smtp_state;
 };
 
 /** A client session */
 struct session {
 
 	/** The client socket descriptor */
-	int fd;
+    int             fd;
 
 	/** The IP address of the client */
-	struct in_addr  remote_addr;
+    struct in_addr  remote_addr;
 
 	/** The remote IP address, converted to string format */
-	char remote_addr_str[INET_ADDRSTRLEN + 1];
+    char            remote_addr_str[INET_ADDRSTRLEN + 1];
 
 	/** I/O buffer */
-	struct bufferevent *bev;
+    struct bufferevent *bev;
 
 	/** The parent server object */
-	struct server *srv;
+    struct server  *srv;
 
-	/* An opaque pointer to protocol-specific data */
-	struct session_data *data;
+    /* An opaque pointer to protocol-specific data */
+    struct session_data *data;
 
-	/* The state of the session */
-	enum 	{
-		/* The session is active */
-		SESSION_OPEN = 0,
+    /* The state of the session */
+    enum {
+	/* The session is active */
+	SESSION_OPEN = 0,
 
-		/* The session is waiting for an I/O operation to complete */
-		SESSION_WAIT,
+	/* The session is waiting for an I/O operation to complete */
+	SESSION_WAIT,
 
-		/* The session is closing down */
-		SESSION_CLOSE,
-	} state;
+	/* The session is closing down */
+	SESSION_CLOSE,
+    } state;
 
 	/** The number of errors that have been caused by the client */
-	unsigned int error_count;
+    unsigned int    error_count;
 };
 
 /* Forward declarations */
 
-int open_maillog(const char *path);
-int valid_pathname(const char *pathname);
-int file_exists(const char *path);
+int             open_maillog(const char *path);
+int             valid_pathname(const char *pathname);
+int             file_exists(const char *path);
 
 /* From address.h (TODO: cleanup) */
 
 #define USERNAME_MAX            63
 
-int domain_exists(const char *domain);
+int             domain_exists(const char *domain);
 
-struct rfc2822_addr * rfc2822_addr_new();
-int  rfc2822_addr_parse(struct rfc2822_addr * dest, const char * src);
-void rfc2822_addr_free(struct rfc2822_addr * addr);
+struct rfc2822_addr *rfc2822_addr_new();
+int             rfc2822_addr_parse(struct rfc2822_addr *dest,
+				   const char *src);
+void            rfc2822_addr_free(struct rfc2822_addr *addr);
 
-int valid_address(const struct rfc2822_addr *addr);
-int valid_domain(const char *domain);
+int             valid_address(const struct rfc2822_addr *addr);
+int             valid_domain(const char *domain);
 
 /* From message.h */
 
-int init_message(struct rfc2822_msg * msg);
-int rset_message(struct rfc2822_msg * msg);
-int valid_message(struct rfc2822_msg * msg);
+int             init_message(struct rfc2822_msg *msg);
+int             rset_message(struct rfc2822_msg *msg);
+int             valid_message(struct rfc2822_msg *msg);
 
 /* From maildir.h */
 
-int maildir_msg_open(struct rfc2822_msg *msg);
-int open_message(struct rfc2822_msg *msg);
-struct rfc2822_msg * rfc2822_msg_new();
-int rfc2822_msg_write(struct rfc2822_msg * msg, const char *src, size_t len);
-int rfc2822_msg_close(struct rfc2822_msg * msg);
-void rfc2822_msg_free(struct rfc2822_msg * msg);
+int             maildir_msg_open(struct rfc2822_msg *msg);
+int             open_message(struct rfc2822_msg *msg);
+struct rfc2822_msg *rfc2822_msg_new();
+int             rfc2822_msg_write(struct rfc2822_msg *msg, const char *src,
+				  size_t len);
+int             rfc2822_msg_close(struct rfc2822_msg *msg);
+void            rfc2822_msg_free(struct rfc2822_msg *msg);
 
 /* From smtp.h */
 
-int session_write(struct session *s, char *buf, size_t size);
-int session_fsync(struct session *s, int fd);
-void session_close(struct session *s);
-void session_free(struct session *s);
+int             session_write(struct session *s, char *buf, size_t size);
+int             session_fsync(struct session *s, int fd);
+void            session_close(struct session *s);
+void            session_free(struct session *s);
 
-int smtpd_greeting(struct session *s);
-int smtpd_parser(struct session *s, char *buf, size_t len);
-void smtpd_timeout(struct session *s);
-void smtpd_client_error(struct session *s);
-int smtpd_close_hook(struct session *s);
-int server_start(struct server * srv);
+int             smtpd_greeting(struct session *s);
+int             smtpd_parser(struct session *s, char *buf, size_t len);
+void            smtpd_timeout(struct session *s);
+void            smtpd_client_error(struct session *s);
+int             smtpd_close_hook(struct session *s);
+int             server_start(struct server *srv);
 
 
 #endif
