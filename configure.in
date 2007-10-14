@@ -42,6 +42,9 @@ AC_CHECK_FUNCS([alarm dup2 gethostbyaddr gethostbyname gethostname gettimeofday 
 # Some platforms (e.g. Linux) have crypt(3) in a separate library
 AC_CHECK_LIB(crypt, crypt, external_crypt=yes, external_crypt=no)
 
+# Check for libevent
+AC_CHECK_LIB(event,event_init,,[AC_MSG_ERROR(libevent not found)])
+
 # Check for systrace(1)
 AC_CHECK_FILES(/dev/systrace)
 AM_CONDITIONAL(HAVE_SYSTRACE, test x$ac_cv_file__dev_systrace = xyes)
