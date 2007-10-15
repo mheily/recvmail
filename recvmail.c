@@ -40,6 +40,7 @@ struct server   smtpd = {
     .reject_hook = smtpd_client_error,
     .abort_hook = NULL,		// fixme
     .close_hook = smtpd_close_hook,
+    .monitor_hook = smtpd_monitor_hook,
 };
 
 struct options  OPT = {
