@@ -81,11 +81,7 @@
 
 /* Configuration options */
 
-#if __linux__
-# define DEFAULT_PREFIX		"/srv/mail"
-#else
 # define DEFAULT_PREFIX		"/var/recvmail"
-#endif
 
 struct options {
     bool            debugging;
@@ -100,113 +96,91 @@ struct session;
 /** An Internet email address */
 struct rfc2822_addr {
 
-	/** The username portion of the address (left-hand side) */
+    /* The username portion of the address (left-hand side) */
     char           *user;
 
-	/** The domain portion of the address (right-hand side) */
+    /* The domain portion of the address (right-hand side) */
     char           *domain;
 
-	/** If TRUE, the address exists within the mailsystem */
+    /* If TRUE, the address exists within the mailsystem */
     bool            exists;
 
-	/** The path to the mailbox associated with the address */
+    /* The path to the mailbox associated with the address */
     char           *path;
 };
 
 int             mailbox_exists(const struct rfc2822_addr *addr);
 
-/** An RFC-2822 message */
+/* An RFC-2822 message */
 struct rfc2822_msg {
-
-	/** A file descriptor opened for writing the message */
-    int             fd;
-
-	/** The path to the message */
-    char           *path;
-
-	/** The email address of the sender */
-    struct rfc2822_addr *sender;
-
-	/** The IP address of the client */
-    struct in_addr  remote_addr;
-
-	/** The remote IP address, converted to string format */
+    int             fd;		/* A file descriptor opened for writing
+				 * the message */
+    char           *path;	/* The path to the message */
+    struct rfc2822_addr *sender;	/* The email address of the sender 
+					 */
+    struct in_addr  remote_addr;	/* The IP address of the client */
+    /* The remote IP address, converted to string format */
     char            remote_addr_str[INET_ADDRSTRLEN + 1];
-
     struct rfc2822_addr *rcpt_to[RECIPIENT_MAX + 1];
     int             num_recipients;
     size_t          size;
-
-	/** The Maildir message-ID */
-    char           *filename;
+    char           *filename;	/* The Maildir message-ID */
 };
 
 /** A server */
 struct server {
 
-	/** If TRUE, the server will run as a daemon */
-    bool            daemon;
+    bool            daemon;	/* If TRUE, the server will run as a
+				 * daemon */
+    char           *uid;	/* The symbolic user-ID to setuid(2) to */
+    char           *gid;	/* The symbolic group-ID to setgid(2) to */
+    char           *chrootdir;	/* The directory to chroot(2) to */
+    int             port;	/* The port number to bind(2) to */
+    struct in_addr  addr;	/* The IP address to listen(2) to */
+    int             fd;		/* The descriptor returned by socket(2) */
+    struct sockaddr sa;		/* The socket address of the server */
+    int             log_facility;	/* The log facility to provide to
+					 * syslog(3) */
+    int             log_level;	/* The level used by setlogmask(3) */
 
-	/** The symbolic user-ID to setuid(2) to */
-    char           *uid;
-
-	/** The symbolic group-ID to setgid(2) to */
-    char           *gid;
-
-	/** The directory to chroot(2) to */
-    char           *chrootdir;
-
-	/** The port number to bind(2) to */
-    int             port;
-
-	/** The IP address to listen(2) to */
-    struct in_addr  addr;
-
-	/** The file descriptor returned by socket(2) */
-    int             fd;
-
-	/** The socket address of the server */
-    struct sockaddr sa;
-
-	/** The log facility to provide to syslog(3) */
-    int             log_facility;
-
-	/** The log level to provide to setlogmask(3) */
-    int             log_level;
-
-	/** The number of seconds to wait for incoming data from the client */
+    /* The number of seconds to wait for incoming data from the client */
     int             timeout_read;
 
-	/** The number of seconds to wait to send data to the client */
+    /* The number of seconds to wait to send data to the client */
     int             timeout_write;
 
-	/** The function that sends the initial greeting to the client */
+    /* The function that sends the initial greeting to the client */
     int             (*accept_hook) (struct session *);
 
-	/** Parses a line of input from the client */
+    /* Parses a line of input from the client */
     int             (*read_hook) (struct session *, char *, size_t);
 
-	/** Called prior to closing a session */
+    /* Called prior to closing a session */
     int             (*close_hook) (struct session *);
 
-	/** Sends a 'fatal internal error' message to the client before closing */
+    /* Sends a 'fatal internal error' message to the client before closing 
+     */
     void            (*abort_hook) (struct session *);
 
-	/** Sends a 'timeout' message to a client that is idle too long */
+    /* Sends a 'timeout' message to a client that is idle too long */
     void            (*timeout_hook) (struct session *);
 
-	/** Sends a 'too many errors' message to a misbehaving client before closing */
+    /* Sends a 'too many errors' message to a misbehaving client before
+     * closing */
     void            (*reject_hook) (struct session *);
+
+/* Monitors the child process and restarts/reloads as needed */
+    int             (*monitor_hook) (struct server *, pid_t);
 };
 
 /** Protocol-specific SMTP session data */
 struct session_data {
     int             num_recipients;
 
-	/** An Internet message object */
+    /* An Internet message object */
     struct rfc2822_msg *msg;
 
-	/** The state determines which SMTP commands are valid */
+    /* The state determines which SMTP commands are valid */
     enum {
 	SMTP_STATE_HELO,
 	SMTP_STATE_MAIL,
@@ -217,41 +191,27 @@ struct session_data {
     } smtp_state;
 };
 
-/** A client session */
+/* A client session */
 struct session {
+    int             fd;		/* The client socket descriptor */
+    struct in_addr  remote_addr;	/* The IP address of the client */
 
-	/** The client socket descriptor */
-    int             fd;
-
-	/** The IP address of the client */
-    struct in_addr  remote_addr;
-
-	/** The remote IP address, converted to string format */
+    /* The remote IP address, converted to string format */
     char            remote_addr_str[INET_ADDRSTRLEN + 1];
-
-	/** I/O buffer */
-    struct bufferevent *bev;
-
-	/** The parent server object */
-    struct server  *srv;
-
-    /* An opaque pointer to protocol-specific data */
-    struct session_data *data;
+    struct bufferevent *bev;	/* I/O buffer */
+    struct server  *srv;	/* The parent server object */
+    struct session_data *data;	/* An opaque pointer to protocol-specific
+				 * data */
 
     /* The state of the session */
     enum {
-	/* The session is active */
-	SESSION_OPEN = 0,
-
-	/* The session is waiting for an I/O operation to complete */
-	SESSION_WAIT,
-
-	/* The session is closing down */
-	SESSION_CLOSE,
+	SESSION_OPEN = 0,	/* The session is active */
+	SESSION_WAIT,		/* Waiting for I/O completion */
+	SESSION_CLOSE,		/* The session is closing down */
     } state;
 
-	/** The number of errors that have been caused by the client */
-    unsigned int    error_count;
+    unsigned int    error_count;	/* The number of errors caused by
+					 * the client */
 };
 
 /* Forward declarations */
@@ -302,6 +262,7 @@ int             smtpd_parser(struct session *s, char *buf, size_t len);
 void            smtpd_timeout(struct session *s);
 void            smtpd_client_error(struct session *s);
 int             smtpd_close_hook(struct session *s);
+int             smtpd_monitor_hook(struct server *, pid_t);
 int             server_start(struct server *srv);
 
 

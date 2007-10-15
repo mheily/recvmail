@@ -96,8 +96,7 @@ rfc2822_msg_new()
 {
     struct rfc2822_msg *msg;
 
-    msg = calloc(1, sizeof(struct rfc2822_msg));
-    if (!msg)
+    if ((msg = calloc(1, sizeof(struct rfc2822_msg))) == NULL)
 	return NULL;
 
     if ((msg->sender = rfc2822_addr_new()) == NULL) {

@@ -42,40 +42,6 @@ xsetrlimit(int resource, rlim_t max)
 
 
 /*
- * daemonize()
- * 
- * Detatch from the controlling terminal and become a daemon.
- * 
- */
-int
-daemonize()
-{
-    pid_t           pid,
-                    sid;
-
-    syslog(LOG_DEBUG, "pid %d detatching from the controlling terminal",
-	   getpid());
-
-    /* Create a new process */
-    if ((pid = fork()) < 0)
-	err(1, "fork(2)");
-    if (pid > 0)
-	exit(0);
-
-    /* Create a new session and become the session leader */
-    if ((sid = setsid()) < 0)
-	err(1, "setsid(2)");
-
-    /* Close all inherited STDIO file descriptors */
-    close(0);
-    close(1);
-    close(2);
-
-    return 0;
-}
-
-
-/*
  * drop_privileges(uid,gid,chroot_to)
  * 
  * Remove root privileges from the running process.
@@ -233,14 +199,15 @@ server_accept(int srv_fd, short event, void *arg)
     }
     s->remote_addr = name.sin_addr;
 
-    /* Determine the reverse DNS name for the host */
-    /* FIXME - This causes blocking */
+    /* Convert the IP address to ASCII */
     if (inet_ntop(AF_INET, &s->remote_addr,
 		  (char *) &s->remote_addr_str,
 		  sizeof(s->remote_addr_str)) == NULL) {
 	log_errno("inet_ntop(3)");
 	goto error;
     }
+
+    /* TODO: Determine the reverse DNS name for the host */
 
     /* Create a libevent I/O buffer */
     s->bev = bufferevent_new(s->fd, read_cb, write_cb, error_cb, s);
@@ -276,6 +243,8 @@ server_start(struct server *srv)
 {
     struct event    srv_evt;
     struct sockaddr_in srv_addr;
+    pid_t           pid,
+                    sid;
     int             logopt = LOG_NDELAY;
     int             one = 1;
     int             i;
@@ -288,10 +257,26 @@ server_start(struct server *srv)
 
     if (srv->daemon) {
 
-	/* Detatch from the controlling terminal */
-	if (daemonize() < 0)
-	    errx(1, "unable to daemonize");
+	syslog(LOG_DEBUG,
+	       "pid %d detatching from the controlling terminal",
+	       getpid());
 
+	/* Create a new process */
+	if ((pid = fork()) < 0)
+	    err(1, "fork(2)");
+
+	/* Create a new session and become the session leader */
+	if ((sid = setsid()) < 0)
+	    err(1, "setsid(2)");
+
+	/* Close all inherited STDIO file descriptors */
+	close(0);
+	close(1);
+	close(2);
+
+	/* The parent process becomes the monitor */
+	if (pid > 0)
+	    exit(srv->monitor_hook(srv, pid));
     }
 
     /* Open the log file */

@@ -338,3 +338,12 @@ smtpd_close_hook(struct session *s)
     free(s->data);
     return 0;
 }
+
+int
+smtpd_monitor_hook(struct server *srv, pid_t child)
+{
+    for (;;) {
+	/* FIXME */
+	pause();
+    }
+}
