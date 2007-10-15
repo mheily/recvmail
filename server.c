@@ -277,11 +277,15 @@ server_start(struct server *srv)
 	/* The parent process becomes the monitor */
 	if (pid > 0)
 	    exit(srv->monitor_hook(srv, pid));
+
+    } else {
+	logopt |= LOG_PERROR;
+
+	/* FIXME: fork and start the monitor hook in a separate process */
+
     }
 
     /* Open the log file */
-    if (!srv->daemon)
-	logopt |= LOG_PERROR;
     openlog("", logopt, srv->log_facility);
 
     /* Increase the allowable number of file descriptors */
