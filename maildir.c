@@ -41,8 +41,6 @@ maildir_generate_id(char **dest)
 
 
 /*
- * open_message(message_t *msg);
- *
  * Open a file descriptor to receive the data of <msg>.
  *
  * Modifies: msg->fd, msg->id, msg->path
@@ -151,15 +149,16 @@ rfc2822_msg_write(struct rfc2822_msg *msg, const char *src, size_t len)
 int
 rfc2822_msg_close(struct rfc2822_msg *msg)
 {
-    char           *path = NULL;
-    int             i;
-
     /* Close the file */
     if (close(msg->fd) < 0) {
 	log_errno("close(2)");
 	return -1;
     }
 
+    return 0;
+
+    /* FIXME - TODO - semaphore post */
+#if DEADWOOD
     /* Move the message into the 'new/' directory */
     if (asprintf(&path, "%s/new/%s", msg->rcpt_to[0]->path, msg->filename)
 	< 0)
@@ -193,4 +192,6 @@ rfc2822_msg_close(struct rfc2822_msg *msg)
   error:
     free(path);
     return -1;
+#endif
+
 }

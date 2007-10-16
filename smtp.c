@@ -142,7 +142,7 @@ smtpd_data(struct session *s, char *arg)
 	print_response(s, "503 Error: need one or more recipients first");
 	return -1;
     } else {
-	if (maildir_msg_open(s->data->msg)) {
+	if (msg_spool(s->data->msg)) {
 	    print_response(s, "421 Error spooling message");
 	    session_close(s);
 	    return -1;
