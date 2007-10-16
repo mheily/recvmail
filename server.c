@@ -265,6 +265,10 @@ server_start(struct server *srv)
 	if ((pid = fork()) < 0)
 	    err(1, "fork(2)");
 
+	/* Terminate the parent process */
+	if (pid > 0)
+	    exit(0);
+
 	/* Create a new session and become the session leader */
 	if ((sid = setsid()) < 0)
 	    err(1, "setsid(2)");
@@ -274,16 +278,21 @@ server_start(struct server *srv)
 	close(1);
 	close(2);
 
-	/* The parent process becomes the monitor */
-	if (pid > 0)
-	    exit(srv->monitor_hook(srv, pid));
-
     } else {
 	logopt |= LOG_PERROR;
 
-	/* FIXME: fork and start the monitor hook in a separate process */
-
     }
+
+    /* 
+     * Fork again to create a privileged 'monitor' process
+     * and a non-privileged 'server' process.
+     * The child process becomes the server and the parent process is the
+     * monitor.
+     */
+    if ((pid = fork()) < 0)
+	err(1, "fork(2)");
+    if (pid > 0)
+	exit(srv->monitor_hook(srv, pid));
 
     /* Open the log file */
     openlog("", logopt, srv->log_facility);
