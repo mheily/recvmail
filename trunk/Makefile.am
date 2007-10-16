@@ -21,7 +21,7 @@ dist_man8_MANS   = recvmail.8
 
 recvmail_LDADD   = -levent
 recvmail_CFLAGS  = -Wall -Werror -g -O2
-recvmail_SOURCES = address.c file.c maildir.c smtp.c server.c \
+recvmail_SOURCES = address.c file.c maildir.c smtp.c server.c spool.c \
 		   recvmail.c recvmail.h
 
 selftest_SOURCES = $(recvmail_SOURCES) selftest.c
@@ -40,3 +40,9 @@ hammer:
 # Use GNU indent to re-indent the entire source tree
 indent:
 	indent -orig -ncdb -nfc1 *.[ch]
+
+# Reformat, diff, and checkin changes
+checkin: indent
+	svn diff | less
+	svn ci
+	

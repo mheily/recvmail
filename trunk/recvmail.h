@@ -265,5 +265,8 @@ int             smtpd_close_hook(struct session *s);
 int             smtpd_monitor_hook(struct server *, pid_t);
 int             server_start(struct server *srv);
 
+/* From spool.c */
+
+int             msg_spool(struct rfc2822_msg *msg);
 
 #endif
