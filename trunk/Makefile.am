@@ -17,12 +17,15 @@
 #
 
 sbin_PROGRAMS    = recvmail
-dist_man8_MANS   = recvmail.8
+man_MANS         = recvmail.8
+
+SOURCES		 = $(recvmail_SOURCES) $(selftest_SOURCES)
 
 recvmail_LDADD   = -levent
 recvmail_CFLAGS  = -Wall -Werror -g -O2
 recvmail_SOURCES = address.c file.c maildir.c smtp.c server.c spool.c \
-		   recvmail.c recvmail.h
+		   recvmail.c 
+recvmail_HEADERS = recvmail.h
 
 selftest_SOURCES = $(recvmail_SOURCES) selftest.c
 selftest_CFLAGS  = $(recvmail_CFLAGS) -DUNIT_TESTING
