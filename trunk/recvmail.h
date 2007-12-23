@@ -91,6 +91,14 @@ struct options {
     bool            debugging;
     char           *mailname,
                    *prefix;
+    bool            daemon;	/* If TRUE, the server will run as a
+				 * daemon */
+    char           *uid;	/* The symbolic user-ID to setuid(2) to */
+    char           *gid;	/* The symbolic group-ID to setgid(2) to */
+    char           *chrootdir;	/* The directory to chroot(2) to */
+    int             log_facility;	/* The log facility to provide to
+					 * syslog(3) */
+    int             log_level;	/* The level used by setlogmask(3) */
 };
 
 extern struct options OPT;
@@ -121,19 +129,11 @@ struct rfc2822_msg {
 
 /** A server */
 struct server {
-
-    bool            daemon;	/* If TRUE, the server will run as a
-				 * daemon */
-    char           *uid;	/* The symbolic user-ID to setuid(2) to */
-    char           *gid;	/* The symbolic group-ID to setgid(2) to */
-    char           *chrootdir;	/* The directory to chroot(2) to */
     int             port;	/* The port number to bind(2) to */
     struct in_addr  addr;	/* The IP address to listen(2) to */
     int             fd;		/* The descriptor returned by socket(2) */
     struct sockaddr sa;		/* The socket address of the server */
-    int             log_facility;	/* The log facility to provide to
-					 * syslog(3) */
-    int             log_level;	/* The level used by setlogmask(3) */
+    struct event    accept_evt; /* The event that triggers an accept(2) */	
 
     /* The number of seconds to wait for incoming data from the client */
     int             timeout_read;
@@ -266,7 +266,13 @@ void            smtpd_client_error(struct session *s);
 int             smtpd_close_hook(struct session *s);
 int             smtpd_monitor_hook(struct server *, pid_t);
 int             smtpd_start_hook(struct server *);
-int             server_start(struct server *srv);
+
+/* From server.c */
+
+void             server_enable(struct server *srv);
+void server_bind(struct server *srv);
+void server_init(void);
+void drop_privileges(const char *user, const char *group, const char *chroot_to);
 
 /* From spool.c */
 

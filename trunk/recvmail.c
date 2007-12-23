@@ -23,15 +23,10 @@ void            run_testsuite();
 /* Global variables */
 
 struct server   smtpd = {
-    .daemon = 1,
     .port = 25,
     .addr.s_addr = INADDR_ANY,
-    .uid = "nobody",
-    .gid = "mail",
-    .chrootdir = DEFAULT_PREFIX,
     .timeout_read = 15,
     .timeout_write = 30,
-    .log_level = LOG_NOTICE,
 
     /* vtable */
     .start_hook = smtpd_start_hook,
@@ -47,6 +42,11 @@ struct server   smtpd = {
 struct options  OPT = {
     .debugging = 0,
     .prefix = DEFAULT_PREFIX,
+    .daemon = 1,
+    .uid = "nobody",
+    .gid = "mail",
+    .chrootdir = DEFAULT_PREFIX,
+    .log_level = LOG_NOTICE,
 };
 
 /* getopt(3) variables */
@@ -104,10 +104,10 @@ main(int argc, char *argv[])
     while ((c = getopt(argc, argv, "d:fg:hi:o:p:qu:v")) != -1) {
 	switch (c) {
 	case 'f':
-	    smtpd.daemon = 0;
+	    OPT.daemon = 0;
 	    break;
 	case 'g':
-	    if ((smtpd.gid = strdup(optarg)) == NULL)
+	    if ((OPT.gid = strdup(optarg)) == NULL)
 		err(1, "strdup failed");
 	    break;
 	case 'h':
@@ -125,14 +125,14 @@ main(int argc, char *argv[])
 	    smtpd.port = atoi(optarg);
 	    break;
 	case 'q':
-	    smtpd.log_level = 0;
+	    OPT.log_level = 0;
 	    break;
 	case 'u':
-	    if ((smtpd.uid = strdup(optarg)) == NULL)
+	    if ((OPT.uid = strdup(optarg)) == NULL)
 		err(1, "strdup failed");
 	    break;
 	case 'v':
-	    smtpd.log_level++;
+	    OPT.log_level++;
 	    break;
 	default:
 	    usage();
@@ -142,8 +142,8 @@ main(int argc, char *argv[])
 
     /* Check the 'debugging' environment option */
     if (getenv("RECVMAIL_DEBUG")) {
-	smtpd.daemon = 0;
-	smtpd.log_level++;
+	OPT.daemon = 0;
+	OPT.log_level++;
     }
 
     /* Get the hostname */
@@ -154,6 +154,11 @@ main(int argc, char *argv[])
 	    err(1, "gethostname");
     }
 
+    server_init();
+    server_bind(&smtpd);
+    //TODO:server_bind(&pop3d);
+    drop_privileges(OPT.uid, OPT.gid, OPT.chrootdir);
+
     /* Start the web server */
     /* (FIXME: small race condition if web server is accessed before smtpd is initialized 
      */ 
@@ -163,8 +168,14 @@ main(int argc, char *argv[])
     /* Run the testsuite */
     run_testsuite();
 #else
-    /* Start the server */
-    server_start(&smtpd);
+
+    /* Enable incoming connections */
+    server_enable(&smtpd);
+    //TODO:server_enable(&pop3d);
+
+    /* Wait forevent, dispatching events */
+    event_dispatch();
+
 #endif
 
     exit(EXIT_SUCCESS);
