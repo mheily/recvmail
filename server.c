@@ -52,7 +52,7 @@ xsetrlimit(int resource, rlim_t max)
  * Also chroot(2) to another directory, if desired.
  * 
  */
-int
+void
 drop_privileges(const char *user, const char *group, const char *chroot_to)
 {
     struct group   *grent;
@@ -61,15 +61,13 @@ drop_privileges(const char *user, const char *group, const char *chroot_to)
     gid_t           gid;
 
     /* Chdir into the chroot directory */
-    if (chroot_to && (chdir(chroot_to) < 0)) {
-	log_warning("chdir(2) to `%s'", chroot_to);
-	return -1;
-    }
+    if (chroot_to && (chdir(chroot_to) < 0)) 
+	err(1, "chdir(2) to `%s'", chroot_to);
 
     /* Only root is allowed to drop privileges */
     if (getuid() > 0) {
-	log_warning("cannot drop privileges");
-	return 0;
+	//log_warning("cannot drop privileges");
+	return;
     }
 
     grent = NULL;
@@ -78,14 +76,14 @@ drop_privileges(const char *user, const char *group, const char *chroot_to)
     /* Convert the symbolic group to numeric GID */
     if ((grent = getgrnam(group)) == NULL) {
 	syslog(LOG_ERR, "a group named '%s' does not exist", group);
-	return -1;
+	abort();
     }
     gid = grent->gr_gid;
 
     /* Convert the symbolic user-id to the numeric UID */
     if ((pwent = getpwnam(user)) == NULL) {
 	syslog(LOG_ERR, "a group named '%s' does not exist", group);
-	return -1;
+	abort();
     }
     uid = pwent->pw_uid;
 
@@ -101,8 +99,6 @@ drop_privileges(const char *user, const char *group, const char *chroot_to)
     if (setuid(uid) < 0)
 	err(1, "setuid(2)");
     log_info("setuid(2) to %s(%d)", user, uid);
-
-    return 0;
 }
 
 static void
@@ -248,48 +244,29 @@ server_signal_handler(int signum, short what, void *arg)
 }
 
 static void
-register_signal_handlers(struct server *srv)
+register_signal_handlers(void)
 {
 	static struct event ev1, ev2, ev3;
 
-	signal_set(&ev1, SIGINT, server_signal_handler, srv);
+	signal_set(&ev1, SIGINT, server_signal_handler, NULL);
 	signal_add(&ev1, NULL);
-	signal_set(&ev2, SIGHUP, server_signal_handler, srv);
+	signal_set(&ev2, SIGHUP, server_signal_handler, NULL);
 	signal_add(&ev2, NULL);
-	signal_set(&ev3, SIGTERM, server_signal_handler, srv);
+	signal_set(&ev3, SIGTERM, server_signal_handler, NULL);
 	signal_add(&ev3, NULL);
 }
 
 /* ------------------- Public functions ----------------------- */
 
-/*
- * start_smptd(smtpd_config *config)
- *
- * Perform the essential functions of the mail server.
- *
- * 1. Create a socket and bind to port 25 2. Drop privileges and chroot(2) to
- * /var/mail 3. Listen for incoming connections 4. Fork and create a child
- * process for each connection
- *
- */
-int
-server_start(struct server *srv)
+/* Initialization routines common to all servers */
+void
+server_init(void)
 {
-    struct event    srv_evt;
-    struct sockaddr_in srv_addr;
+    int             logopt = LOG_NDELAY;
     pid_t           pid,
                     sid;
-    int             logopt = LOG_NDELAY;
-    int             one = 1;
-    int             i;
 
-    /* TODO: Convert NULL hooks to NOOP hooks */
-
-    /* Adjust the port number for non-privileged processes */
-    if (getuid() > 0 && srv->port < 1024)
-	srv->port += 1000;
-
-    if (srv->daemon) {
+    if (OPT.daemon) {
 
 	syslog(LOG_DEBUG,
 	       "pid %d detatching from the controlling terminal",
@@ -312,6 +289,9 @@ server_start(struct server *srv)
 	close(1);
 	close(2);
 
+#if FIXME
+	// doesn't work when multiple servers within the same process
+	
 	/* 
 	 * Fork again to create a privileged 'monitor' process
 	 * and a non-privileged 'server' process.
@@ -322,6 +302,7 @@ server_start(struct server *srv)
 		err(1, "fork(2)");
 	if (pid > 0)
 		exit(srv->monitor_hook(srv, pid));
+#endif
 
     } else {
 	    logopt |= LOG_PERROR;
@@ -329,58 +310,63 @@ server_start(struct server *srv)
     }
 
     /* Open the log file */
-    openlog("", logopt, srv->log_facility);
+    openlog("", logopt, OPT.log_facility);
 
     /* Increase the allowable number of file descriptors */
     xsetrlimit(RLIMIT_NOFILE, 50000);
 
     /* Register the standard signal handling functions */
-    register_signal_handlers(srv);
+    register_signal_handlers();
+}
 
-    /* Run the protocol-specific hook function */
-    if (srv->start_hook(srv) < 0) 
-    	err(1, "start_hook() failed");
 
-    /* Initialize the socket variable */
-    memset(&srv_addr, 0, sizeof(srv_addr));
-    srv_addr.sin_family = AF_INET;
-    srv_addr.sin_addr = srv->addr;
-    srv_addr.sin_port = htons(srv->port);
+void
+server_bind(struct server *srv)
+{
+    struct sockaddr_in srv_addr;
+    int             one = 1;
 
-    /* Create the socket and bind(2) to it */
-    if ((srv->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-	err(1, "Cannot create socket");
-    if (setsockopt
-	(srv->fd, SOL_SOCKET, SO_REUSEADDR, (char *) &one,
-	 sizeof(one)) != 0)
-	err(1, "setsockopt(3)");
-    if (bind(srv->fd, (struct sockaddr *) &srv_addr, sizeof(srv_addr)) < 0)
-	err(1, "Could not bind to the socket");
+	/* Adjust the port number for non-privileged processes */
+	if (getuid() > 0 && srv->port < 1024)
+		srv->port += 1000;
 
-    /* Drop privileges and chroot() to /var/mail */
-    if (getuid() == 0) {
-	    i = drop_privileges(srv->uid, srv->gid, srv->chrootdir);
-	    if (i < 0)
-		    errx(1, "unable to drop privileges");
-    } else {
-    	   if (chdir(srv->chrootdir) != 0)
-	   	err(1, "chdir");
-    }
+	/* Run the protocol-specific hook function */
+	if (srv->start_hook(srv) < 0) 
+		err(1, "start_hook() failed");
 
-    /* Listen for incoming connections */
-    if (listen(srv->fd, 100) < 0)
-	err(1, "listen(2) failed");
+	/* Initialize the socket variable */
+	memset(&srv_addr, 0, sizeof(srv_addr));
+	srv_addr.sin_family = AF_INET;
+	srv_addr.sin_addr = srv->addr;
+	srv_addr.sin_port = htons(srv->port);
+
+	/* Create the socket and bind(2) to it */
+	if ((srv->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+		err(1, "Cannot create socket");
+	if (setsockopt
+			(srv->fd, SOL_SOCKET, SO_REUSEADDR, (char *) &one,
+			 sizeof(one)) != 0)
+		err(1, "setsockopt(3)");
+	if (bind(srv->fd, (struct sockaddr *) &srv_addr, sizeof(srv_addr)) < 0)
+		err(1, "Could not bind to the socket");
+
+	/* Listen for incoming connections */
+	if (listen(srv->fd, 100) < 0)
+		err(1, "listen(2) failed");
+
+
+}
+
+void
+server_enable(struct server *srv)
+{
+
+    /* TODO: Convert NULL hooks to NOOP hooks */
 
     /* Generate an event when a connection is pending */
-    event_set(&srv_evt, srv->fd, EV_READ | EV_PERSIST, server_accept, srv);
-    if (event_add(&srv_evt, NULL) != 0)
+    event_set(&srv->accept_evt, srv->fd, EV_READ | EV_PERSIST, server_accept, srv);
+    if (event_add(&srv->accept_evt, NULL) != 0)
 	errx(1, "event_add() failed");
-
-    /* Wait forevent, dispatching events */
-    event_dispatch();
-
-    /* NOTREACHED */
-    return 0;
 }
 
 int
