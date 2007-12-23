@@ -16,16 +16,17 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #
 
+SUBDIRS          = libevent
+
 sbin_PROGRAMS    = recvmail
 man_MANS         = recvmail.8
 
 SOURCES		 = $(recvmail_SOURCES) $(selftest_SOURCES)
 
-recvmail_LDADD   = -levent
-recvmail_CFLAGS  = -Wall -Werror -g -O2
-recvmail_SOURCES = address.c file.c maildir.c smtp.c server.c spool.c \
-		   recvmail.c 
-recvmail_HEADERS = recvmail.h
+recvmail_LDADD   = ./libevent/.libs/libevent.a -lpthread -lrt
+recvmail_CFLAGS  = -g -O2 -Wall -Werror -D_REENTRANT -Ilibevent
+recvmail_SOURCES = address.c file.c maildir.c smtp.c server.c recvmail.c 
+recvmail_HEADERS = recvmail.h uthash.h
 
 selftest_SOURCES = $(recvmail_SOURCES) selftest.c
 selftest_CFLAGS  = $(recvmail_CFLAGS) -DUNIT_TESTING
@@ -33,12 +34,15 @@ selftest_LDADD   = $(recvmail_LDADD)
 TESTS            = selftest
 check_PROGRAMS   = selftest
 
+loopback:
+	printf 'helo\nmail from:abc@def.ghi\nrcpt to:test@test.com\ndata\nSubject: hi\n\nHello\n.\nquit\n' | nc localhost 1025
+
 debug: 
 	ulimit -c 999999; rm core; pkill recvmail; make && ( ./recvmail -fv & ) && sleep 1 && echo -e 'helo\nmail from:abc@def.ghi\nrcpt to:test@test.com\nquit' | nc localhost 1025
 	test -e /var/mail/core && gdb ./recvmail -c /var/mail/core  || true
 
 hammer:
-	while [ 1 -eq 1 ] ; do echo -e 'helo\nmail from:a@b.com\nrcpt to:test@test.com\ndata\nhi\n.\nquit' | nc localhost 1025 ; rm /srv/mail/store/test.com/test/new/*; done
+	while [ 1 -eq 1 ] ; do make loopback ; rm /var/recvmail/store/test.com/test/new/*; done
 
 # Use GNU indent to re-indent the entire source tree
 indent:
