@@ -25,7 +25,7 @@ SOURCES		 = $(recvmail_SOURCES) $(selftest_SOURCES)
 
 recvmail_LDADD   = ./libevent/.libs/libevent.a -lpthread -lrt
 recvmail_CFLAGS  = -g -O2 -Wall -Werror -D_REENTRANT -Ilibevent
-recvmail_SOURCES = address.c file.c maildir.c smtp.c server.c recvmail.c 
+recvmail_SOURCES = address.c file.c maildir.c http.c smtp.c server.c recvmail.c 
 recvmail_HEADERS = recvmail.h uthash.h
 
 selftest_SOURCES = $(recvmail_SOURCES) selftest.c
@@ -36,10 +36,14 @@ check_PROGRAMS   = selftest
 
 loopback:
 	printf 'helo\nmail from:abc@def.ghi\nrcpt to:test@test.com\ndata\nSubject: hi\n\nHello\n.\nquit\n' | nc localhost 1025
+	printf 'GET /test HTTP/1.1\nConnection: close\n\n' | nc localhost 8025
 
 debug: 
 	ulimit -c 999999; rm core; pkill recvmail; make && ( ./recvmail -fv & ) && sleep 1 && echo -e 'helo\nmail from:abc@def.ghi\nrcpt to:test@test.com\nquit' | nc localhost 1025
 	test -e /var/mail/core && gdb ./recvmail -c /var/mail/core  || true
+
+valgrind:
+	valgrind --tool=memcheck --leak-check=yes --show-reachable=yes --num-callers=20 --track-fds=yes ./recvmail -fv -p 1025
 
 hammer:
 	while [ 1 -eq 1 ] ; do make loopback ; rm /var/recvmail/store/test.com/test/new/*; done
