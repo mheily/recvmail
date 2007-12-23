@@ -34,6 +34,7 @@ struct server   smtpd = {
     .log_level = LOG_NOTICE,
 
     /* vtable */
+    .start_hook = smtpd_start_hook,
     .accept_hook = smtpd_greeting,
     .read_hook = smtpd_parser,
     .timeout_hook = smtpd_timeout,
@@ -71,13 +72,32 @@ usage()
     exit(1);
 }
 
+
+/* FIXME - This is incomplete */
+void
+option_parse(const char *arg)
+{
+	char *p;
+	char *buf, *key, *val;
+
+	buf = strdup(arg);
+	if ((p = strchr(arg, '=')) == NULL)
+		errx(1, "Syntax error");
+	*p++ = '\0';
+	key = buf;
+	val = p;
+	printf("key=%s val=%s\n", key, val);
+	abort();
+	free(buf);
+}
+
 int
 main(int argc, char *argv[])
 {
     int             c;
 
     /* Get arguments from ARGV */
-    while ((c = getopt(argc, argv, "d:fg:hi:p:qu:v")) != -1) {
+    while ((c = getopt(argc, argv, "d:fg:hi:o:p:qu:v")) != -1) {
 	switch (c) {
 	case 'f':
 	    smtpd.daemon = 0;
@@ -93,6 +113,10 @@ main(int argc, char *argv[])
 	    if (inet_aton(optarg, &smtpd.addr) < 0)
 		errx(1, "Invalid address");
 	    break;
+	case 'o':
+		//TODO: see option.c: parse_option(optarg);
+		abort();
+		break;
 	case 'p':
 	    smtpd.port = atoi(optarg);
 	    break;
@@ -125,6 +149,7 @@ main(int argc, char *argv[])
 	if (gethostname(OPT.mailname, 256) != 0)
 	    err(1, "gethostname");
     }
+
 #ifdef UNIT_TESTING
     /* Run the testsuite */
     run_testsuite();
