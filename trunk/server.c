@@ -334,10 +334,6 @@ server_start(struct server *srv)
     /* Increase the allowable number of file descriptors */
     xsetrlimit(RLIMIT_NOFILE, 50000);
 
-    /* Initialize the event library */
-    (void) event_init();
-    (void) evdns_init();
-
     /* Register the standard signal handling functions */
     register_signal_handlers(srv);
 

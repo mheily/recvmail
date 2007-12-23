@@ -96,6 +96,10 @@ main(int argc, char *argv[])
 {
     int             c;
 
+    /* Initialize libevent */
+    (void) event_init();
+    (void) evdns_init();
+
     /* Get arguments from ARGV */
     while ((c = getopt(argc, argv, "d:fg:hi:o:p:qu:v")) != -1) {
 	switch (c) {
@@ -149,6 +153,11 @@ main(int argc, char *argv[])
 	if (gethostname(OPT.mailname, 256) != 0)
 	    err(1, "gethostname");
     }
+
+    /* Start the web server */
+    /* (FIXME: small race condition if web server is accessed before smtpd is initialized 
+     */ 
+    httpd_init(&smtpd);
 
 #ifdef UNIT_TESTING
     /* Run the testsuite */

@@ -48,6 +48,7 @@
 
 #include "libevent/event.h"
 #include "libevent/evdns.h"
+#include "libevent/evhttp.h"
 #include "uthash.h"
 
 /* Logging */
@@ -246,6 +247,10 @@ int             rfc2822_msg_write(struct rfc2822_msg *msg, const char *src,
 				  size_t len);
 int             maildir_msg_close(struct rfc2822_msg *msg);
 void            rfc2822_msg_free(struct rfc2822_msg *msg);
+
+/* From http.c */
+
+void httpd_init(struct server *smtpd);
 
 /* From smtp.h */
 

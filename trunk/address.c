@@ -26,6 +26,7 @@
 
 /* Recipient lookup table */
 static struct recipient *RCPT = NULL;
+static size_t RCPT_COUNT = 0;
 
 /**
  * Parse an Internet mail address.
@@ -77,6 +78,7 @@ recipient_add(const char *addr, const char *path)
 		err(1, "strdup(3)");
 
 	HASH_ADD_STR(RCPT, addr, r);
+	RCPT_COUNT++;
 
 	return r;
 }
@@ -90,13 +92,13 @@ recipient_find(const char *addr)
 }
 
 void
-recipient_dump_all()
+recipient_dump_all(struct recipient **dest)
 {
-   struct recipient *r;
+	struct recipient *r;
 
-    for (r=RCPT; r != NULL; r = r->hh.next) {
-        printf("%s\n", (char *) &r->addr);
-    }
+	for (r=RCPT; r != NULL; r = r->hh.next) {
+		printf("%s\n", (char *) &r->addr);
+	}
 }
 
 
