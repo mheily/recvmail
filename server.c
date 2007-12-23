@@ -226,6 +226,40 @@ server_accept(int srv_fd, short event, void *arg)
     free(s);
 }
 
+static void 
+server_signal_handler(int signum, short what, void *arg)
+{
+   switch (signum) {
+	   case SIGINT:
+		   log_warning("got sigint");
+		   abort();
+		   break;
+	   case SIGHUP:
+		   log_warning("got sighup");
+		   break;
+	   case SIGTERM:
+		   log_warning("got sigterm");
+		   exit(EXIT_SUCCESS);
+		   break;
+	   default:
+		   log_error("received invalid signal %d", (int) what);
+		   exit(EXIT_FAILURE);
+   }
+}
+
+static void
+register_signal_handlers(struct server *srv)
+{
+	static struct event ev1, ev2, ev3;
+
+	signal_set(&ev1, SIGINT, server_signal_handler, srv);
+	signal_add(&ev1, NULL);
+	signal_set(&ev2, SIGHUP, server_signal_handler, srv);
+	signal_add(&ev2, NULL);
+	signal_set(&ev3, SIGTERM, server_signal_handler, srv);
+	signal_add(&ev3, NULL);
+}
+
 /* ------------------- Public functions ----------------------- */
 
 /*
@@ -278,21 +312,21 @@ server_start(struct server *srv)
 	close(1);
 	close(2);
 
+	/* 
+	 * Fork again to create a privileged 'monitor' process
+	 * and a non-privileged 'server' process.
+	 * The child process becomes the server and the parent process is the
+	 * monitor.
+	 */
+	if ((pid = fork()) < 0)
+		err(1, "fork(2)");
+	if (pid > 0)
+		exit(srv->monitor_hook(srv, pid));
+
     } else {
-	logopt |= LOG_PERROR;
+	    logopt |= LOG_PERROR;
 
     }
-
-    /* 
-     * Fork again to create a privileged 'monitor' process
-     * and a non-privileged 'server' process.
-     * The child process becomes the server and the parent process is the
-     * monitor.
-     */
-    if ((pid = fork()) < 0)
-	err(1, "fork(2)");
-    if (pid > 0)
-	exit(srv->monitor_hook(srv, pid));
 
     /* Open the log file */
     openlog("", logopt, srv->log_facility);
@@ -302,6 +336,14 @@ server_start(struct server *srv)
 
     /* Initialize the event library */
     (void) event_init();
+    (void) evdns_init();
+
+    /* Register the standard signal handling functions */
+    register_signal_handlers(srv);
+
+    /* Run the protocol-specific hook function */
+    if (srv->start_hook(srv) < 0) 
+    	err(1, "start_hook() failed");
 
     /* Initialize the socket variable */
     memset(&srv_addr, 0, sizeof(srv_addr));
@@ -320,9 +362,14 @@ server_start(struct server *srv)
 	err(1, "Could not bind to the socket");
 
     /* Drop privileges and chroot() to /var/mail */
-    i = drop_privileges(srv->uid, srv->gid, srv->chrootdir);
-    if (i < 0)
-	errx(1, "unable to drop privileges");
+    if (getuid() == 0) {
+	    i = drop_privileges(srv->uid, srv->gid, srv->chrootdir);
+	    if (i < 0)
+		    errx(1, "unable to drop privileges");
+    } else {
+    	   if (chdir(srv->chrootdir) != 0)
+	   	err(1, "chdir");
+    }
 
     /* Listen for incoming connections */
     if (listen(srv->fd, 100) < 0)
