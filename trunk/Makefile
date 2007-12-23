@@ -52,8 +52,16 @@ MANDIR := $(DESTDIR)$(MANDIR)
 
 include Makefile.am
 
-build: config.h $(lib_LIBRARIES) $(bin_PROGRAMS) $(sbin_PROGRAMS) $(data_DATA) $(pkgdata_DATA)
+build: config.h subdir-stamp $(lib_LIBRARIES) $(bin_PROGRAMS) $(sbin_PROGRAMS) $(data_DATA) $(pkgdata_DATA)
 	@true
+
+subdir-stamp:
+	for subdir in $(SUBDIRS) ; do \
+	   cd $$subdir ; \
+	   if [ -x ./configure ] ; then ./configure ; fi ; \
+	   make ; \
+	done
+	touch subdir-stamp
 
 config.h:
 	./configure 
@@ -69,7 +77,7 @@ $(lib_LIBRARIES) : $(SOURCES)
 	ar rs lib$(@).a *.o
 
 clean:
-	rm -f $(bin_PROGRAMS) $(sbin_PROGRAMS) *.o 
+	rm -f $(bin_PROGRAMS) $(sbin_PROGRAMS) subdir-stamp *.o 
 
 distclean: clean
 	rm -f config.mk config.sym config.h
