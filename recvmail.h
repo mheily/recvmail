@@ -46,7 +46,9 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
-#include <event.h>
+#include "libevent/event.h"
+#include "libevent/evdns.h"
+#include "uthash.h"
 
 /* Logging */
 
@@ -76,6 +78,9 @@
 /* Maximum limits */
 
 #define RECIPIENT_MAX		100
+#define DOMAIN_MAX		63
+#define HOSTNAME_MAX		63
+#define ADDRESS_MAX             (DOMAIN_MAX + HOSTNAME_MAX + 1)
 
 /* Configuration options */
 
@@ -91,35 +96,23 @@ extern struct options OPT;
 
 struct session;
 
-/** An Internet email address */
-struct rfc2822_addr {
-
-    /* The username portion of the address (left-hand side) */
-    char           *user;
-
-    /* The domain portion of the address (right-hand side) */
-    char           *domain;
-
-    /* If TRUE, the address exists within the mailsystem */
-    bool            exists;
-
-    /* The path to the mailbox associated with the address */
-    char           *path;
+struct recipient {
+	char addr[ADDRESS_MAX + 1]; /* Mailing address in the form 'USER@DOMAIN' */
+	size_t addr_len;	/* Number of characters in <addr> */
+	char *path;		/* Relative path to the mailbox */
+	UT_hash_handle hh;	/* Makes this structure hashable */
 };
-
-int             mailbox_exists(const struct rfc2822_addr *addr);
 
 /* An RFC-2822 message */
 struct rfc2822_msg {
     int             fd;		/* A file descriptor opened for writing
 				 * the message */
     char           *path;	/* The path to the message */
-    struct rfc2822_addr *sender;	/* The email address of the sender 
-					 */
+    char           *sender;	/* The email address of the sender */
     struct in_addr  remote_addr;	/* The IP address of the client */
     /* The remote IP address, converted to string format */
     char            remote_addr_str[INET_ADDRSTRLEN + 1];
-    struct rfc2822_addr *rcpt_to[RECIPIENT_MAX + 1];
+    struct recipient *rcpt_to[RECIPIENT_MAX + 1];
     int             num_recipients;
     size_t          size;
     char           *filename;	/* The Maildir message-ID */
@@ -167,8 +160,12 @@ struct server {
      * closing */
     void            (*reject_hook) (struct session *);
 
-/* Monitors the child process and restarts/reloads as needed */
+    /* Monitors the child process and restarts/reloads as needed */
     int             (*monitor_hook) (struct server *, pid_t);
+
+    /* Executed when the server is started  */
+    // TODO: stop, reload hooks also.
+    int             (*start_hook) (struct server *);
 };
 
 /** Protocol-specific SMTP session data */
@@ -225,12 +222,14 @@ int             file_exists(const char *path);
 int             domain_exists(const char *domain);
 
 struct rfc2822_addr *rfc2822_addr_new();
-int             rfc2822_addr_parse(struct rfc2822_addr *dest,
-				   const char *src);
+char * addr_parse(const char *);
 void            rfc2822_addr_free(struct rfc2822_addr *addr);
 
 int             valid_address(const struct rfc2822_addr *addr);
 int             valid_domain(const char *domain);
+struct recipient * recipient_find(const char *);
+
+void addr_table_generate(void);
 
 /* From message.h */
 
@@ -245,7 +244,7 @@ int             open_message(struct rfc2822_msg *msg);
 struct rfc2822_msg *rfc2822_msg_new();
 int             rfc2822_msg_write(struct rfc2822_msg *msg, const char *src,
 				  size_t len);
-int             rfc2822_msg_close(struct rfc2822_msg *msg);
+int             maildir_msg_close(struct rfc2822_msg *msg);
 void            rfc2822_msg_free(struct rfc2822_msg *msg);
 
 /* From smtp.h */
@@ -261,6 +260,7 @@ void            smtpd_timeout(struct session *s);
 void            smtpd_client_error(struct session *s);
 int             smtpd_close_hook(struct session *s);
 int             smtpd_monitor_hook(struct server *, pid_t);
+int             smtpd_start_hook(struct server *);
 int             server_start(struct server *srv);
 
 /* From spool.c */

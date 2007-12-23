@@ -23,20 +23,25 @@
  *
  * Generate a unique ID suitable for delivery to a Maildir
  */
-static int
-maildir_generate_id(char **dest)
+char *
+maildir_generate_id(void)
 {
-    static uint32_t delivery_counter = 0;
+    static unsigned long delivery_counter = 0;
+    char *buf;
     struct timeval  tv;
 
     gettimeofday(&tv, NULL);
 
-    /* Increment the delivery counter and rollover at 1,000,000 */
-    if (delivery_counter++ > 999999)
-	delivery_counter = 0;
-
-    return asprintf(dest, "%lu.M%luP%u_%d.%s", tv.tv_sec, tv.tv_usec,
-		    getpid(), delivery_counter, OPT.mailname);
+    if (asprintf(&buf, "%lu.M%luP%u_%lu.%s", 
+			    tv.tv_sec, 
+			    tv.tv_usec,
+			    getpid(),
+			    delivery_counter++,
+			    OPT.mailname) < 0) {
+	    log_warning("asprintf(3)");
+	    return NULL;
+    }
+	return buf;
 }
 
 
@@ -55,10 +60,15 @@ maildir_msg_open(struct rfc2822_msg *msg)
     size_t          len;
     char           *buf = NULL;
 
-    /* Generate the message pathname */
-    if (maildir_generate_id(&msg->filename) < 0)
+    if (msg->num_recipients == 0) {
+    	log_warning("cannot deliver a message with no recipients");
 	return -1;
-    if (asprintf(&msg->path, "spool/tmp/%s", msg->filename) < 0)
+    }
+
+    /* Generate the message pathname */
+    if ((msg->filename = maildir_generate_id()) == NULL)
+	return -1;
+    if (asprintf(&msg->path, "%s/tmp/%s", msg->rcpt_to[0]->path, msg->filename) < 0)
 	return -1;
 
     /* Try to open the message file for writing */
@@ -76,8 +86,8 @@ maildir_msg_open(struct rfc2822_msg *msg)
     asctime_r(&timeval, timestr);
     len =
 	asprintf(&buf,
-		 "Received: from %s@%s ([%s])\n        by %s (recvmail) on %s",
-		 msg->sender->user, msg->sender->domain,
+		 "Received: from %s ([%s])\n        by %s (recvmail) on %s",
+		 msg->sender,
 		 msg->remote_addr_str, OPT.mailname, timestr);
     if ((len < 0) || rfc2822_msg_write(msg, buf, len) < 0) {
 	free(buf);
@@ -97,24 +107,15 @@ rfc2822_msg_new()
     if ((msg = calloc(1, sizeof(struct rfc2822_msg))) == NULL)
 	return NULL;
 
-    if ((msg->sender = rfc2822_addr_new()) == NULL) {
-	free(msg);
-	return NULL;
-    }
-
     return msg;
 }
 
 void
 rfc2822_msg_free(struct rfc2822_msg *msg)
 {
-    int             i;
-
     if (msg) {
 	free(msg->path);
-	rfc2822_addr_free(msg->sender);
-	for (i = 0; i < msg->num_recipients; i++)
-	    rfc2822_addr_free(msg->rcpt_to[i]);
+	free(msg->sender);
 	free(msg->filename);
 	free(msg);
     }
@@ -147,18 +148,17 @@ rfc2822_msg_write(struct rfc2822_msg *msg, const char *src, size_t len)
  * Modifies: msg->path
  */
 int
-rfc2822_msg_close(struct rfc2822_msg *msg)
+maildir_msg_close(struct rfc2822_msg *msg)
 {
+    char *path = NULL;
+    int i;
+
     /* Close the file */
     if (close(msg->fd) < 0) {
 	log_errno("close(2)");
 	return -1;
     }
 
-    return 0;
-
-    /* FIXME - TODO - semaphore post */
-#if DEADWOOD
     /* Move the message into the 'new/' directory */
     if (asprintf(&path, "%s/new/%s", msg->rcpt_to[0]->path, msg->filename)
 	< 0)
@@ -174,7 +174,6 @@ rfc2822_msg_close(struct rfc2822_msg *msg)
 
     /* For each additional recipient, create a hard link */
     for (i = 1; i < msg->num_recipients; i++) {
-	free(path);
 	if (asprintf(&path, "%s/new/%s",
 		     msg->rcpt_to[0]->path, msg->filename) < 0) {
 	    goto error;
@@ -184,14 +183,12 @@ rfc2822_msg_close(struct rfc2822_msg *msg)
 	    log_errno("link(2) of `%s' to `%s'", msg->path, path);
 	    goto error;
 	}
+	free(path);
     }
 
-    free(path);
     return 0;
 
   error:
     free(path);
     return -1;
-#endif
-
 }

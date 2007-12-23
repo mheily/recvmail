@@ -63,7 +63,10 @@ smtpd_ehlo(struct session *s, char *arg)
 static int
 smtpd_mail(struct session *s, char *arg)
 {
-    if (rfc2822_addr_parse(s->data->msg->sender, arg) != 0) {
+
+    if (s->data->msg->sender != NULL)
+    	free(s->data->msg->sender);
+    if ((s->data->msg->sender = addr_parse(arg)) == NULL) {
 	print_response(s, "501 Malformed address");
 	return -1;
     }
@@ -73,18 +76,25 @@ smtpd_mail(struct session *s, char *arg)
 
 
 int
-smtpd_rcpt(struct session *s, char *addr)
+smtpd_rcpt(struct session *s, char *line)
 {
     struct rfc2822_msg *msg;
-    struct rfc2822_addr *rcpt_to;
-    int             domain_ok;
+    char *addr;
+    struct recipient *rcpt;
 
-    /* Initialize variables */
-    if ((rcpt_to = calloc(1, sizeof(*rcpt_to))) == NULL) {
-	log_errno("malloc");
+    msg = s->data->msg;
+
+    if ((addr = addr_parse(line)) == NULL) {
+	print_response(s, "501 Invalid address syntax");
 	return -1;
     }
-    msg = s->data->msg;
+
+    if ((rcpt = recipient_find(addr)) == NULL) {
+	    free(addr);
+	    print_response(s, "550 Mailbox unavailable");
+	    return -1;
+    }
+    free(addr);
 
     /* Limit the number of recipients per envelope */
     if (msg->num_recipients > RECIPIENT_MAX) {
@@ -93,42 +103,13 @@ smtpd_rcpt(struct session *s, char *addr)
     }
 
     /* Require 'MAIL FROM' before 'RCPT TO' */
-    if (!msg->sender->user) {
+    if (msg->sender == NULL) {
 	print_response(s, "503 Error: need MAIL command first");
 	return -1;
     }
 
-    if (rfc2822_addr_parse(rcpt_to, addr) != 0) {
-	print_response(s, "501 Invalid address syntax");
-	return -1;
-    }
-
-    domain_ok = (domain_exists(rcpt_to->domain) == 1);
-
-    /* Test if there were any filesystem errors */
-    if (domain_ok < 0 || rcpt_to->exists < 0) {
-	print_response(s, "554 Internal server error, closing connection");
-	session_close(s);
-	return 0;
-    }
-#if DEADWOOD
-    // should we really care here? isnt 550 good enough??
-
-    /* If the domain does not exist, do not relay the message */
-    if (!domain_ok) {
-	print_response(s, "554 Relay access denied");
-	return -1;
-    }
-#endif
-
-    /* If the mailbox does not exist, do not accept the message */
-    if (rcpt_to->exists != 1) {
-	print_response(s, "550 Mailbox unavailable");
-	return -1;
-    }
-
     /* Everything is OK, add the recipient */
-    msg->rcpt_to[msg->num_recipients++] = rcpt_to;
+    msg->rcpt_to[msg->num_recipients++] = rcpt;
     print_response(s, "250 Ok");
 
     return 0;
@@ -142,8 +123,8 @@ smtpd_data(struct session *s, char *arg)
 	print_response(s, "503 Error: need one or more recipients first");
 	return -1;
     } else {
-	if (msg_spool(s->data->msg)) {
-	    print_response(s, "421 Error spooling message");
+	if (maildir_msg_open(s->data->msg)) {
+	    print_response(s, "421 Error creating message");
 	    session_close(s);
 	    return -1;
 	}
@@ -263,7 +244,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 	/* TODO : set state to SMTP_STATE_FSYNC and call syncer */
 
 	/* Deliver the message immediately */
-	if (rfc2822_msg_close(s->data->msg) < 0)
+	if (maildir_msg_close(s->data->msg) < 0)
 	    goto error;
 
 	/* Allow the sender to pipeline another request */
@@ -347,3 +328,12 @@ smtpd_monitor_hook(struct server *srv, pid_t child)
 	pause();
     }
 }
+
+int
+smtpd_start_hook(struct server *srv)
+{
+	/* FIXME - testing purposes */
+	addr_table_generate();
+	return 0;
+}
+
