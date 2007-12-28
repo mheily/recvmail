@@ -39,6 +39,25 @@ struct server   smtpd = {
     .monitor_hook = smtpd_monitor_hook,
 };
 
+#if TODO
+struct server pop3d = {
+   .port = 110,
+    .addr.s_addr = INADDR_ANY,
+    .timeout_read = 15,
+    .timeout_write = 30,
+
+    /* vtable */
+    .start_hook = pop3d_start_hook,
+    .accept_hook = pop3d_greeting,
+    .read_hook = pop3d_parser,
+    .timeout_hook = pop3d_timeout,
+    .reject_hook = pop3d_client_error, 
+    .abort_hook = NULL,		// fixme
+    .close_hook = pop3d_close_hook,
+    .monitor_hook = pop3d_monitor_hook,
+}
+#endif
+
 struct options  OPT = {
     .debugging = 0,
     .prefix = DEFAULT_PREFIX,
