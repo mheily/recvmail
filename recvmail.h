@@ -29,6 +29,7 @@
 #include <grp.h>
 #include <inttypes.h>
 #include <pwd.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -46,9 +47,6 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
-#include "libevent/event.h"
-#include "libevent/evdns.h"
-#include "libevent/evhttp.h"
 #include "uthash.h"
 
 /* Logging */
@@ -133,7 +131,6 @@ struct server {
     struct in_addr  addr;	/* The IP address to listen(2) to */
     int             fd;		/* The descriptor returned by socket(2) */
     struct sockaddr sa;		/* The socket address of the server */
-    struct event    accept_evt; /* The event that triggers an accept(2) */	
 
     /* The number of seconds to wait for incoming data from the client */
     int             timeout_read;
@@ -190,6 +187,7 @@ struct session_data {
 /* A client session */
 struct session {
     int             fd;		/* The client socket descriptor */
+    FILE           *lbuf_rd;    /* Line-buffered stream I/O handle for reading <fd> */
     struct in_addr  remote_addr;	/* The IP address of the client */
 
     /* The remote IP address, converted to string format */
@@ -254,9 +252,11 @@ void httpd_init(struct server *smtpd);
 
 /* From smtp.h */
 
-int             session_write(struct session *s, char *buf, size_t size);
-int             session_fsync(struct session *s, int fd);
+void session_write(struct session *, const char *, size_t size);
+void session_printf(struct session *, const char *, ...);
+void session_println(struct session *, const char *);
 void            session_close(struct session *s);
+void session_init(struct session *);
 void            session_free(struct session *s);
 
 int             smtpd_greeting(struct session *s);
@@ -269,7 +269,7 @@ int             smtpd_start_hook(struct server *);
 
 /* From server.c */
 
-void             server_enable(struct server *srv);
+void server_dispatch(struct server *srv);
 void server_bind(struct server *srv);
 void server_init(void);
 void drop_privileges(const char *user, const char *group, const char *chroot_to);
@@ -277,5 +277,21 @@ void drop_privileges(const char *user, const char *group, const char *chroot_to)
 /* From spool.c */
 
 int             msg_spool(struct rfc2822_msg *msg);
+
+/* Thread locking routines */
+
+static inline void
+mutex_lock(pthread_mutex_t *m)
+{
+        if (pthread_mutex_lock(m) != 0)
+                err(1, "pthread_mutex_lock(3)");
+}
+
+static inline void
+mutex_unlock(pthread_mutex_t *m)
+{
+        if (pthread_mutex_unlock(m) != 0)
+                err(1, "pthread_mutex_unlock(3)");
+}
 
 #endif

@@ -115,12 +115,8 @@ main(int argc, char *argv[])
 {
     int             c;
 
-    /* Initialize libevent */
-    (void) event_init();
-    (void) evdns_init();
-
     /* Get arguments from ARGV */
-    while ((c = getopt(argc, argv, "d:fg:hi:o:p:qu:v")) != -1) {
+    while ((c = getopt(argc, argv, "fg:hi:o:p:qu:v")) != -1) {
 	switch (c) {
 	case 'f':
 	    OPT.daemon = 0;
@@ -181,19 +177,14 @@ main(int argc, char *argv[])
     /* Start the web server */
     /* (FIXME: small race condition if web server is accessed before smtpd is initialized 
      */ 
-    httpd_init(&smtpd);
+    //httpd_init(&smtpd);
 
 #ifdef UNIT_TESTING
     /* Run the testsuite */
     run_testsuite();
 #else
 
-    /* Enable incoming connections */
-    server_enable(&smtpd);
-    //TODO:server_enable(&pop3d);
-
-    /* Wait forevent, dispatching events */
-    event_dispatch();
+    server_dispatch(&smtpd);
 
 #endif
 

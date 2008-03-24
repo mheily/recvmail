@@ -1,5 +1,4 @@
 PACKAGE=recvmail
-VERSION=1.3
+VERSION=1.4
 
 check_symbol strlcpy
-check_header event.h

@@ -18,6 +18,19 @@
 
 #include "recvmail.h"
 
+#include <sys/queue.h>
+#include "epoll.h"
+
+struct fdwatch {
+        int fd;                 /* File descriptor */
+        int watch;              /* Events to monitor: EPOLLIN | EPOLLOUT */
+        int state;              /* Current socket state: EPOLLIN | EPOLLOUT */
+        LIST_ENTRY(fdwatch) entries;
+};
+
+LIST_HEAD(, fdwatch) WATCH;
+pthread_mutex_t WATCH_MUTEX = PTHREAD_MUTEX_INITIALIZER;
+
 /* ------------------- Private functions ----------------------- */
 
 
@@ -101,151 +114,11 @@ drop_privileges(const char *user, const char *group, const char *chroot_to)
     log_info("setuid(2) to %s(%d)", user, uid);
 }
 
-static void
-read_cb(struct bufferevent *bufev, void *arg)
-{
-    struct session *s = (struct session *) arg;
-    char           *line;
-    size_t          len;
-
-    while ((line = evbuffer_readline(bufev->input))) {
-	// printf("line=`%s'\n", line);
-	len = strlen(line);
-	if (s->srv->read_hook(s, line, len) < 0) {
-	    if (s->error_count++ > 10) {
-		s->srv->reject_hook(s);
-		s->state = SESSION_CLOSE;
-	    }
-	}
-	free(line);
-    }
-}
-
-static void
-write_cb(struct bufferevent *bev, void *arg)
-{
-    struct session *s = (struct session *) arg;
-
-    // printf("** WRITE CB\n");
-    if (s->state == SESSION_CLOSE) {
-	if (s->srv->close_hook(s) < 0) {
-	    /* TODO: graceful shutdown of server */
-	}
-	close(s->fd);
-	session_free(s);
-    }
-}
-
-static void
-error_cb(struct bufferevent *bufev, short what, void *arg)
-{
-    struct session *s = (struct session *) arg;
-
-    if (what & EVBUFFER_EOF) {
-	log_info("Client disconnected\n");
-    } else if (what & EVBUFFER_TIMEOUT) {
-	log_info("Client timed out due to inactivity\n");
-	s->srv->timeout_hook(s);
-	s->state = SESSION_CLOSE;
-	// TODO: disable input from the client
-	return;
-    } else {
-	log_warning("Socket error!\n");
-    }
-    bufferevent_free(s->bev);
-    close(s->fd);
-    free(s);
-}
-
-static void
-server_accept(int srv_fd, short event, void *arg)
-{
-    struct session *s;
-    socklen_t       cli_len = 0;
-    struct sockaddr_in name;
-    socklen_t       namelen = sizeof(name);
-
-    if (event != EV_READ) {
-	errx(1, "unexpected event %d", event);
-    }
-
-    /* Create a new session */
-    if ((s = calloc(1, sizeof(*s))) == NULL) {
-	/* TODO: handle out-of-memory gracefully */
-	return;
-    }
-    s->srv = (struct server *) arg;
-  restart_syscall:
-    s->fd = accept(srv_fd, &s->srv->sa, &cli_len);
-
-    /* Retry if accept(2) was interrupted by a signal */
-    if (s->fd < 0 && errno == EINTR)
-	goto restart_syscall;
-
-    /* Check for a valid connection */
-    if (s->fd < 0) {
-	log_errno("accept(2)");
-	goto error;
-    }
-
-    /* Determine the IP address of the client */
-    if (getpeername(s->fd, (struct sockaddr *) &name, &namelen) < 0) {
-	log_errno("getpeername(2)");
-	goto error;
-    }
-    s->remote_addr = name.sin_addr;
-
-    /* Convert the IP address to ASCII */
-    if (inet_ntop(AF_INET, &s->remote_addr,
-		  (char *) &s->remote_addr_str,
-		  sizeof(s->remote_addr_str)) == NULL) {
-	log_errno("inet_ntop(3)");
-	goto error;
-    }
-
-    /* TODO: Determine the reverse DNS name for the host */
-
-    /* Create a libevent I/O buffer */
-    s->bev = bufferevent_new(s->fd, read_cb, write_cb, error_cb, s);
-    bufferevent_settimeout(s->bev,
-			   s->srv->timeout_read, s->srv->timeout_write);
-    bufferevent_enable(s->bev, EV_READ);
-
-    log_info("incoming connection from %s", s->remote_addr_str);
-
-    /* Send the greeting */
-    (void) s->srv->accept_hook(s);	// TODO: Check return value
-
-    return;
-
-  error:
-    free(s);
-}
-
-static void 
-server_signal_handler(int signum, short what, void *arg)
-{
-   switch (signum) {
-	   case SIGINT:
-		   log_warning("got sigint");
-		   abort();
-		   break;
-	   case SIGHUP:
-		   log_warning("got sighup");
-		   break;
-	   case SIGTERM:
-		   log_warning("got sigterm");
-		   exit(EXIT_SUCCESS);
-		   break;
-	   default:
-		   log_error("received invalid signal %d", (int) what);
-		   exit(EXIT_FAILURE);
-   }
-}
 
 static void
 register_signal_handlers(void)
 {
+#if XXX_FIXME
 	static struct event ev1, ev2, ev3;
 
 	signal_set(&ev1, SIGINT, server_signal_handler, NULL);
@@ -254,6 +127,7 @@ register_signal_handlers(void)
 	signal_add(&ev2, NULL);
 	signal_set(&ev3, SIGTERM, server_signal_handler, NULL);
 	signal_add(&ev3, NULL);
+#endif
 }
 
 /* ------------------- Public functions ----------------------- */
@@ -317,6 +191,8 @@ server_init(void)
 
     /* Register the standard signal handling functions */
     register_signal_handlers();
+
+    LIST_INIT(&WATCH);
 }
 
 
@@ -353,63 +229,57 @@ server_bind(struct server *srv)
 	/* Listen for incoming connections */
 	if (listen(srv->fd, 100) < 0)
 		err(1, "listen(2) failed");
-
-
 }
 
 void
-server_enable(struct server *srv)
+server_dispatch(struct server *srv)
 {
+	socklen_t cli_len;
+	pthread_t tid;
+	struct session *s;
 
-    /* TODO: Convert NULL hooks to NOOP hooks */
+	/* Dispatch incoming connections */
+	for (;;) {
 
-    /* Generate an event when a connection is pending */
-    event_set(&srv->accept_evt, srv->fd, EV_READ | EV_PERSIST, server_accept, srv);
-    if (event_add(&srv->accept_evt, NULL) != 0)
-	errx(1, "event_add() failed");
-}
+		/* Create a new session */
+		if ((s = calloc(1, sizeof(*s))) == NULL) {
+			/* TODO: handle out-of-memory gracefully */
+			sleep(5);
+			continue;
+		}
+		s->srv = srv;
 
-int
-session_write(struct session *s, char *buf, size_t size)
-{
-#if REUSE
-    struct evbuffer *evbuf = evbuffer_new();
+		/* Wait for a new connection */
+		s->fd = accept(s->srv->fd, &s->srv->sa, &cli_len);
+		if (s->fd < 0 && errno == EINTR)
+			continue;
+		if (s->fd < 0)
+			err(1, "accept(2)");
 
-    if (evbuffer_add(evbuf, line, size) < 0) {
-	warnx("evbuffer_add() failed");
-	evbuffer_free(evbuf);
-	return -1;
-    }
-#endif
-
-    return bufferevent_write(s->bev, buf, size);
+		/* Handle the session in a seperate thread */
+		if (pthread_create(&tid, NULL, (void *(*)(void *)) session_init, s) != 0) {
+			/* TODO - error handling */
+			close(s->fd);
+			continue;
+		}
+	}
 }
 
 
 void
-session_close(struct session *s)
+server_watch(int fd, int event_type)
 {
-    log_info("closing transmission channel (%d)", 0);
-    // TODO: hook function
-    s->state = SESSION_CLOSE;
-}
+        struct fdwatch *w;
 
-void
-session_free(struct session *s)
-{
-    bufferevent_free(s->bev);
-    free(s);
-}
+        /* Create a watch */
+        if ((w = malloc(sizeof(*w))) == NULL)
+                err(1, "malloc failed");
+        w->fd = fd;
+        w->watch = event_type;
+        w->state = 0;
 
-
-int
-session_fsync(struct session *s, int fd)
-{
-    if (bufferevent_disable(s->bev, EV_READ) < 0) {
-	log_error("bufferevent_disable() failed");
-	return -1;
-    }
-    s->state = SESSION_WAIT;
-    /* TODO: use a separate thread to do this */
-    return 0;
+        /* Add to the list */
+        mutex_lock(&WATCH_MUTEX);
+        LIST_INSERT_HEAD(&WATCH, w, entries);
+        mutex_unlock(&WATCH_MUTEX);
 }
