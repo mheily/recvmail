@@ -16,16 +16,14 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #
 
-SUBDIRS          = libevent
-
 sbin_PROGRAMS    = recvmail
 man_MANS         = recvmail.8
 
 SOURCES		 = $(recvmail_SOURCES) $(selftest_SOURCES)
 
-recvmail_LDADD   = ./libevent/.libs/libevent.a -lpthread -lrt
-recvmail_CFLAGS  = -g -O2 -Wall -Werror -D_REENTRANT -Ilibevent
-recvmail_SOURCES = address.c file.c maildir.c http.c smtp.c server.c recvmail.c 
+recvmail_LDADD   = -lpthread
+recvmail_CFLAGS  = -g -O2 -Wall -Werror -D_REENTRANT
+recvmail_SOURCES = address.c file.c maildir.c session.c smtp.c server.c recvmail.c 
 recvmail_HEADERS = recvmail.h uthash.h
 
 selftest_SOURCES = $(recvmail_SOURCES) selftest.c
