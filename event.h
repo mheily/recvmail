@@ -1,3 +1,44 @@
+#ifndef _KERNEL_FD_EVENTS
+#define _KERNEL_FD_EVENTS
+
+#if defined(__GLIBC__)
+# include <sys/epoll.h>
+# define event_init	epoll_create(1024)
+# define event		epoll_event
+# define EVENT_READ	EPOLLIN
+# define EVENT_WRITE	EPOLLOUT
+# define event_data(e)	(e.data.ptr)
+#else
+# include <sys/event.h>
+# define event_init 	kqueue
+# define event 		kevent
+# define EVENT_READ	EVFILT_READ
+# define EVENT_WRITE	EVFILT_WRITE
+# define event_data(e)	(e.udata)
+
+static inline int
+event_add(struct event *kev, int evfd, int fd, int filter, void *udata)
+{
+	EV_SET(kev, fd, filter, EV_ADD, 0, 0, udata);
+        return kevent(evfd, kev, 1, NULL, 0, NULL);
+}	
+
+static inline int
+event_wait(struct event *kev, int evfd)
+{    
+        return kevent(evfd, NULL, 0, kev, 1, NULL) == 1 ? 0 : -1;
+}	
+
+#endif
+
+
+#endif /* ! KERNEL_FD_EVENTS */
+
+/************************************************************************/
+
+#if DEADWOOD
+	//DISABLED
+
 #if defined(__GLIBC__)
 #include <sys/epoll.h>
 #else
@@ -44,8 +85,7 @@ epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
         kev.data = 0;
         kev.udata = event->data.ptr;
 
-        if (kevent(epfd, &kev, 1, NULL, 0, NULL) != 0)
-                err(1, "kevent(2)");
+        return kevent(epfd, &kev, 1, NULL, 0, NULL);
 }
 
 static inline int
@@ -59,12 +99,16 @@ epoll_wait(int epfd, struct epoll_event * events, int maxevents, int timeout)
                 return -ENOTSUP;
         
         if ((i = kevent(epfd, NULL, 0, &kev, 1, NULL)) != 0)
-                return rv;
+                return i;
 
         /* FIXME: error handling */
         events->events = (kev.filter == EVFILT_READ) ? EPOLLIN : EPOLLOUT;
         events->data.ptr = kev.udata;
+
+	return 1;
 }
 
 #endif
 #endif
+
+#endif /* DEADWOOD */
