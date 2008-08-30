@@ -162,21 +162,6 @@ server_init(void)
 	close(1);
 	close(2);
 
-#if FIXME
-	// doesn't work when multiple servers within the same process
-	
-	/* 
-	 * Fork again to create a privileged 'monitor' process
-	 * and a non-privileged 'server' process.
-	 * The child process becomes the server and the parent process is the
-	 * monitor.
-	 */
-	if ((pid = fork()) < 0)
-		err(1, "fork(2)");
-	if (pid > 0)
-		exit(srv->monitor_hook(srv, pid));
-#endif
-
     } else {
 	    logopt |= LOG_PERROR;
 

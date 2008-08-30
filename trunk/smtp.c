@@ -291,15 +291,6 @@ smtpd_close_hook(struct session *s)
 }
 
 int
-smtpd_monitor_hook(struct server *srv, pid_t child)
-{
-    for (;;) {
-    /* FIXME */
-    pause();
-    }
-}
-
-int
 smtpd_start_hook(struct server *srv)
 {
     return 0;

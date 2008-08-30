@@ -83,7 +83,7 @@
 
 /* Configuration options */
 
-# define DEFAULT_PREFIX		"/var/recvmail"
+# define DEFAULT_PREFIX		"/var/mail"
 
 struct options {
     bool            debugging;
@@ -157,9 +157,6 @@ struct server {
     /* Sends a 'too many errors' message to a misbehaving client before
      * closing */
     void            (*reject_hook) (struct session *);
-
-    /* Monitors the child process and restarts/reloads as needed */
-    int             (*monitor_hook) (struct server *, pid_t);
 
     /* Executed when the server is started  */
     // TODO: stop, reload hooks also.
@@ -264,7 +261,6 @@ int             smtpd_parser(struct session *s, char *buf, size_t len);
 void            smtpd_timeout(struct session *s);
 void            smtpd_client_error(struct session *s);
 int             smtpd_close_hook(struct session *s);
-int             smtpd_monitor_hook(struct server *, pid_t);
 int             smtpd_start_hook(struct server *);
 
 /* From server.c */
