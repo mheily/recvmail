@@ -47,8 +47,6 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
-#include "uthash.h"
-
 /* Logging */
 
 #define _log_all(level, format,...) syslog(level,			\
