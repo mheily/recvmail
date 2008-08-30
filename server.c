@@ -19,7 +19,6 @@
 #include "recvmail.h"
 
 #include <sys/queue.h>
-#include "epoll.h"
 
 struct fdwatch {
         int fd;                 /* File descriptor */

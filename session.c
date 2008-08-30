@@ -106,10 +106,7 @@ session_init(struct session *s)
     }
 
     /* Enable line-buffering when reading from the client */
-    if (setlinebuf(s->lbuf_rd) != 0) {
-	    log_errno("setlinebuf(3)");
-	    goto error;
-    }
+    setlinebuf(s->lbuf_rd);
 
     /* TODO: Determine the reverse DNS name for the host */
 
