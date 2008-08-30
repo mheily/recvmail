@@ -31,7 +31,6 @@ selftest_CFLAGS  = $(recvmail_CFLAGS) -DUNIT_TESTING
 selftest_LDADD   = $(recvmail_LDADD)
 TESTS            = selftest
 check_PROGRAMS   = selftest
-EXTRA_DIST       = pop3.c
 
 loopback:
 	printf 'helo\nmail from:abc@def.ghi\nrcpt to:test@test.com\ndata\nSubject: hi\n\nHello\n.\nquit\n' | nc localhost 1025
@@ -55,4 +54,6 @@ indent:
 checkin: indent
 	svn diff | less
 	svn ci
-	
+
+edit:
+	gvim *.c *.h Makefile* configure*
