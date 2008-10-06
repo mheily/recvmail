@@ -47,13 +47,20 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
-#include "uthash.h"
+#include "queue.h"
+
+extern int detached;
 
 /* Logging */
 
-#define _log_all(level, format,...) syslog(level,			\
-   "%s(%s:%d): "format"\n", 						\
-   __func__, __FILE__, __LINE__, ## __VA_ARGS__)
+#define _log_all(level, format,...) do {                            \
+    if (detached)                                                   \
+        syslog(level, "%s(%s:%d): "format"\n", 						\
+               __func__, __FILE__, __LINE__, ## __VA_ARGS__);       \
+    else                                                            \
+        fprintf(stderr, "%s(%s:%d): " format "\n",                  \
+                __func__, __FILE__, __LINE__, ## __VA_ARGS__);      \
+} while (/*CONSTCOND*/0)
 
 #define log_error(format,...) _log_all(LOG_ERR, "**ERROR** "format, ## __VA_ARGS__)
 #define log_warning(format,...) _log_all(LOG_WARNING, "WARNING: "format, ## __VA_ARGS__)
@@ -63,19 +70,27 @@
 #define log_errno(format,...) _log_all(LOG_ERR, format": %s", ## __VA_ARGS__, strerror(errno))
 
 /* Emulate macros from <err.h> but use syslog logging instead of stderr */
+/* TODO: make variadic functions instead */
 
-#define err(rc,format,...) do {						\
-   log_errno(format, ## __VA_ARGS__);					\
-   exit(rc);								\
+#define err(rc,format,...) do {						                        \
+    if (detached)                                                           \
+        log_errno(format, ## __VA_ARGS__);					                \
+    else                                                                    \
+        fprintf(stderr, "ERROR: " format "\n", ## __VA_ARGS__);                              \
+   exit(rc);								                                \
 } while (0)
 
 #define errx(rc,format,...) do {					\
-  log_error(format, ## __VA_ARGS__);					\
-  exit(rc);								\
+    if (detached)                                                           \
+       log_error(format, ## __VA_ARGS__);					\
+    else                                                                    \
+        fprintf(stderr, "ERROR: " format "\n", ## __VA_ARGS__);                              \
+    exit(rc);								\
 } while (0)
 
 /* Maximum limits */
 
+#define MAIL_ADDRSTRLEN     130
 #define RECIPIENT_MAX		100
 #define DOMAIN_MAX		63
 #define HOSTNAME_MAX		63
@@ -83,7 +98,8 @@
 
 /* Configuration options */
 
-# define DEFAULT_PREFIX		"/var/mail"
+#define DEFAULT_PREFIX		"/var/mail"
+#define SPOOLDIR            "/var/spool/recvmail"
 
 struct options {
     bool            debugging;
@@ -103,26 +119,22 @@ extern struct options OPT;
 
 struct session;
 
-struct recipient {
-	char addr[ADDRESS_MAX + 1]; /* Mailing address in the form 'USER@DOMAIN' */
-	size_t addr_len;	/* Number of characters in <addr> */
-	char *path;		/* Relative path to the mailbox */
-	UT_hash_handle hh;	/* Makes this structure hashable */
+struct mail_addr {
+    char   *local_part, 
+           *domain;
+    LIST_ENTRY(mail_addr) entries;
 };
 
 /* An RFC-2822 message */
-struct rfc2822_msg {
-    int             fd;		/* A file descriptor opened for writing
-				 * the message */
+struct message {
+    int             fd;		/* A file descriptor opened for writing the message */
     char           *path;	/* The path to the message */
-    char           *sender;	/* The email address of the sender */
-    struct in_addr  remote_addr;	/* The IP address of the client */
-    /* The remote IP address, converted to string format */
-    char            remote_addr_str[INET_ADDRSTRLEN + 1];
-    struct recipient *rcpt_to[RECIPIENT_MAX + 1];
-    int             num_recipients;
+    struct mail_addr *sender;	/* The email address of the sender */
+    struct session *session;
+    LIST_HEAD(,mail_addr) recipient;
+    size_t          recipient_count;
     size_t          size;
-    char           *filename;	/* The Maildir message-ID */
+     char           *filename;	/* The Maildir message-ID */
 };
 
 /** A server */
@@ -157,52 +169,27 @@ struct server {
     /* Sends a 'too many errors' message to a misbehaving client before
      * closing */
     void            (*reject_hook) (struct session *);
-
-    /* Executed when the server is started  */
-    // TODO: stop, reload hooks also.
-    int             (*start_hook) (struct server *);
-};
-
-/** Protocol-specific SMTP session data */
-struct session_data {
-    int             num_recipients;
-
-    /* An Internet message object */
-    struct rfc2822_msg *msg;
-
-    /* The state determines which SMTP commands are valid */
-    enum {
-	SMTP_STATE_HELO,
-	SMTP_STATE_MAIL,
-	SMTP_STATE_RCPT,
-	SMTP_STATE_DATA,
-	SMTP_STATE_FSYNC,
-	SMTP_STATE_QUIT,
-    } smtp_state;
 };
 
 /* A client session */
 struct session {
-    int             fd;		/* The client socket descriptor */
-    FILE           *lbuf_rd;    /* Line-buffered stream I/O handle for reading <fd> */
-    struct in_addr  remote_addr;	/* The IP address of the client */
+    int             fd;		        /* The client socket descriptor */
+    struct in_addr  remote_addr;	/* IP address of the client */
+    //FIXME: reimplement: struct bufferevent *bev;	/* I/O buffer */
+    unsigned int    errors;	/* The number of protocol errors */
 
-    /* The remote IP address, converted to string format */
-    char            remote_addr_str[INET_ADDRSTRLEN + 1];
-    struct bufferevent *bev;	/* I/O buffer */
-    struct server  *srv;	/* The parent server object */
-    struct session_data *data;	/* An opaque pointer to protocol-specific
-				 * data */
+    /* ---------- protocol specific members ------------ */
 
-    /* The state of the session */
+    struct message *msg;
+    /* The state determines which SMTP commands are valid */
     enum {
-	SESSION_OPEN = 0,	/* The session is active */
-	SESSION_WAIT,		/* Waiting for I/O completion */
-	SESSION_CLOSE,		/* The session is closing down */
-    } state;
-
-    unsigned int    error_count;	/* The number of errors caused by
-					 * the client */
+        SMTP_STATE_HELO,
+        SMTP_STATE_MAIL,
+        SMTP_STATE_RCPT,
+        SMTP_STATE_DATA,
+        SMTP_STATE_FSYNC,
+        SMTP_STATE_QUIT,
+    } smtp_state;
 };
 
 /* Forward declarations */
@@ -211,6 +198,13 @@ int             open_maillog(const char *path);
 int             valid_pathname(const char *pathname);
 int             file_exists(const char *path);
 
+/* From atomic.c */
+
+ssize_t atomic_printfd(int d, const char *fmt, ...);
+ssize_t atomic_read(int d, void *buf, size_t nbytes);
+ssize_t atomic_write(int d, const void *buf, size_t nbytes);
+int atomic_close(int d);
+
 /* From address.h (TODO: cleanup) */
 
 #define USERNAME_MAX            63
@@ -218,30 +212,34 @@ int             file_exists(const char *path);
 int             domain_exists(const char *domain);
 
 struct rfc2822_addr *rfc2822_addr_new();
-char * addr_parse(const char *);
-void            rfc2822_addr_free(struct rfc2822_addr *addr);
-
+struct mail_addr * address_parse(const char *src);
+void            address_free(struct mail_addr *addr);
+char * address_get(char *dst, size_t len, struct mail_addr *src);
 int             valid_address(const struct rfc2822_addr *addr);
 int             valid_domain(const char *domain);
-struct recipient * recipient_find(const char *);
 
 void addr_table_generate(void);
 
+/* From aliases.c */
+
+void            aliases_init(void);
+void            aliases_parse(const char *);
+
 /* From message.h */
 
-int             init_message(struct rfc2822_msg *msg);
-int             rset_message(struct rfc2822_msg *msg);
-int             valid_message(struct rfc2822_msg *msg);
+int             init_message(struct message *msg);
+int             rset_message(struct message *msg);
+int             valid_message(struct message *msg);
 
 /* From maildir.h */
 
-int             maildir_msg_open(struct rfc2822_msg *msg);
-int             open_message(struct rfc2822_msg *msg);
-struct rfc2822_msg *rfc2822_msg_new();
-int             rfc2822_msg_write(struct rfc2822_msg *msg, const char *src,
+int             maildir_msg_open(struct message *msg);
+int             open_message(struct message *msg);
+struct message *message_new();
+int             message_write(struct message *msg, const char *src,
 				  size_t len);
-int             maildir_msg_close(struct rfc2822_msg *msg);
-void            rfc2822_msg_free(struct rfc2822_msg *msg);
+int             maildir_msg_close(struct message *msg);
+void            message_free(struct message *msg);
 
 /* From http.c */
 
@@ -255,13 +253,13 @@ void session_println(struct session *, const char *);
 void            session_close(struct session *s);
 void session_init(struct session *);
 void            session_free(struct session *s);
+char *          remote_addr(char *dest, size_t len, const struct session *s);
 
 int             smtpd_greeting(struct session *s);
 int             smtpd_parser(struct session *s, char *buf, size_t len);
 void            smtpd_timeout(struct session *s);
 void            smtpd_client_error(struct session *s);
 int             smtpd_close_hook(struct session *s);
-int             smtpd_start_hook(struct server *);
 
 /* From server.c */
 
@@ -269,25 +267,5 @@ void server_dispatch(struct server *srv);
 void server_bind(struct server *srv);
 void server_init(void);
 void drop_privileges(const char *user, const char *group, const char *chroot_to);
-
-/* From spool.c */
-
-int             msg_spool(struct rfc2822_msg *msg);
-
-/* Thread locking routines */
-
-static inline void
-mutex_lock(pthread_mutex_t *m)
-{
-        if (pthread_mutex_lock(m) != 0)
-                err(1, "pthread_mutex_lock(3)");
-}
-
-static inline void
-mutex_unlock(pthread_mutex_t *m)
-{
-        if (pthread_mutex_unlock(m) != 0)
-                err(1, "pthread_mutex_unlock(3)");
-}
 
 #endif

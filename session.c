@@ -24,6 +24,18 @@
 extern int      vasprintf(char **, const char *, va_list);
 
 
+/* Convert the IP address to ASCII */
+char *
+remote_addr(char *dest, size_t len, const struct session *s)
+{
+    if (inet_ntop(AF_INET, &s->remote_addr, dest, len) == NULL) {
+        log_errno("inet_ntop(3)");
+        return (NULL);
+    }
+
+    return (dest);
+}
+
 void
 session_write(struct session *s, const char *buf, size_t len)
 {
@@ -85,33 +97,13 @@ session_init(struct session *s)
     }
     s->remote_addr = name.sin_addr;
 
-    /* Convert the IP address to ASCII */
-    if (inet_ntop(AF_INET, &s->remote_addr,
-		  (char *) &s->remote_addr_str,
-		  sizeof(s->remote_addr_str)) == NULL) {
-	log_errno("inet_ntop(3)");
-	goto error;
-    }
-
     /* Use non-blocking I/O */
     if (fcntl(s->fd, F_SETFL, O_NONBLOCK) < 0) {
             log_errno("fcntl(2)");
             goto error;
     }
 
-    /* Upgrade the file descriptor to a FILE streams */
-    if ((s->lbuf_rd = fdopen(s->fd, "r")) == NULL) {
-	    log_errno("fdopen(3)");
-	    goto error;
-    }
-
-    /* Enable line-buffering when reading from the client */
-    setlinebuf(s->lbuf_rd);
-
     /* TODO: Determine the reverse DNS name for the host */
-
-    /* Send the greeting */
-    (void) s->srv->accept_hook(s);	// TODO: Check return value
 
     return;
 
@@ -124,7 +116,7 @@ session_close(struct session *s)
 {
     log_info("closing transmission channel (%d)", 0);
     // TODO: hook function
-    s->state = SESSION_CLOSE;
+    //s->state = SESSION_CLOSE;
 }
 
 void

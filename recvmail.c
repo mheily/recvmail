@@ -22,6 +22,7 @@ void            run_testsuite();
 
 /* Global variables */
 
+int detached = 0;
 struct server   smtpd = {
     .port = 25,
     .addr.s_addr = INADDR_ANY,
@@ -29,7 +30,6 @@ struct server   smtpd = {
     .timeout_write = 30,
 
     /* vtable */
-    .start_hook = smtpd_start_hook,
     .accept_hook = smtpd_greeting,
     .read_hook = smtpd_parser,
     .timeout_hook = smtpd_timeout,
@@ -137,27 +137,28 @@ main(int argc, char *argv[])
 
     /* Check the 'debugging' environment option */
     if (getenv("RECVMAIL_DEBUG")) {
-	OPT.daemon = 0;
-	OPT.log_level++;
+        OPT.daemon = 0;
+        OPT.log_level++;
     }
 
     /* Get the hostname */
     if (!OPT.mailname) {
-	if ((OPT.mailname = malloc(256)) == NULL)
-	    err(1, "malloc");
-	if (gethostname(OPT.mailname, 256) != 0)
-	    err(1, "gethostname");
+        if ((OPT.mailname = malloc(256)) == NULL)
+            err(1, "malloc");
+        if (gethostname(OPT.mailname, 256) != 0)
+            err(1, "gethostname");
     }
+    log_debug("mailname=`%s'", OPT.mailname);
 
+    /* Check directory accesses */
+    if (access(SPOOLDIR, F_OK) != 0)
+        err(1, "%s: %s", SPOOLDIR, strerror(errno));
+
+    aliases_parse("/etc/aliases");
     server_init();
     server_bind(&smtpd);
     //TODO:server_bind(&pop3d);
     drop_privileges(OPT.uid, OPT.gid, OPT.chrootdir);
-
-    /* Start the web server */
-    /* (FIXME: small race condition if web server is accessed before smtpd is initialized 
-     */ 
-    //httpd_init(&smtpd);
 
 #ifdef UNIT_TESTING
     /* Run the testsuite */
