@@ -21,15 +21,8 @@
 #include <dirent.h>
 #include <stdio.h>
 
-
-/* Private global variables */
-
-/* Recipient lookup table */
-static struct recipient *RCPT = NULL;
-static size_t RCPT_COUNT = 0;
-
-/**
- * Parse an Internet mail address.
+/*
+ * parse_address(dest, src)
  *
  * Takes an RFC2822 email address (<foo@bar.com>) and validates it, returning
  * the canonical address or NULL if invalid.
@@ -37,67 +30,78 @@ static size_t RCPT_COUNT = 0;
  * Returns: 0 if success, -1 if error
  *
  */
-char *
-addr_parse(const char *src)
+struct mail_addr *
+address_parse(const char *src) 
 {
-    char *buf, *p;
+    char   local_part[64],
+           domain[64];
+    struct mail_addr *dst;
+    int     i;
 
-    /* Remove leading whitespace and '<' bracket */
-    for (; *src == ' ' || *src == '<'; src++);	
+    /* Initialize variables */
+    if ((dst = calloc(1, sizeof(*dst))) == NULL) {
+        log_errno("calloc(3)");
+        return (NULL);
+    }
 
-    buf = strdup(src);
+    /* Split the string into two parts */
+    /* XXX-FIXME - need to accept bracketed, backslash-escaped and quoted strings */
+    i = sscanf(src, " %63[a-zA-Z0-9_.+=%#?~^-]@%63[a-zA-Z0-9_.-] ", 
+            local_part, domain);
+    if (i < 2 || i == EOF) {
+        log_debug("unable to parse address");
+        goto errout;
+    }
+    //log_debug("parsed %s as [%s], [%s]", src, dest->user, dest->domain);
 
-    /* Ignore any trailing whitespace and additional options */
-    if ((p = strchr(buf, ' ')) != NULL)
-	memset(p, 0, 1);
-    if ((p = strchr(buf, '>')) != NULL)
-	memset(p, 0, 1);
+    /* Validate the address */
+    if (local_part[0] == '\0' || domain[0] == '\0') {
+        log_debug("invalid address: empty part not allowed");
+        goto errout;
+    }
+    if (local_part[0] == '.' || domain[0] == '.') {
+        log_debug("invalid address: leading dot not allowed");
+        goto errout;
+    }
 
-    log_debug("parsed %s as `%s'", src, buf);
+    /* Copy the buffers to persistent storage */
+    if ((dst->local_part = strdup(local_part)) == NULL) {
+        log_errno("strdup(3)");
+        goto errout;
+    }
+    if ((dst->domain = strdup(domain)) == NULL) {
+        log_errno("strdup(3)");
+        goto errout;
+    }
 
-    return buf;
-}
+    return (dst);
 
-
-struct recipient *
-recipient_add(const char *addr, const char *path)
-{
-	struct recipient *r;
-
-	if ((r = malloc(sizeof(*r))) == NULL)
-		err(1, "malloc(3)");
-
-	r->addr_len = strlen(addr);
-	if (r->addr_len > ADDRESS_MAX)
-		errx(1, "address too long");
-
-	strncpy((char *) &r->addr, addr, sizeof(r->addr));
-	r->path = strdup(path);
-
-	if (!r->path)
-		err(1, "strdup(3)");
-
-	HASH_ADD_STR(RCPT, addr, r);
-	RCPT_COUNT++;
-
-	return r;
-}
-
-struct recipient *
-recipient_find(const char *addr)
-{
-	struct recipient *r;
-	HASH_FIND_STR(RCPT, addr, r);
-	return r;
+errout:
+    address_free(dst);
+    return (NULL);
 }
 
 void
-recipient_dump_all(struct recipient **dest)
+address_free(struct mail_addr *ma)
 {
-	struct recipient *r;
-
-	for (r=RCPT; r != NULL; r = r->hh.next) {
-		printf("%s\n", (char *) &r->addr);
-	}
+    if (ma != NULL) {
+        free(ma->local_part);
+        free(ma->domain);
+        free(ma);
+    }
 }
 
+/* dst should be sized MAIL_ADDRSTRLEN or more */
+char *
+address_get(char *dst, size_t len, struct mail_addr *src)
+{
+    int i;
+
+    i = snprintf(dst, len, "%s@%s", src->local_part, src->domain);
+    if (i < 0 || i >= len) {
+        log_errno("snprintf(3)");
+        return (NULL);
+    }
+
+    return (dst);
+}

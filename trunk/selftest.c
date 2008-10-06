@@ -19,20 +19,18 @@
 #include "recvmail.h"
 
 #define test(func,...) if (func(__VA_ARGS__) != 0) errx(1, "%s", "func failed")
+#define testnull(func,...) if (func(__VA_ARGS__) == NULL) errx(1, "%s", "func failed")
 void
 run_testsuite()
 {
-    struct rfc2822_addr *addr;
+    struct mail_addr *addr;
 
-    addr = rfc2822_addr_new();
-    test(rfc2822_addr_parse, addr, "hi@bye.com");
-    test(strcmp, addr->user, "hi");
+    if ((addr = address_parse("hi@bye.com")) == NULL)
+        errx(1, "address_parse() failed");
+
+    test(strcmp, addr->local_part, "hi");
     test(strcmp, addr->domain, "bye.com");
-    rfc2822_addr_free(addr);
-
-    struct rfc2822_msg *msg;
-    msg = rfc2822_msg_new();
-    // test(rfc2822_msg_se, addr, "hi@bye.com");
+    address_free(addr);
 
     printf("+OK\n");
 }

@@ -52,24 +52,26 @@ maildir_generate_id(void)
  *
  */
 int
-maildir_msg_open(struct rfc2822_msg *msg)
+maildir_msg_open(struct message *msg)
 {
     time_t          now;
     struct tm       timeval;
     char            timestr[64];
     size_t          len;
+    char            in_addr[INET_ADDRSTRLEN + 1];
+    char            ma_addr[MAIL_ADDRSTRLEN + 1];
     char           *buf = NULL;
 
-    if (msg->num_recipients == 0) {
+    if (LIST_EMPTY(&msg->recipient)) {
     	log_warning("cannot deliver a message with no recipients");
-	return -1;
+        return (-1);
     }
 
     /* Generate the message pathname */
     if ((msg->filename = maildir_generate_id()) == NULL)
-	return -1;
-    if (asprintf(&msg->path, "%s/tmp/%s", msg->rcpt_to[0]->path, msg->filename) < 0)
-	return -1;
+        return -1;
+    if (asprintf(&msg->path, "%s/tmp/%s", SPOOLDIR, msg->filename) < 0)
+        return -1;
 
     /* Try to open the message file for writing */
     /* NOTE: O_EXCL may not work on older NFS servers */
@@ -84,64 +86,33 @@ maildir_msg_open(struct rfc2822_msg *msg)
     time(&now);
     gmtime_r(&now, &timeval);
     asctime_r(&timeval, timestr);
-    len =
-	asprintf(&buf,
-		 "Received: from %s ([%s])\n        by %s (recvmail) on %s",
-		 msg->sender,
-		 msg->remote_addr_str, OPT.mailname, timestr);
-    if ((len < 0) || rfc2822_msg_write(msg, buf, len) < 0) {
-	free(buf);
-	return -1;
+    len = asprintf(&buf,
+            "Received: from %s ([%s])\n        by %s (recvmail) on %s",
+            address_get(ma_addr, sizeof(ma_addr), msg->sender),
+            remote_addr(in_addr, sizeof(in_addr), msg->session), OPT.mailname, timestr);
+    if (len < 0) {
+        log_errno("asprintf(3)");
+        goto errout;
     }
 
-    free(buf);
-    return 0;
-}
-
-
-struct rfc2822_msg *
-rfc2822_msg_new()
-{
-    struct rfc2822_msg *msg;
-
-    if ((msg = calloc(1, sizeof(struct rfc2822_msg))) == NULL)
-	return NULL;
-
-    return msg;
-}
-
-void
-rfc2822_msg_free(struct rfc2822_msg *msg)
-{
-    if (msg) {
-	free(msg->path);
-	free(msg->sender);
-	free(msg->filename);
-	free(msg);
+    /* Write the buffer to disk */
+    if (atomic_write(msg->fd, buf, len) < len) {
+        log_errno("atomic_write() failed");
+        goto errout;
     }
-}
-
-/**
- * Write <len> bytes of <line> to the <message> file descriptor (or buffer).
- *
- * Returns: 0 if the operation succeded, -1 if there was an error.
- *
- */
-int
-rfc2822_msg_write(struct rfc2822_msg *msg, const char *src, size_t len)
-{
-    /* write(2) to the file descriptor */
-    if (write(msg->fd, src, len) < len) {
-	log_errno("write(2)");
-	return -1;
-    }
-
     msg->size += len;
 
-    return 0;
+    free(buf);
+    return (0);
+
+errout:
+    free(buf);
+    return (-1);
 }
 
 
+
+#ifdef FIXME
 /**
  * Close the file descriptor associated with <msg>
  *
@@ -192,3 +163,4 @@ maildir_msg_close(struct rfc2822_msg *msg)
     free(path);
     return -1;
 }
+#endif

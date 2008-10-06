@@ -18,39 +18,7 @@
 
 #include "recvmail.h"
 
-#include <sys/queue.h>
-
-struct fdwatch {
-        int fd;                 /* File descriptor */
-        int watch;              /* Events to monitor: EPOLLIN | EPOLLOUT */
-        int state;              /* Current socket state: EPOLLIN | EPOLLOUT */
-        LIST_ENTRY(fdwatch) entries;
-};
-
-LIST_HEAD(, fdwatch) WATCH;
-pthread_mutex_t WATCH_MUTEX = PTHREAD_MUTEX_INITIALIZER;
-
-/* ------------------- Private functions ----------------------- */
-
-
-/*
- * xsetrlimit(resource,max)
- *
- * Wrapper for setrlimit(2) to set per-process resource limits
- *
- */
-void
-xsetrlimit(int resource, rlim_t max)
-{
-    struct rlimit   limit;
-
-    if (getuid() == 0) {
-	limit.rlim_cur = max;
-	limit.rlim_max = max;
-	if (setrlimit(resource, &limit) != 0)
-	    err(1, "setrlimit failed");
-    }
-}
+#include <poll.h>
 
 
 /*
@@ -74,42 +42,33 @@ drop_privileges(const char *user, const char *group, const char *chroot_to)
 
     /* Chdir into the chroot directory */
     if (chroot_to && (chdir(chroot_to) < 0)) 
-	err(1, "chdir(2) to `%s'", chroot_to);
+        err(1, "chdir(2) to `%s'", chroot_to);
 
     /* Only root is allowed to drop privileges */
     if (getuid() > 0) {
-	//log_warning("cannot drop privileges");
-	return;
+        log_warning("cannot drop privileges if UID != 0");
+        return;
     }
-
-    grent = NULL;
-    pwent = NULL;
 
     /* Convert the symbolic group to numeric GID */
-    if ((grent = getgrnam(group)) == NULL) {
-	syslog(LOG_ERR, "a group named '%s' does not exist", group);
-	abort();
-    }
-    gid = grent->gr_gid;
-
     /* Convert the symbolic user-id to the numeric UID */
-    if ((pwent = getpwnam(user)) == NULL) {
-	syslog(LOG_ERR, "a group named '%s' does not exist", group);
-	abort();
-    }
+    if ((grent = getgrnam(group)) == NULL) 
+        err(1, "a group named '%s' does not exist", group);
+    if ((pwent = getpwnam(user)) == NULL)
+        err(1, "a user named '%s' does not exist", user);
+    gid = grent->gr_gid;
     uid = pwent->pw_uid;
 
     /* chroot */
     if (chroot_to && (chroot(chroot_to) < 0))
-	err(1, "chroot(2)");
+        err(1, "chroot(2)");
 
-    /* Set the real GID */
+    /* Set the real UID and GID */
     if (setgid(gid) < 0)
-	err(1, "setgid(2)");
-
-    /* Set the real UID */
+        err(1, "setgid(2)");
     if (setuid(uid) < 0)
-	err(1, "setuid(2)");
+        err(1, "setuid(2)");
+    
     log_info("setuid(2) to %s(%d)", user, uid);
 }
 
@@ -135,33 +94,35 @@ register_signal_handlers(void)
 void
 server_init(void)
 {
+    struct rlimit   limit;
     int             logopt = LOG_NDELAY;
     pid_t           pid,
                     sid;
 
     if (OPT.daemon) {
 
-	syslog(LOG_DEBUG,
-	       "pid %d detatching from the controlling terminal",
-	       getpid());
+        syslog(LOG_DEBUG,
+                "pid %d detatching from the controlling terminal",
+                getpid());
 
-	/* Create a new process */
-	if ((pid = fork()) < 0)
-	    err(1, "fork(2)");
+        /* Create a new process */
+        if ((pid = fork()) < 0)
+            err(1, "fork(2)");
 
-	/* Terminate the parent process */
-	if (pid > 0)
-	    exit(0);
+        /* Terminate the parent process */
+        if (pid > 0)
+            exit(0);
 
-	/* Create a new session and become the session leader */
-	if ((sid = setsid()) < 0)
-	    err(1, "setsid(2)");
+        /* Create a new session and become the session leader */
+        if ((sid = setsid()) < 0)
+            err(1, "setsid(2)");
 
-	/* Close all inherited STDIO file descriptors */
-	close(0);
-	close(1);
-	close(2);
+        /* Close all inherited STDIO file descriptors */
+        close(0);
+        close(1);
+        close(2);
 
+        detached = 1;
     } else {
 	    logopt |= LOG_PERROR;
 
@@ -171,12 +132,15 @@ server_init(void)
     openlog("", logopt, OPT.log_facility);
 
     /* Increase the allowable number of file descriptors */
-    xsetrlimit(RLIMIT_NOFILE, 50000);
+    if (getuid() == 0) {
+        limit.rlim_cur = 50000;
+        limit.rlim_max = 50000;
+        if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
+            err(1, "setrlimit failed");
+    }
 
     /* Register the standard signal handling functions */
     register_signal_handlers();
-
-    LIST_INIT(&WATCH);
 }
 
 
@@ -189,10 +153,6 @@ server_bind(struct server *srv)
 	/* Adjust the port number for non-privileged processes */
 	if (getuid() > 0 && srv->port < 1024)
 		srv->port += 1000;
-
-	/* Run the protocol-specific hook function */
-	if (srv->start_hook(srv) < 0) 
-		err(1, "start_hook() failed");
 
 	/* Initialize the socket variable */
 	memset(&srv_addr, 0, sizeof(srv_addr));
@@ -213,7 +173,9 @@ server_bind(struct server *srv)
 	/* Listen for incoming connections */
 	if (listen(srv->fd, 100) < 0)
 		err(1, "listen(2) failed");
+    log_debug("listening on port %d", srv->port);
 }
+
 
 void
 server_dispatch(struct server *srv)
@@ -221,6 +183,18 @@ server_dispatch(struct server *srv)
 	socklen_t cli_len;
 	pthread_t tid;
 	struct session *s;
+    struct pollfd pfd[1];
+    int nfds;
+
+    pfd[0].fd = srv->fd;
+    pfd[0].events = POLLIN;
+    nfds = poll(pfd, 1, 60 * 1000);
+    if (nfds == -1 || (pfd[0].revents & (POLLERR|POLLHUP|POLLNVAL)))
+        errx(1, "poll error");
+   // if (nfds == 0)
+  //      errx(1, "time out");
+
+    errx(1, "todo -- use poll(2) everywhere");
 
 	/* Dispatch incoming connections */
 	for (;;) {
@@ -231,10 +205,9 @@ server_dispatch(struct server *srv)
 			sleep(5);
 			continue;
 		}
-		s->srv = srv;
 
 		/* Wait for a new connection */
-		s->fd = accept(s->srv->fd, &s->srv->sa, &cli_len);
+		s->fd = accept(srv->fd, &srv->sa, &cli_len);
 		if (s->fd < 0 && errno == EINTR)
 			continue;
 		if (s->fd < 0)
@@ -246,24 +219,9 @@ server_dispatch(struct server *srv)
 			close(s->fd);
 			continue;
 		}
+
+        /* XXX-FIXME - move somewhere elso -- Send the greeting */
+        (void) srv->accept_hook(s);	// TODO: Check return value
+
 	}
-}
-
-
-void
-server_watch(int fd, int event_type)
-{
-        struct fdwatch *w;
-
-        /* Create a watch */
-        if ((w = malloc(sizeof(*w))) == NULL)
-                err(1, "malloc failed");
-        w->fd = fd;
-        w->watch = event_type;
-        w->state = 0;
-
-        /* Add to the list */
-        mutex_lock(&WATCH_MUTEX);
-        LIST_INSERT_HEAD(&WATCH, w, entries);
-        mutex_unlock(&WATCH_MUTEX);
 }
