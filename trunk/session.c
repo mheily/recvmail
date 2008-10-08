@@ -20,6 +20,14 @@
 
 #include <stdarg.h>
 
+/**
+ * At any given time, a session may be on one of the following lists.
+ * 
+ */
+LIST_HEAD(,session) runnable;
+LIST_HEAD(,session) io_wait;
+
+
 /** vasprintf(3) is a GNU extension and not universally visible */
 extern int      vasprintf(char **, const char *, va_list);
 
@@ -84,37 +92,48 @@ session_println(struct session *s, const char *buf)
         return session_printf(s, "%s\r\n", buf);
 }
 
-void
-session_init(struct session *s)
+struct session *
+session_new(int fd)
 {
+    struct session *s;
     struct sockaddr_in name;
     socklen_t       namelen = sizeof(name);
+
+    /* Allocate memory for the structure */
+    if ((s = calloc(1, sizeof(*s))) == NULL) {
+        log_errno("calloc(3)");
+        return NULL;
+    }
+    s->fd = fd;
 
     /* Determine the IP address of the client */
     if (getpeername(s->fd, (struct sockaddr *) &name, &namelen) < 0) {
             log_errno("getpeername(2)");
-            goto error;
+            goto errout;
+
     }
     s->remote_addr = name.sin_addr;
 
     /* Use non-blocking I/O */
     if (fcntl(s->fd, F_SETFL, O_NONBLOCK) < 0) {
             log_errno("fcntl(2)");
-            goto error;
+            goto errout;
     }
 
     /* TODO: Determine the reverse DNS name for the host */
 
-    return;
+    return (s);
 
-  error:
+errout:
     free(s);
+    return (NULL);
 }
 
 void
 session_close(struct session *s)
 {
     log_info("closing transmission channel (%d)", 0);
+    /* XXX-fixme this is probably broken */
     // TODO: hook function
     //s->state = SESSION_CLOSE;
 }
@@ -122,6 +141,14 @@ session_close(struct session *s)
 void
 session_free(struct session *s)
 {
+    LIST_REMOVE(s, entries);
     free(s);
 }
 
+
+void
+session_table_init(void)
+{
+    LIST_INIT(&runnable);
+    LIST_INIT(&io_wait);
+}

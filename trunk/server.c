@@ -176,52 +176,59 @@ server_bind(struct server *srv)
     log_debug("listening on port %d", srv->port);
 }
 
+static int
+server_accept(struct server *srv)
+{
+	socklen_t cli_len;
+    int fd;
+	struct session *s;
+
+    /* Accept the incoming connection */
+    do { 
+        fd = accept(srv->fd, &srv->sa, &cli_len);
+    } while (fd > 0 || (fd < 0 && errno == EINTR));
+    if (fd < 0) {
+        log_errno("accept(2)");
+        return (-1);
+    }
+
+    /* Create a new session */
+    if ((s = session_new(fd)) == NULL) 
+        return (-1);
+
+    /* XXX-todo something here */
+
+    return (0);
+}
 
 void
 server_dispatch(struct server *srv)
 {
-	socklen_t cli_len;
-	pthread_t tid;
-	struct session *s;
     struct pollfd pfd[1];
     int nfds;
 
     pfd[0].fd = srv->fd;
     pfd[0].events = POLLIN;
-    nfds = poll(pfd, 1, 60 * 1000);
-    if (nfds == -1 || (pfd[0].revents & (POLLERR|POLLHUP|POLLNVAL)))
-        errx(1, "poll error");
-   // if (nfds == 0)
-  //      errx(1, "time out");
-
-    errx(1, "todo -- use poll(2) everywhere");
-
+   
 	/* Dispatch incoming connections */
 	for (;;) {
 
-		/* Create a new session */
-		if ((s = calloc(1, sizeof(*s))) == NULL) {
-			/* TODO: handle out-of-memory gracefully */
-			sleep(5);
-			continue;
-		}
+        /* Wait for I/O activity */
+        nfds = poll(pfd, 1, -1);
+        if (nfds == -1 || (pfd[0].revents & (POLLERR|POLLHUP|POLLNVAL)))
+            err(1, "poll(2)");
+        if (nfds == 0) {
+            if (errno == EINTR)
+                continue;
+            else
+                err(1, "poll(2)");
+        }
 
-		/* Wait for a new connection */
-		s->fd = accept(srv->fd, &srv->sa, &cli_len);
-		if (s->fd < 0 && errno == EINTR)
-			continue;
-		if (s->fd < 0)
-			err(1, "accept(2)");
+        /* Check for pending connection requests */
+        if (pfd[0].revents & POLLIN)
+            server_accept(srv);
 
-		/* Handle the session in a seperate thread */
-		if (pthread_create(&tid, NULL, (void *(*)(void *)) session_init, s) != 0) {
-			/* TODO - error handling */
-			close(s->fd);
-			continue;
-		}
-
-        /* XXX-FIXME - move somewhere elso -- Send the greeting */
-        (void) srv->accept_hook(s);	// TODO: Check return value
-
-	}
+        /* Check for any socket read or write ready conditions */
+        /*XXX-todo*/
+    }
 }

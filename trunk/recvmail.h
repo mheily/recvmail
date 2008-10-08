@@ -29,7 +29,6 @@
 #include <grp.h>
 #include <inttypes.h>
 #include <pwd.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -150,9 +149,6 @@ struct server {
     /* The number of seconds to wait to send data to the client */
     int             timeout_write;
 
-    /* The function that sends the initial greeting to the client */
-    int             (*accept_hook) (struct session *);
-
     /* Parses a line of input from the client */
     int             (*read_hook) (struct session *, char *, size_t);
 
@@ -176,7 +172,6 @@ struct session {
     int             fd;		        /* The client socket descriptor */
     struct in_addr  remote_addr;	/* IP address of the client */
     //FIXME: reimplement: struct bufferevent *bev;	/* I/O buffer */
-    unsigned int    errors;	/* The number of protocol errors */
 
     /* ---------- protocol specific members ------------ */
 
@@ -190,6 +185,11 @@ struct session {
         SMTP_STATE_FSYNC,
         SMTP_STATE_QUIT,
     } smtp_state;
+    unsigned int    errors;	/* The number of protocol errors */
+
+    /* ---------- end protocol specific members ---------- */
+
+    LIST_ENTRY(session) entries;
 };
 
 /* Forward declarations */
@@ -251,9 +251,10 @@ void session_write(struct session *, const char *, size_t size);
 void session_printf(struct session *, const char *, ...);
 void session_println(struct session *, const char *);
 void            session_close(struct session *s);
-void session_init(struct session *);
+struct session * session_new(int fd);
 void            session_free(struct session *s);
 char *          remote_addr(char *dest, size_t len, const struct session *s);
+void session_table_init(void);
 
 int             smtpd_greeting(struct session *s);
 int             smtpd_parser(struct session *s, char *buf, size_t len);
