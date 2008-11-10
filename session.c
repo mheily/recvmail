@@ -20,16 +20,15 @@
 
 #include <stdarg.h>
 
-/**
- * At any given time, a session may be on one of the following lists.
- * 
- */
-LIST_HEAD(,session) runnable;
-LIST_HEAD(,session) io_wait;
-
-
 /** vasprintf(3) is a GNU extension and not universally visible */
 extern int      vasprintf(char **, const char *, va_list);
+
+
+/*
+ *
+ * PUBLIC FUNCTIONS
+ *
+ */
 
 
 /* Convert the IP address to ASCII */
@@ -47,9 +46,53 @@ remote_addr(char *dest, size_t len, const struct session *s)
 void
 session_write(struct session *s, const char *buf, size_t len)
 {
-        // FIXME - todo error handling
-    (void) write(s->fd, buf, len);
+    ssize_t n;
+    struct nbuf *nbp;
+
+    /* If the output buffer is empty, try writing directly to the client */
+    if (TAILQ_FIRST(&s->out_buf) == NULL) {
+        for (;;) {
+            n = write(s->fd, buf, len);
+            if (n == len)
+                return;
+            if (n >= 0 && n < len) {
+                buf += n;
+                len -= n;
+                if (errno == EINTR) {
+                    continue; 
+                } else if (errno == EAGAIN) {
+                    break;
+                } else {
+                    log_errno("unusual short write(2)");
+                    session_close(s);
+                    return;
+                }
+            }
+            if (n < 0) {
+                log_errno("write(2)");
+            }
+        }
+    }
+
+    /* Copy the unwritten portion to a new buffer*/
+    /* FIXME -- This will fail in low-memory situations. */
+    if ((nbp = calloc(1, sizeof(*nbp))) == NULL) 
+        goto errout;
+    if ((nbp->nb_data = strdup(buf)) == NULL) {
+        free(nbp);
+        goto errout;
+    }
+    nbp->nb_len = len;
+    TAILQ_INSERT_TAIL(&s->out_buf, nbp, entries);
+    return;
+
+errout:
+        log_errno("calloc(3)");
+        session_close(s);
+        return;
 }
+
+
 
 void
 session_vprintf(struct session *s, const char *format, va_list ap)
@@ -105,6 +148,7 @@ session_new(int fd)
         return NULL;
     }
     s->fd = fd;
+    TAILQ_INIT(&s->out_buf);
 
     /* Determine the IP address of the client */
     if (getpeername(s->fd, (struct sockaddr *) &name, &namelen) < 0) {
@@ -132,23 +176,42 @@ errout:
 void
 session_close(struct session *s)
 {
-    log_info("closing transmission channel (%d)", 0);
-    /* XXX-fixme this is probably broken */
-    // TODO: hook function
-    //s->state = SESSION_CLOSE;
-}
+    struct nbuf *nbp;
 
-void
-session_free(struct session *s)
-{
+    if (s->closed) {
+        log_debug("double session_close() detected");
+        return;
+    }
+
+    log_debug("closing transmission channel");
+
+    /* Remove the descriptor from the session table and the pollset */
     LIST_REMOVE(s, entries);
-    free(s);
+    server_update_pollset(s->srv);
+
+    /* Clear the output buffer. Any unwritten data will be discarded. */
+    while ((nbp = TAILQ_FIRST(&s->out_buf))) {
+             free(nbp->nb_data);
+             TAILQ_REMOVE(&s->out_buf, nbp, entries);
+    }
+
+    /* Run any protocol-specific hooks */
+    s->srv->close_hook(s);
+
+    (void) atomic_close(s->fd);
+    s->closed = 1;
 }
 
-
+/* Toggle the current I/O state of a session from writer to reader */
 void
-session_table_init(void)
+session_become_reader(struct session *s)
 {
-    LIST_INIT(&runnable);
-    LIST_INIT(&io_wait);
+    state_transition(s, POLLIN);
+}
+
+/* Toggle the current I/O state of a session from reader to writer */
+void
+session_become_writer(struct session *s)
+{
+    state_transition(s, POLLOUT);
 }

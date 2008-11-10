@@ -30,11 +30,12 @@ struct server   smtpd = {
     .timeout_write = 30,
 
     /* vtable */
-    .read_hook = smtpd_parser,
+    .accept_hook = smtpd_accept,
     .timeout_hook = smtpd_timeout,
     .reject_hook = smtpd_client_error,
     .abort_hook = NULL,		// fixme
-    .close_hook = smtpd_close_hook,
+    .read_hook = smtpd_read,
+    .close_hook = smtpd_close,
 };
 
 struct options  OPT = {
@@ -153,7 +154,6 @@ main(int argc, char *argv[])
     if (access(SPOOLDIR, F_OK) != 0)
         err(1, "%s: %s", SPOOLDIR, strerror(errno));
 
-    session_table_init();
     aliases_parse("/etc/aliases");
     server_init();
     server_bind(&smtpd);
