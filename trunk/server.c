@@ -88,6 +88,52 @@ register_signal_handlers(void)
 #endif
 }
 
+/* ------------------------- pollset handling functions -----------------*/
+
+void
+server_update_pollset(struct server *srv)
+{
+    size_t n;
+    struct session *s;
+
+    n = PFD_RESERVED;
+    LIST_FOREACH(s, &srv->io_wait, entries) {
+        srv->pfd[n].fd = s->fd;
+        srv->pfd[n++].events = s->events;
+    }
+    srv->pfd_count = n;
+}
+
+void
+state_transition(struct session *s, int events)
+{
+    struct server *srv = s->srv;
+
+    LIST_REMOVE(s, entries);
+    if (events)
+        LIST_INSERT_HEAD(&srv->io_wait, s, entries);
+    else
+        LIST_INSERT_HEAD(&srv->runnable, s, entries);
+    s->events = events;
+    server_update_pollset(srv);
+    log_debug("state transition to %d", events);
+}
+
+/* Given a file descriptor, return a pointer to the associated session object */
+/* NOTE: only works for sessions that are waiting for I/O. */
+struct session *
+session_lookup(struct server *srv, int fd)
+{
+    struct session *s;
+
+    LIST_FOREACH(s, &srv->io_wait, entries) {
+        if (s->fd == fd)
+            return (s);
+    }
+
+    return (NULL);
+}
+
 /* ------------------- Public functions ----------------------- */
 
 /* Initialization routines common to all servers */
@@ -176,7 +222,7 @@ server_bind(struct server *srv)
     log_debug("listening on port %d", srv->port);
 }
 
-static int
+static struct session *
 server_accept(struct server *srv)
 {
 	socklen_t cli_len;
@@ -186,36 +232,181 @@ server_accept(struct server *srv)
     /* Accept the incoming connection */
     do { 
         fd = accept(srv->fd, &srv->sa, &cli_len);
-    } while (fd > 0 || (fd < 0 && errno == EINTR));
+    } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
         log_errno("accept(2)");
-        return (-1);
+        return (NULL);
     }
 
     /* Create a new session */
     if ((s = session_new(fd)) == NULL) 
-        return (-1);
+        return (NULL);
+    s->srv = srv;
 
-    /* XXX-todo something here */
+    /* Mark the session as runnable, but do not monitor I/O readiness */
+    LIST_INSERT_HEAD(&srv->runnable, s, entries);
 
-    return (0);
+    log_debug("accepted session on fd %d", fd);
+    srv->accept_hook(s);
+    return (s);
+}
+
+
+/* Read more data from the client and fill the read buffer */
+static int
+client_read(struct session *s)
+{
+    ssize_t n;
+    struct smtpbuf *b = &s->buf;
+
+    for (;;) {
+        n = read(s->fd, (b->data + b->pos), sizeof(b->data) - b->pos);
+
+        /* Ignore interrupts and resume the system call */
+        if (n == -1 && errno == EINTR)
+            continue;
+
+        /* If no data is available, go to sleep */
+        if (n < 0 && errno == EAGAIN) {
+            log_debug("got EAGAIN");
+            state_transition(s, POLLIN);
+            return (1);
+        }
+
+        /* Check for fatal errors */
+        if (n < 0) {
+            /* XXX-error handling */
+            log_errno("read(2)");
+            errx(1, "FIXME - error handling %d", (int) n);
+            return (-1);
+        }
+
+        /* Check for EOF */
+        if (n == 0) {
+            log_debug("got EOF from client");
+            return (0);
+        }
+
+        /* Update the buffer length */
+        b->len += n;
+        log_debug("read %zu bytes", b->len);
+        return (0);
+    }
+} 
+
+/* Write data to the client, or fill the write buffer */
+void
+client_write(struct session *s, const char *buf, size_t len)
+{
+    ssize_t n;
+
+    for (;;) {
+        n = write(s->fd, buf, len);
+        
+        /* Ignore interrupts */
+        if (errno == EINTR) {
+            continue;
+        }
+
+        /* If everything was written, switch to read-mode */
+        if (n == len) {
+            state_transition(s, POLLIN);
+            return;
+        }
+
+        if (errno == EAGAIN) {
+            state_transition(s, POLLOUT);
+
+            /* Copy the unwritten portion to a new buffer*/
+            buf += n;
+            len -= n;
+            if (len >= sizeof(s->buf)) 
+                err(1, "illegal write"); /* TODO: less drastic */
+            memcpy(s->buf.data, buf, len);
+            s->buf.len = len;
+            s->buf.pos = 0;
+
+        }
+
+        /* Anything else is an error. */
+        log_errno("write(2)");
+        session_close(s); /* TODO- session_abort() instead */
+    }
+}
+
+/* Try to read a line of input from the client */
+static int 
+client_readln(struct session *s)
+{
+    struct smtpbuf *b = &s->buf;
+    int rv;
+
+    /* Read data into the buffer if it is empty or incomplete */
+    if (b->len == 0 || b->fragmented)  {
+        if ((rv = client_read(s)) != 0)
+            return (rv);
+    }
+
+    /* Look for the line terminator inside the buffer */
+    for (; b->pos <= b->len; b->pos++) {
+        if ((b->data[b->pos] == '\r' && b->data[b->pos + 1] == '\n') 
+                || (b->data[b->pos] == '\n')) {
+
+            /* Copy the line to the 'line' field */
+            b->line_len = b->pos + 1;
+            memcpy(b->line, b->data, b->line_len);
+
+            /* Shift the rest of the buffer all the way to the left */
+            /* TODO: optimize this away by creating a 'b->start' variable */
+            if (b->data[b->pos] == '\r') {
+                b->pos++;
+            }
+            if (b->pos == b->len) {
+                b->len = 0;
+                b->fragmented = 0;
+            } else {
+                memmove(b->data, b->data + b->pos + 1, b->len - b->pos - 1);
+                b->len = b->len - b->pos - 1;
+            }
+            b->pos = 0;
+            
+            /* Convert the trailing CR or LF into a NUL */
+            b->line[b->line_len - 1] = '\0';
+
+            log_debug("line=`%s' line_len=%zu pos=%zu len=%zu", 
+                    b->line, b->line_len, b->pos, b->len);
+
+            return (0);
+        }
+    }
+
+    s->buf.fragmented = 1;
+    return (-1);
 }
 
 void
 server_dispatch(struct server *srv)
 {
-    struct pollfd pfd[1];
-    int nfds;
+	struct session *s;
+    int      i, rv, nfds;
 
-    pfd[0].fd = srv->fd;
-    pfd[0].events = POLLIN;
+    /* Initialize the session table */
+    LIST_INIT(&srv->runnable);
+    LIST_INIT(&srv->io_wait);
+    LIST_INIT(&srv->idle);
+    srv->pfd_count = 0;
+
+    /* The first entry in the session table is the server descriptor */
+    srv->pfd[0].fd = srv->fd;
+    srv->pfd[0].events = POLLIN;
+    srv->pfd_count++;
    
 	/* Dispatch incoming connections */
 	for (;;) {
 
         /* Wait for I/O activity */
-        nfds = poll(pfd, 1, -1);
-        if (nfds == -1 || (pfd[0].revents & (POLLERR|POLLHUP|POLLNVAL)))
+        nfds = poll(srv->pfd, srv->pfd_count, -1);
+        if (nfds == -1 || (srv->pfd[0].revents & (POLLERR|POLLHUP|POLLNVAL)))
             err(1, "poll(2)");
         if (nfds == 0) {
             if (errno == EINTR)
@@ -225,8 +416,45 @@ server_dispatch(struct server *srv)
         }
 
         /* Check for pending connection requests */
-        if (pfd[0].revents & POLLIN)
-            server_accept(srv);
+        if (srv->pfd[0].revents & POLLIN) {
+            if ((s = server_accept(srv)) == 0)
+                continue;
+        }
+
+        for (i = 1; i < srv->pfd_count; i++) {
+            if (srv->pfd[i].revents & (POLLERR|POLLHUP|POLLNVAL)) {
+                log_debug("POLLERR/HUP on session %d", i);
+                errx(1, "hi");
+
+                /* FIXME: error handling here */
+            } else if (srv->pfd[i].revents & POLLIN) {
+                log_debug("POLLIN on session %d", i);
+
+                if ((s = session_lookup(srv, srv->pfd[i].fd)) == NULL)
+                    errx(1, "session_lookup failed");
+                
+                /* Read a line of input, process it, and repeat until
+                 * a read(2) would block. */
+                do {
+                    rv = client_readln(s);
+                    if (rv < 0) {
+                        log_info("readln failed");
+                        session_close(s);
+                    } else if (rv > 0) {
+                        ; /* EAGAIN */
+                    } else {
+                        srv->read_hook(s);
+                    }
+                    if (s->closed) {
+                        free(s);        //TODO: recycle by putting on the idle list 
+                    }
+                } while (!s->closed && rv == 0);
+
+            } else if (srv->pfd[i].revents & POLLOUT) {
+                log_debug("POLLOUT on session %d", i);
+                /* XXX-TODO */
+            }
+        }
 
         /* Check for any socket read or write ready conditions */
         /*XXX-todo*/

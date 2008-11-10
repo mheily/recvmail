@@ -17,6 +17,7 @@
  */
 
 #include "recvmail.h"
+#include "hash.h"
 
 struct alias_entry {
     char    *name;
@@ -24,27 +25,19 @@ struct alias_entry {
     char    *addr;
     size_t   addrlen;
     LIST_ENTRY(alias_entry) entries;
+    HASH_ENTRY(alias_entry) hashent;
 };
 
 LIST_HEAD(,alias_entry) aliases;
+HASH_HEAD(,alias_entry) alias_map;
 
-size_t
-aliases_lookup(char **dest, const char *name)
+struct alias_entry *
+aliases_lookup(const char *name)
 {
     struct alias_entry *ae;
-    size_t len;
 
-    len = strlen(name);
-
-    LIST_FOREACH(ae, &aliases, entries) {
-        if ((len == ae->namelen) && (strcmp(ae->name, name) == 0)) {
-            *dest = ae->addr;
-            return (ae->addrlen);
-        }
-    }
-
-    *dest = NULL;
-    return (-1);
+    HASH_LOOKUP(ae, name, &alias_map, name, hashent);
+    return (ae);
 }
 
 static void
@@ -60,6 +53,7 @@ aliases_add(const char *name, const char *addr)
     ae->addrlen = strlen(addr);
 
     LIST_INSERT_HEAD(&aliases, ae, entries);
+    HASH_INSERT(&alias_map, ae, name, hashent);
 }
 
 void
@@ -122,4 +116,5 @@ void
 aliases_init(void)
 {
     LIST_INIT(&aliases);
+    HASH_INIT(&alias_map);
 }
