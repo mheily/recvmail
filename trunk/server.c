@@ -110,10 +110,11 @@ state_transition(struct session *s, int events)
     struct server *srv = s->srv;
 
     LIST_REMOVE(s, entries);
-    if (events)
+    if (events) {
         LIST_INSERT_HEAD(&srv->io_wait, s, entries);
-    else
+    } else {
         LIST_INSERT_HEAD(&srv->runnable, s, entries);
+    }
     s->events = events;
     server_update_pollset(srv);
     log_debug("state transition to %d", events);
@@ -346,6 +347,15 @@ client_readln(struct session *s)
         if ((rv = client_read(s)) != 0)
             return (rv);
     }
+
+    /* WORKAROUND:
+     * If the client disconnects abruptly, client_read()
+     * will return 0 but len==0.
+     */
+    if (b->len == 0)
+        return (-1);
+
+    log_debug("read: len=%zu pos=%zu", b->len, b->pos);
 
     /* Look for the line terminator inside the buffer */
     for (; b->pos <= b->len; b->pos++) {
