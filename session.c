@@ -70,6 +70,7 @@ session_write(struct session *s, const char *buf, size_t len)
             }
             if (n < 0) {
                 log_errno("write(2)");
+                break; /*FIXME - better error handling, should kill the session */
             }
         }
     }
