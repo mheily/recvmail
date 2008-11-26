@@ -69,4 +69,8 @@
 
 #endif
 
+#ifndef TAILQ_FIRST
+#define TAILQ_FIRST(head)               ((head)->tqh_first)
+#endif
+
 #endif /* _QUEUE_H */
