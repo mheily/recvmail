@@ -40,11 +40,10 @@ struct server   smtpd = {
 
 struct options  OPT = {
     .debugging = 0,
-    .prefix = DEFAULT_PREFIX,
     .daemon = 1,
     .uid = "nobody",
     .gid = "mail",
-    .chrootdir = DEFAULT_PREFIX,
+    .spooldir = SPOOLDIR,
     .log_level = LOG_NOTICE,
 };
 
@@ -157,7 +156,7 @@ main(int argc, char *argv[])
     server_init();
     server_bind(&smtpd);
     //TODO:server_bind(&pop3d);
-    drop_privileges(OPT.uid, OPT.gid, OPT.chrootdir);
+    drop_privileges(OPT.uid, OPT.gid, OPT.spooldir);
 
     /* Dump some variables to the log */
     log_debug("mailname=`%s'", OPT.mailname);
