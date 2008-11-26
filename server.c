@@ -230,6 +230,8 @@ server_accept(struct server *srv)
     int fd;
 	struct session *s;
 
+    cli_len = sizeof(srv->sa);
+
     /* Accept the incoming connection */
     do { 
         fd = accept(srv->fd, &srv->sa, &cli_len);
