@@ -70,7 +70,7 @@ maildir_msg_open(struct message *msg)
     /* Generate the message pathname */
     if ((msg->filename = maildir_generate_id()) == NULL)
         return -1;
-    if (asprintf(&msg->path, "%s/tmp/%s", SPOOLDIR, msg->filename) < 0)
+    if (asprintf(&msg->path, "tmp/%s", msg->filename) < 0)
         return -1;
 
     /* Try to open the message file for writing */
