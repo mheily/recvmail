@@ -148,7 +148,6 @@ main(int argc, char *argv[])
         if (gethostname(OPT.mailname, 256) != 0)
             err(1, "gethostname");
     }
-    log_debug("mailname=`%s'", OPT.mailname);
 
     /* Check directory accesses */
     if (access(SPOOLDIR, F_OK) != 0)
@@ -159,6 +158,9 @@ main(int argc, char *argv[])
     server_bind(&smtpd);
     //TODO:server_bind(&pop3d);
     drop_privileges(OPT.uid, OPT.gid, OPT.chrootdir);
+
+    /* Dump some variables to the log */
+    log_debug("mailname=`%s'", OPT.mailname);
 
 #ifdef UNIT_TESTING
     /* Run the testsuite */

@@ -101,13 +101,13 @@ aliases_parse(const char *path)
         name = buf;
         addr = p;
 
-        log_debug("buf='%s' name='%s' addr='%s'", buf, name, addr);
+        /*log_debug("buf='%s' name='%s' addr='%s'", buf, name, addr);*/
 
         aliases_add(name, addr);
         count++;
     } while (! feof(f));
 
-    log_debug("loaded %d aliases", count);
+    /*log_debug("loaded %d aliases", count);*/
     if (fclose(f) != 0)
         err(1, "fclose(2) of aliases");
 }
