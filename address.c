@@ -36,6 +36,7 @@ address_parse(const char *src)
     char   local_part[64],
            domain[64];
     struct mail_addr *dst;
+    char   *p;
     int     i;
 
     /* Initialize variables */
@@ -44,8 +45,17 @@ address_parse(const char *src)
         return (NULL);
     }
 
+    /* Remove leading whitespace and angle-bracket */
+    while ((src[0] == ' ' ) || (src[0] == '<')) {
+        src++;
+    }
+
+    /* KLUDGE: remove trailing angle-bracket */
+    if ((p = strchr(src, '>')) != NULL) 
+            *p = ' ';
+
     /* Split the string into two parts */
-    /* XXX-FIXME - need to accept bracketed, backslash-escaped and quoted strings */
+    /* XXX-FIXME - need to accept backslash-escaped and quoted strings */
     i = sscanf(src, " %63[a-zA-Z0-9_.+=%#?~^-]@%63[a-zA-Z0-9_.-] ", 
             local_part, domain);
     if (i < 2 || i == EOF) {
