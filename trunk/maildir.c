@@ -19,10 +19,7 @@
 #include "recvmail.h"
 
 
-/**
- *
- * Generate a unique ID suitable for delivery to a Maildir
- */
+/* Generate a unique ID suitable for delivery to a Maildir */
 char *
 maildir_generate_id(void)
 {
@@ -41,7 +38,8 @@ maildir_generate_id(void)
 	    log_warning("asprintf(3)");
 	    return NULL;
     }
-	return buf;
+
+	return (buf);
 }
 
 
@@ -112,55 +110,42 @@ errout:
 
 
 
-#ifdef FIXME
 /**
  * Close the file descriptor associated with <msg>
  *
  * Modifies: msg->path
  */
 int
-maildir_msg_close(struct rfc2822_msg *msg)
+maildir_msg_close(struct message *msg)
 {
     char *path = NULL;
-    int i;
 
     /* Close the file */
-    if (close(msg->fd) < 0) {
-	log_errno("close(2)");
-	return -1;
+    if (atomic_close(msg->fd) < 0) {
+        log_errno("atomic_close(3)");
+        goto error;
+    }
+
+    /* Generate the new/ pathname */
+    if (asprintf(&path, "new/%s", msg->filename) < 0) {
+        log_errno("asprintf(3)");
+        goto error;
     }
 
     /* Move the message into the 'new/' directory */
-    if (asprintf(&path, "%s/new/%s", msg->rcpt_to[0]->path, msg->filename)
-	< 0)
-	goto error;
     if (rename(msg->path, path) < 0) {
-	log_errno("rename(2) of `%s' to `%s'", msg->path, path);
-	(void) unlink(msg->path);
-	goto error;
+        log_errno("rename(2) of `%s' to `%s'", msg->path, path);
+        goto error;
     }
+
+    /* Update msg->path to point at the new location */
     free(msg->path);
     msg->path = path;
-    path = NULL;
 
-    /* For each additional recipient, create a hard link */
-    for (i = 1; i < msg->num_recipients; i++) {
-	if (asprintf(&path, "%s/new/%s",
-		     msg->rcpt_to[0]->path, msg->filename) < 0) {
-	    goto error;
-	}
-	if (link(msg->path, path) < 0) {
-	    /* TODO: unlink previous attempts */
-	    log_errno("link(2) of `%s' to `%s'", msg->path, path);
-	    goto error;
-	}
-	free(path);
-    }
-
-    return 0;
+    return (0);
 
   error:
     free(path);
-    return -1;
+    (void) unlink(msg->path);
+    return (-1);
 }
-#endif

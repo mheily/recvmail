@@ -258,8 +258,8 @@ smtpd_parse_data(struct session *s)
         /* TODO : set state to SMTP_STATE_FSYNC and call syncer */
 
         /* Deliver the message immediately */
-        if (atomic_close(s->msg->fd) < 0) {
-            log_errno("atomic_close(3)");
+        if (maildir_msg_close(s->msg) < 0) {
+            log_error("maildir_msg_close()");
             goto error;
         }
 
