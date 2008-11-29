@@ -105,6 +105,7 @@ extern int detached;
 struct options {
     bool            debugging;
     char           *mailname;
+    char           **domains; /* domain(s) to accept mail for */
     bool            daemon;	/* If TRUE, the server will run as a
 				 * daemon */
     char           *uid;	/* The symbolic user-ID to setuid(2) to */

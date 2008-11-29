@@ -147,6 +147,12 @@ main(int argc, char *argv[])
         if (gethostname(OPT.mailname, 256) != 0)
             err(1, "gethostname");
     }
+    
+    /* By default, only accept mail for the local machine. */
+    /* FIXME: check for malloc failure */
+    OPT.domains = calloc(2, sizeof(char *));
+    OPT.domains[0] = OPT.mailname;
+    OPT.domains[1] = NULL;
 
     /* Check directory accesses */
     if (access(SPOOLDIR, F_OK) != 0)

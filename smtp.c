@@ -20,6 +20,21 @@
 #include <ctype.h>
 
 
+/* Test if we accept mail for a given domain */
+static inline int
+relay_domain(const char *req)
+{
+    char **p;
+
+    for (p = OPT.domains; *p != NULL; p++) {
+        if (strcasecmp(*p, req) == 0) {
+            return (0);
+        }
+    }
+
+    return (-1);
+}
+
 static void
 smtpd_helo(struct session *s)
 {
@@ -86,7 +101,13 @@ smtpd_rcpt(struct session *s)
         session_println(s, "501 Invalid address syntax");
         goto errout;
     }
-  
+
+    /* Check if we accept mail for this domain */
+    if (relay_domain(ma->domain) != 0) {
+        session_println(s, "551 Relay access denied");
+        goto errout;
+    }
+
     /* Add the address to recipient list */
     LIST_INSERT_HEAD(&s->msg->recipient, ma, entries);
     s->msg->recipient_count++;
