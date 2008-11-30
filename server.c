@@ -354,8 +354,10 @@ client_readln(struct session *s)
      * If the client disconnects abruptly, client_read()
      * will return 0 but len==0.
      */
-    if (b->len == 0)
+    if (b->len == 0) {
+        log_warning("remote end has disconnected");
         return (-1);
+    }
 
     log_debug("read: len=%zu pos=%zu", b->len, b->pos);
 
@@ -392,6 +394,7 @@ client_readln(struct session *s)
         }
     }
 
+    log_debug("line is fragmented");
     s->buf.fragmented = 1;
     return (-1);
 }
