@@ -157,12 +157,6 @@ struct {								\
 	(head)->stqh_last = &STAILQ_NEXT((elm), field);			\
 } while (0)
 
-#define	STAILQ_LAST(head, type, field)					\
-	(STAILQ_EMPTY(head) ?						\
-		NULL :							\
-	        ((struct type *)					\
-		((char *)((head)->stqh_last) - __offsetof(struct type, field))))
-
 #define	STAILQ_NEXT(elm, field)	((elm)->field.stqe_next)
 
 #define	STAILQ_REMOVE(head, elm, type, field) do {			\
