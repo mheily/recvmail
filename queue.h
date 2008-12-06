@@ -74,6 +74,20 @@
 #define TAILQ_FIRST(head)               ((head)->tqh_first)
 #endif
 
+/* From FreeBSD. Glibc 2.7 doesnt have this, but does have other STAILQ macros */
+#ifndef STAILQ_LAST
+#define	STAILQ_LAST(head, type, field)					\
+	(STAILQ_EMPTY(head) ?						\
+		NULL :							\
+	        ((struct type *)					\
+		((char *)((head)->stqh_last) - offsetof(struct type, field))))
+#endif
+
+
+/* Old glibc doesn't have STAILQ at all. Again from FreeBSD. */
+#ifndef STAILQ_ENTRY
+
+
 /*
  * Singly-linked Tail queue declarations.
  */
@@ -91,17 +105,6 @@ struct {								\
 	struct type *stqe_next;	/* next element */			\
 }
 
-/* From FreeBSD. Glibc 2.7 doesnt have this, but does have other STAILQ macros */
-#ifndef STAILQ_LAST
-#define	STAILQ_LAST(head, type, field)					\
-	(STAILQ_EMPTY(head) ?						\
-		NULL :							\
-	        ((struct type *)					\
-		((char *)((head)->stqh_last) - offsetof(struct type, field))))
-#endif
-
-/* Old glibc doesn't have STAILQ at all. */
-#ifndef STAILQ_ENTRY
 /*
  * Singly-linked Tail queue declarations.
  */
