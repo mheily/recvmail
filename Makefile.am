@@ -22,7 +22,7 @@ man_MANS         = recvmail.8
 SOURCES		 = $(recvmail_SOURCES) $(selftest_SOURCES)
 
 recvmail_CFLAGS  = -g -O2 -Wall -Werror
-recvmail_SOURCES = address.c atomic.c aliases.c buffer.c file.c message.c maildir.c session.c smtp.c server.c recvmail.c 
+recvmail_SOURCES = address.c atomic.c aliases.c file.c message.c maildir.c session.c smtp.c server.c recvmail.c 
 recvmail_HEADERS = recvmail.h queue.h
 
 selftest_SOURCES = $(recvmail_SOURCES) selftest.c

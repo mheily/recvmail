@@ -48,7 +48,6 @@
 #include <netinet/in.h>
 
 #include "queue.h"
-#include "nbuf.h"
 
 extern int detached;
 
