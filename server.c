@@ -254,8 +254,6 @@ server_accept(struct server *srv)
     return (s);
 }
 
-
-/* Read more data from the client and fill the read buffer */
 static int
 client_read(struct session *s)
 {
@@ -263,7 +261,7 @@ client_read(struct session *s)
     struct smtpbuf *b = &s->buf;
 
     for (;;) {
-        n = read(s->fd, (b->data + b->pos), sizeof(b->data) - b->pos);
+        n = read(s->fd, (b->data + b->len), sizeof(b->data) - b->len);
 
         /* Ignore interrupts and resume the system call */
         if (n == -1 && errno == EINTR)
@@ -396,7 +394,7 @@ client_readln(struct session *s)
 
     log_debug("line is fragmented");
     s->buf.fragmented = 1;
-    return (-1);
+    return (1);
 }
 
 void
@@ -450,6 +448,7 @@ server_dispatch(struct server *srv)
                 
                 /* Read a line of input, process it, and repeat until
                  * a read(2) would block. */
+                /* FIXME: Could a client DOS the server by sending data ad infinitum? */
                 do {
                     rv = client_readln(s);
                     if (rv < 0) {
@@ -462,6 +461,11 @@ server_dispatch(struct server *srv)
                     }
                     if (s->closed) {
                         free(s);        //TODO: recycle by putting on the idle list 
+                    }
+                    /* TODO: make configurable, max_errors or something */
+                    if (s->errors > 10) {
+                        srv->reject_hook(s);
+                        session_close(s);
                     }
                 } while (!s->closed && rv == 0);
 

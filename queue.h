@@ -43,6 +43,7 @@
 #ifndef _QUEUE_H
 #define _QUEUE_H
 
+#include <stddef.h>             /* for offsetof() on Linux */
 #include <sys/queue.h>
 
 #ifndef LIST_FIRST
@@ -71,6 +72,32 @@
 
 #ifndef TAILQ_FIRST
 #define TAILQ_FIRST(head)               ((head)->tqh_first)
+#endif
+
+/*
+ * Singly-linked Tail queue declarations.
+ */
+#define	STAILQ_HEAD(name, type)						\
+struct name {								\
+	struct type *stqh_first;/* first element */			\
+	struct type **stqh_last;/* addr of last next element */		\
+}
+
+#define	STAILQ_HEAD_INITIALIZER(head)					\
+	{ NULL, &(head).stqh_first }
+
+#define	STAILQ_ENTRY(type)						\
+struct {								\
+	struct type *stqe_next;	/* next element */			\
+}
+
+/* From FreeBSD */
+#ifndef STAILQ_LAST
+#define	STAILQ_LAST(head, type, field)					\
+	(STAILQ_EMPTY(head) ?						\
+		NULL :							\
+	        ((struct type *)					\
+		((char *)((head)->stqh_last) - offsetof(struct type, field))))
 #endif
 
 #endif /* _QUEUE_H */

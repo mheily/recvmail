@@ -314,13 +314,17 @@ smtpd_greeting(struct session *s)
 void
 smtpd_parser(struct session *s)
 {
+    int rv;
+
     /* Pass control to the 'command' or 'data' subparser */
     if (s->smtp_state != SMTP_STATE_DATA) {
-        smtpd_parse_command(s);
+        rv = smtpd_parse_command(s);
     } else {
-        log_debug("parsing DATA");
-        smtpd_parse_data(s);
+        rv = smtpd_parse_data(s);
     }
+
+    if (rv != 0) 
+        s->errors++;
 }
 
 void
@@ -349,7 +353,7 @@ smtpd_timeout(struct session *s)
 void
 smtpd_client_error(struct session *s)
 {
-    session_println(s, "421 Too many unrecognized commands");
+    session_println(s, "421 Too many errors");
 }
 
 void
