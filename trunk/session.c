@@ -47,10 +47,11 @@ void
 session_write(struct session *s, const char *buf, size_t len)
 {
     ssize_t n;
+    char *p;
     struct nbuf *nbp;
 
     /* If the output buffer is empty, try writing directly to the client */
-    if (TAILQ_FIRST(&s->out_buf) == NULL) {
+    if (STAILQ_FIRST(&s->out_buf) == NULL) {
         for (;;) {
             n = write(s->fd, buf, len);
             if (n == len)
@@ -79,12 +80,12 @@ session_write(struct session *s, const char *buf, size_t len)
     /* FIXME -- This will fail in low-memory situations. */
     if ((nbp = calloc(1, sizeof(*nbp))) == NULL) 
         goto errout;
-    if ((nbp->nb_data = strdup(buf)) == NULL) {
+    if ((p = strdup(buf)) == NULL) {
         free(nbp);
         goto errout;
     }
-    nbp->nb_len = len;
-    TAILQ_INSERT_TAIL(&s->out_buf, nbp, entries);
+    NBUF_INIT(nbp, p, strlen(p));
+    STAILQ_INSERT_TAIL(&s->out_buf, nbp, entries);
     return;
 
 errout:
@@ -149,7 +150,8 @@ session_new(int fd)
         return NULL;
     }
     s->fd = fd;
-    TAILQ_INIT(&s->out_buf);
+    STAILQ_INIT(&s->out_buf);
+    STAILQ_INIT(&s->in_buf);
 
     /* Determine the IP address of the client */
     if (getpeername(s->fd, (struct sockaddr *) &name, &namelen) < 0) {
@@ -191,9 +193,9 @@ session_close(struct session *s)
     server_update_pollset(s->srv);
 
     /* Clear the output buffer. Any unwritten data will be discarded. */
-    while ((nbp = TAILQ_FIRST(&s->out_buf))) {
+    while ((nbp = STAILQ_FIRST(&s->out_buf))) {
              free(nbp->nb_data);
-             TAILQ_REMOVE(&s->out_buf, nbp, entries);
+             STAILQ_REMOVE_HEAD(&s->out_buf, entries);
     }
 
     /* Run any protocol-specific hooks */

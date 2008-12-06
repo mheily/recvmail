@@ -48,6 +48,7 @@
 #include <netinet/in.h>
 
 #include "queue.h"
+#include "nbuf.h"
 
 extern int detached;
 
@@ -194,17 +195,10 @@ struct smtpbuf {
     size_t           line_len;                 /* The length of <line> including the trailing NUL */
 
     //TODO: use nbuf here.
-    char             data[1024 * 16];          /* One line plus CR+LF+NUL */
-    size_t           pos,            /* Current position within the buffer */
+    char             data[1024 * 16];          
+    size_t           pos,            /* Current read position within the buffer */
                      len;            /* Number of bytes used in the buffer */
-    int              fragmented:1;   /* If non-zero, the buffer is not a complete line */
-};
-
-/* A general-purpose buffer for network data implemented as a linked list. */
-struct nbuf {
-    char   *nb_data;        /* NUL-terminated string; */
-    size_t  nb_len;         /* Number of bytes, not including trailing NUL */
-    TAILQ_ENTRY(nbuf) entries;
+    int fragmented; 
 };
 
 /* A client session */
@@ -214,8 +208,9 @@ struct session {
     int             fd;		        /* The client socket descriptor */
     int             events;         /* Desired poll(2) events */
     struct in_addr  remote_addr;	/* IP address of the client */
-    struct smtpbuf  buf;            /* I/O buffer (now used only for input..) */
-    TAILQ_HEAD(,nbuf) out_buf;       /* Output buffer */
+    struct smtpbuf  buf;            /* DEPRECATED: I/O buffer (now used only for input..) */
+    STAILQ_HEAD(,nbuf) in_buf;       /* Input buffer */
+    STAILQ_HEAD(,nbuf) out_buf;       /* Output buffer */
 
     /* ---------- protocol specific members ------------ */
 
