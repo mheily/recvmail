@@ -57,7 +57,7 @@ smtpd_mail(struct session *s)
 {
     if (s->msg->sender != NULL)
         free(s->msg->sender);
-    if ((s->msg->sender = address_parse(s->buf.line + 10)) == NULL) {
+    if ((s->msg->sender = address_parse(s->line + 10)) == NULL) {
             session_println(s, "501 Malformed address");
             return; //fixme: errorcount++
     }
@@ -69,7 +69,7 @@ static void
 smtpd_rcpt(struct session *s)
 {
     char *p;
-    char *line = s->buf.line + 8;
+    char *line = s->line + 8;
     char *buf = NULL;
     struct mail_addr *ma = NULL;
 
@@ -176,12 +176,12 @@ smtpd_parse_command(struct session *s)
 {
     size_t          i;
     int             c;
-    char            *src = s->buf.line;
-    size_t          len = s->buf.line_len;
+    char            *src = s->line;
+    size_t          len = s->line_len;
     void (*fp)(struct session *) = NULL;
 
     /* SMTP commands must be at least four characters plus the trailing NUL */
-    if (len < 5) {
+    if (len < 4) {
             session_println(s, "502 Illegal command");
             return (-1);
     }
@@ -190,7 +190,7 @@ smtpd_parse_command(struct session *s)
      * Test for invalid ASCII characters. 
      * SMTP commands must be 7-bit clean with no control characters.
      */
-    for (i = 0; i < len - 1; i++) {
+    for (i = 0; i < len; i++) {
         c = src[i];
         if (c < 32 || c > 127) {
             log_debug("illegal character at position %zu", i);
@@ -249,8 +249,8 @@ int
 smtpd_parse_data(struct session *s)
 {
     int             offset = 0;
-    char            *src = s->buf.line;
-    size_t          len = s->buf.line_len - 1; /*NOTE: removes NUL from the length calculation */
+    char            *src = s->line;
+    size_t          len = s->line_len; 
 
     /* If the line is '.', end the data stream */
     if ((len == 1) && strncmp(src, ".", 1) == 0) {
