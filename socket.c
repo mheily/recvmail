@@ -32,11 +32,11 @@
 /**
  * Multiplexed I/O using non-blocking sockets and a single thread of control.
  */
-static char    buf[__BUFSIZE + 1];
+static char    buf[__BUFSIZE + 2];
 static size_t  nbuf;
 
 /* Pointers to all the lines within <buf> */
-static struct iovec lines[__BUFSIZE + 1];  //TODO: this is absurdly large, make it dynamic
+static struct iovec lines[__BUFSIZE + 2];  //TODO: this is absurdly large, make it dynamic
 static size_t       nlines;
 
 ssize_t
@@ -45,6 +45,7 @@ socket_readv(struct socket_buf *sb, int fd)
     char *a, *z, *buf_edge;
     char *bufp = (char *) &buf;
     size_t bufsz = __BUFSIZE;
+    size_t fraglen;
     ssize_t n;
 
     /* If there is an existing line fragment, place it at the beginning of the buffer */
@@ -53,9 +54,12 @@ socket_readv(struct socket_buf *sb, int fd)
         bufp += sb->sb_fraglen;
         bufsz -= sb->sb_fraglen;
         nbuf = sb->sb_fraglen;
+
+        /* Now, the fragment is no longer part of the socket_buf */
         free(sb->sb_frag);
         sb->sb_frag = NULL;
         sb->sb_fraglen = 0;
+
     } else {
         nbuf = 0;
     }
@@ -122,7 +126,12 @@ socket_readv(struct socket_buf *sb, int fd)
     /* Special case: the final line is not terminated */
     if (a != buf_edge) {
         *z = '\0';
-        sb->sb_fraglen = (z - a);
+        fraglen = (z - a);
+        if (fraglen > __MAX_FRAGMENT_LEN) {
+            log_error("line fragment exceeds maximum length");
+            return (-1);
+        }
+        sb->sb_fraglen = fraglen;
         sb->sb_frag = strdup(a);
         log_debug("frag='%s' fraglen=%zu", sb->sb_frag, sb->sb_fraglen);
     }
