@@ -150,8 +150,12 @@ session_new(int fd)
         return NULL;
     }
     s->fd = fd;
+
+    /* Initialize the input buffer */
+    memset(&s->in_buf, 0, sizeof(s->in_buf));
+
+    /* Initialize the output buffer */
     STAILQ_INIT(&s->out_buf);
-    STAILQ_INIT(&s->in_buf);
 
     /* Determine the IP address of the client */
     if (getpeername(s->fd, (struct sockaddr *) &name, &namelen) < 0) {
