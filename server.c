@@ -254,154 +254,37 @@ server_accept(struct server *srv)
     return (s);
 }
 
-static int
-client_read(struct session *s)
+static void
+session_read(struct session *s) 
 {
     ssize_t n;
-    struct smtpbuf *b = &s->buf;
 
-    for (;;) {
-        n = read(s->fd, (b->data + b->len), sizeof(b->data) - b->len);
-
-        /* Ignore interrupts and resume the system call */
-        if (n == -1 && errno == EINTR)
-            continue;
-
-        /* If no data is available, go to sleep */
-        if (n < 0 && errno == EAGAIN) {
+    if ((n = socket_readv(&s->in_buf, s->fd)) < 0) {
+        log_info("readln failed");
+        session_close(s);
+        return;
+    } 
+    
+    /* Handle EAGAIN if no data was read. */
+    if (n == 0) {
             log_debug("got EAGAIN");
             state_transition(s, POLLIN);
-            return (1);
-        }
-
-        /* Check for fatal errors */
-        if (n < 0) {
-            /* XXX-error handling */
-            log_errno("read(2)");
-            errx(1, "FIXME - error handling %d", (int) n);
-            return (-1);
-        }
-
-        /* Check for EOF */
-        if (n == 0) {
-            log_debug("got EOF from client");
-            return (0);
-        }
-
-        /* Update the buffer length */
-        b->len += n;
-        log_debug("read %zu bytes", b->len);
-        return (0);
-    }
-} 
-
-/* Write data to the client, or fill the write buffer */
-void
-client_write(struct session *s, const char *buf, size_t len)
-{
-    ssize_t n;
-
-    for (;;) {
-        n = write(s->fd, buf, len);
-        
-        /* Ignore interrupts */
-        if (errno == EINTR) {
-            continue;
-        }
-
-        /* If everything was written, switch to read-mode */
-        if (n == len) {
-            state_transition(s, POLLIN);
             return;
-        }
-
-        if (errno == EAGAIN) {
-            state_transition(s, POLLOUT);
-
-            /* Copy the unwritten portion to a new buffer*/
-            buf += n;
-            len -= n;
-            if (len >= sizeof(s->buf)) 
-                err(1, "illegal write"); /* TODO: less drastic */
-            memcpy(s->buf.data, buf, len);
-            s->buf.len = len;
-            s->buf.pos = 0;
-
-        }
-
-        /* Anything else is an error. */
-        log_errno("write(2)");
-        session_close(s); /* TODO- session_abort() instead */
-    }
-}
-
-/* Try to read a line of input from the client */
-static int 
-client_readln(struct session *s)
-{
-    struct smtpbuf *b = &s->buf;
-    int rv;
-
-    /* Read data into the buffer if it is empty or incomplete */
-    if (b->len == 0 || b->fragmented)  {
-        if ((rv = client_read(s)) != 0)
-            return (rv);
     }
 
-    /* WORKAROUND:
-     * If the client disconnects abruptly, client_read()
-     * will return 0 but len==0.
-     */
-    if (b->len == 0) {
-        log_warning("remote end has disconnected");
-        return (-1);
+    s->srv->read_hook(s);
+
+    // XXX-Very bad.. probably
+    if (s->closed) {
+        free(s);        //TODO: recycle by putting on the idle list 
     }
-
-    log_debug("read: len=%zu pos=%zu", b->len, b->pos);
-
-    /* Look for the line terminator inside the buffer */
-    for (; b->pos <= b->len; b->pos++) {
-        if ((b->data[b->pos] == '\r' && b->data[b->pos + 1] == '\n') 
-                || (b->data[b->pos] == '\n')) {
-
-            /* Copy the line to the 'line' field */
-            b->line_len = b->pos + 1;
-            memcpy(b->line, b->data, b->line_len);
-
-            /* Shift the rest of the buffer all the way to the left */
-            /* TODO: optimize this away by creating a 'b->start' variable */
-            if (b->data[b->pos] == '\r') {
-                b->pos++;
-            }
-            if (b->pos == b->len) {
-                b->len = 0;
-                b->fragmented = 0;
-            } else {
-                memmove(b->data, b->data + b->pos + 1, b->len - b->pos - 1);
-                b->len = b->len - b->pos - 1;
-            }
-            b->pos = 0;
-            
-            /* Convert the trailing CR or LF into a NUL */
-            b->line[b->line_len - 1] = '\0';
-
-            log_debug("line=`%s' line_len=%zu pos=%zu len=%zu", 
-                    b->line, b->line_len, b->pos, b->len);
-
-            return (0);
-        }
-    }
-
-    log_debug("line is fragmented");
-    s->buf.fragmented = 1;
-    return (1);
 }
 
 void
 server_dispatch(struct server *srv)
 {
 	struct session *s;
-    int      i, rv, nfds;
+    int      i, nfds;
 
     /* Initialize the session table */
     LIST_INIT(&srv->runnable);
@@ -446,29 +329,8 @@ server_dispatch(struct server *srv)
                 if ((s = session_lookup(srv, srv->pfd[i].fd)) == NULL)
                     errx(1, "session_lookup failed");
                 
-                /* Read a line of input, process it, and repeat until
-                 * a read(2) would block. */
-                /* FIXME: Could a client DOS the server by sending data ad infinitum? */
-                do {
-                    rv = client_readln(s);
-                    if (rv < 0) {
-                        log_info("readln failed");
-                        session_close(s);
-                    } else if (rv > 0) {
-                        ; /* EAGAIN */
-                    } else {
-                        srv->read_hook(s);
-                    }
-                    if (s->closed) {
-                        free(s);        //TODO: recycle by putting on the idle list 
-                    }
-                    /* TODO: make configurable, max_errors or something */
-                    if (s->errors > 10) {
-                        srv->reject_hook(s);
-                        session_close(s);
-                    }
-                } while (!s->closed && rv == 0);
-
+                session_read(s);
+             
             } else if (srv->pfd[i].revents & POLLOUT) {
                 log_debug("POLLOUT on session %d", i);
                 /* XXX-TODO */
