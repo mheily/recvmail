@@ -41,6 +41,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/uio.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -189,16 +190,13 @@ struct server {
     void            (*reject_hook) (struct session *);
 };
 
-/* A buffer for SMTP I/O */
-struct smtpbuf {
-    char             line[SMTP_LINE_MAX + 1];  /* The current line without a CR+LF */
-    size_t           line_len;                 /* The length of <line> including the trailing NUL */
-
-    //TODO: use nbuf here.
-    char             data[1024 * 16];          
-    size_t           pos,            /* Current read position within the buffer */
-                     len;            /* Number of bytes used in the buffer */
-    int fragmented; 
+/* A socket buffer */
+struct socket_buf {
+    struct iovec *sb_iov;           /* Buffer of lines */
+    size_t        sb_iovlen;        /* Number of structures in sb_iov */
+    char         *sb_frag;          /* Line fragment */
+    size_t        sb_fraglen;       /* Length of the line fragment */
+    int           sb_status;        /* Status code */
 };
 
 /* A client session */
@@ -208,9 +206,8 @@ struct session {
     int             fd;		        /* The client socket descriptor */
     int             events;         /* Desired poll(2) events */
     struct in_addr  remote_addr;	/* IP address of the client */
-    struct smtpbuf  buf;            /* DEPRECATED: I/O buffer (now used only for input..) */
-    STAILQ_HEAD(,nbuf) in_buf;       /* Input buffer */
-    STAILQ_HEAD(,nbuf) out_buf;       /* Output buffer */
+    struct socket_buf in_buf;
+    STAILQ_HEAD(,nbuf) out_buf;     /* Output buffer */
 
     /* ---------- protocol specific members ------------ */
 
@@ -299,7 +296,7 @@ void session_become_writer(struct session *s);
 void session_become_reader(struct session *s);
 
 void            smtpd_accept(struct session *s);
-void            smtpd_read(struct session *s);
+void            smtpd_parser(struct session *s);
 void            smtpd_timeout(struct session *s);
 void            smtpd_client_error(struct session *s);
 void            smtpd_close(struct session *s);
@@ -312,5 +309,10 @@ void server_init(void);
 void state_transition(struct session *s, int events);
 void server_update_pollset(struct server *srv);
 void drop_privileges(const char *user, const char *group, const char *chroot_to);
+
+/* From socket.c */
+
+ssize_t socket_readv(struct socket_buf *, int);
+
 
 #endif
