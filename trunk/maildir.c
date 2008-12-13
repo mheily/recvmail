@@ -142,6 +142,8 @@ maildir_msg_close(struct message *msg)
     free(msg->path);
     msg->path = path;
 
+    log_debug("message delivered to %s", msg->path);
+
     return (0);
 
   error:
