@@ -34,7 +34,7 @@ struct server   smtpd = {
     .timeout_hook = smtpd_timeout,
     .reject_hook = smtpd_client_error,
     .abort_hook = NULL,		// fixme
-    .read_hook = smtpd_read,
+    .read_hook = smtpd_parser,
     .close_hook = smtpd_close,
 };
 
