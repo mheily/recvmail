@@ -47,18 +47,17 @@ socket_readv(struct socket_buf *sb, int fd)
     size_t bufsz = __BUFSIZE;
     ssize_t n;
 
-    /* Remove any existing lines and buffered data. */
-    nbuf = 0;
-    nlines = 0;
-
     /* If there is an existing line fragment, place it at the beginning of the buffer */
     if (sb->sb_frag != NULL) {
         memcpy(bufp, sb->sb_frag, sb->sb_fraglen);
         bufp += sb->sb_fraglen;
         bufsz -= sb->sb_fraglen;
+        nbuf = sb->sb_fraglen;
         free(sb->sb_frag);
         sb->sb_frag = NULL;
         sb->sb_fraglen = 0;
+    } else {
+        nbuf = 0;
     }
 
     /* Read as much as possible from the kernel socket buffer. */
@@ -87,14 +86,22 @@ socket_readv(struct socket_buf *sb, int fd)
 
     } while (n == -1 && errno == EINTR);
 
-    nbuf = n;
+    nbuf += n;
+
+#ifdef DEADWOOD
+    //for debugging
+    //
+    bufp = (char *) &buf;       //to un-fragment
     bufp[nbuf] = '\0';          //FIXME: temp for debugging
     log_debug("read %zu bytes: `%s'", nbuf, bufp);
+#endif
+    log_debug("read %zu bytes", nbuf);
 
     /* Compute the address of the end of the buffer */
     buf_edge = ((char *) &buf) + nbuf;
 
     /* Divide the buffer into lines. */
+    nlines = 0;
     for (a = z = (char *) &buf; z < buf_edge; z++) {
         if ((*z == '\r' && *(z + 1) == '\n') || (*z == '\n')) {
 
