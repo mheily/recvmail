@@ -88,6 +88,7 @@ socket_readv(struct socket_buf *sb, int fd)
     } while (n == -1 && errno == EINTR);
 
     nbuf = n;
+    bufp[nbuf] = '\0';          //FIXME: temp for debugging
     log_debug("read %zu bytes: `%s'", nbuf, bufp);
 
     /* Compute the address of the end of the buffer */
