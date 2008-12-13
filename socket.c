@@ -88,7 +88,7 @@ socket_readv(struct socket_buf *sb, int fd)
     } while (n == -1 && errno == EINTR);
 
     nbuf = n;
-    log_debug("read %zu bytes", nbuf);
+    log_debug("read %zu bytes: `%s'", nbuf, bufp);
 
     /* Compute the address of the end of the buffer */
     buf_edge = ((char *) &buf) + nbuf;
