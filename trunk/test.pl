@@ -11,6 +11,7 @@ sub client_init() {
 
     $sock->autoflush();
 
+    expect($sock, "220");
     return $sock;
 }
 
@@ -25,11 +26,15 @@ sub expect($$) {
 
 my $sock;
 
-# Check for the 220 greeting
+#Send a large amount of data to try and overflow the buffer
 $sock = client_init();
-expect($sock, "220");
+for (my $x = 0; $x < 500000; $x++) {
+    $sock->print(".");
+}
+$sock->close();
 
 # Send a fragmented line
+$sock = client_init();
 $sock->print("qu");
 $sock->flush();
 sleep 1;
