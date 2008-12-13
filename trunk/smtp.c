@@ -19,6 +19,8 @@
 #include "recvmail.h"
 #include <ctype.h>
 
+static int smtpd_parse_command(struct session *, char *, size_t);
+static int smtpd_parse_data(struct session *, char *, size_t);
 
 /* Test if we accept mail for a given domain */
 static inline int
@@ -35,41 +37,45 @@ relay_domain(const char *req)
     return (-1);
 }
 
-static void
-smtpd_helo(struct session *s)
+static int
+smtpd_helo(struct session *s, const char *arg)
 {
+    log_debug("HELO=`%s'", arg);
     session_printf(s, "250 %s\r\n", OPT.mailname);
+    return (0);
 }
 
 
-static void
-smtpd_ehlo(struct session *s)
+static int
+smtpd_ehlo(struct session *s, const char *arg)
 {
+    log_debug("EHLO=`%s'", arg);
     session_printf(s, "250-%s\r\n"
                     "250-PIPELINING\r\n"
                     "250 8BITMIME\r\n" 
                     , OPT.mailname);
+    return (0);
 }
 
 
-static void
-smtpd_mail(struct session *s)
+static int
+smtpd_mail(struct session *s, const char *arg)
 {
     if (s->msg->sender != NULL)
         free(s->msg->sender);
-    if ((s->msg->sender = address_parse(s->line + 10)) == NULL) {
+    if ((s->msg->sender = address_parse(arg)) == NULL) {
             session_println(s, "501 Malformed address");
-            return; //fixme: errorcount++
+            return (-1);
     }
     session_println(s, "250 Ok");
+    return (0);
 }
 
 
-static void
-smtpd_rcpt(struct session *s)
+static int
+smtpd_rcpt(struct session *s, char *line)
 {
     char *p;
-    char *line = s->line + 8;
     char *buf = NULL;
     struct mail_addr *ma = NULL;
 
@@ -114,32 +120,35 @@ smtpd_rcpt(struct session *s)
     session_println(s, "250 Ok");
 
     free(buf);
-    return;
+    return (0);
 
 errout:
     free(buf);
     free(ma);
-    return; //fixme:errcount++
+    return (-1);
 }
 
 
-static void
-smtpd_data(struct session *s)
+static int
+smtpd_data(struct session *s, const char *arg)
 {
+    log_debug("DATA arg=%s", arg);
+
     if (s->msg->recipient_count == 0) {
         session_println(s, "503 Error: need one or more recipients first");
-        return; //fixme error count++
-    } else {
-        if (maildir_msg_open(s->msg)) {
-            session_println(s, "421 Error creating message");
-            session_close(s);
-        }
+        return (-1);
+    }
+    if (maildir_msg_open(s->msg)) {
+        session_println(s, "421 Error creating message");
+        session_close(s);
+        return (-1);
     }
     session_println(s, "354 End data with <CR><LF>.<CR><LF>");
     s->smtp_state = SMTP_STATE_DATA;
+    return (0);
 }
 
-static void
+static int
 smtpd_rset(struct session *s)
 {
     if (s->msg != NULL) {
@@ -148,37 +157,67 @@ smtpd_rset(struct session *s)
         if ((s->msg = message_new()) == NULL) {
             session_println(s, "421 Out of memory error");
             session_close(s);
-            return;
+            return (-1);
         }
         s->msg->session = s;
     }
 
     s->smtp_state = SMTP_STATE_MAIL;
     session_println(s, "250 Ok");
+    return (0);
 }
 
-static void
+static int
 smtpd_noop(struct session *s)
 {
     session_println(s, "250 Ok");
+    return (0);
 }
 
-static void
+static int
 smtpd_quit(struct session *s)
 {
     session_println(s, "221 Bye");
     session_close(s);
+    return (0);
 }
 
+void
+smtpd_parser(struct session *s)
+{
+    struct iovec *iov;
+    int i, rv;
 
-int
-smtpd_parse_command(struct session *s)
+    iov = s->in_buf.sb_iov;
+
+    /* Pass control to the 'command' or 'data' subparser */
+    for (i = 0; i < s->in_buf.sb_iovlen; i++) {
+        if (s->smtp_state != SMTP_STATE_DATA) {
+            // XXX-FIXME assumes len >0
+            memset(iov[i].iov_base + iov[i].iov_len - 1, 0, 1);     /* Replace LF with NUL */
+            log_debug("CMD=`%s'", (char *) iov[i].iov_base);
+            rv = smtpd_parse_command(s, iov[i].iov_base, iov[i].iov_len - 1);
+        } else {
+            rv = smtpd_parse_data(s, iov[i].iov_base, iov[i].iov_len);
+        }
+
+        if (rv != 0) 
+            s->errors++;
+
+        /* TODO: make configurable, max_errors or something */
+        if (s->errors > 10) {
+            s->srv->reject_hook(s);
+            session_close(s);
+        }
+    }
+
+}
+
+static int
+smtpd_parse_command(struct session *s, char *src, size_t len)
 {
     size_t          i;
     int             c;
-    char            *src = s->line;
-    size_t          len = s->line_len;
-    void (*fp)(struct session *) = NULL;
 
     /* SMTP commands must be at least four characters plus the trailing NUL */
     if (len < 4) {
@@ -202,37 +241,38 @@ smtpd_parse_command(struct session *s)
     /* Parse the command and call the associated function */
     switch (toupper(src[0])) {
         case 'D': if (strcasecmp(src, "DATA") == 0)
-                      fp = smtpd_data;
+                      return (smtpd_data(s, NULL));
                   break;
+
         case 'E': if (strncasecmp(src, "EHLO ", 5) == 0)
-                      fp = smtpd_ehlo;
+                      return (smtpd_ehlo(s, src + 5));
                   break;
+
         case 'H': if (strncasecmp(src, "HELO ", 5) == 0)
-                      fp = smtpd_helo;
+                      return (smtpd_helo(s, src + 5));
                   break;
+
         case 'M': if (strncasecmp(src, "MAIL FROM:", 10) == 0)
-                      fp = smtpd_mail;
+                      return (smtpd_mail(s, src + 10));
                   break;
+
         case 'N': if (strcasecmp(src, "NOOP") == 0)
-                      fp = smtpd_noop;
+                      return (smtpd_noop(s));
                   break;
+
         case 'Q': if (strcasecmp(src, "QUIT") == 0)
-                      fp = smtpd_quit;
+                      return (smtpd_quit(s));
                   break;
+
         case 'R': if (strncasecmp(src, "RCPT TO:", 8) == 0)
-                      fp = smtpd_rcpt;
+                      return (smtpd_rcpt(s, src + 8));
                   if (strcasecmp(src, "RSET") == 0)
-                      fp = smtpd_rset;
+                      return (smtpd_rset(s));
                   break;
     }
 
-    if (fp) {
-        fp(s);
-        return (0);
-    } else {
-        session_println(s, "502 Error: invalid command");
-        return (-1);
-    }
+    session_println(s, "502 Error: invalid command");
+    return (-1);
 }
 
 
@@ -245,15 +285,11 @@ smtpd_parse_command(struct session *s)
  *            or -1 if an error occurred
  *
  */
-int
-smtpd_parse_data(struct session *s)
+static int
+smtpd_parse_data(struct session *s, char *src, size_t len)
 {
-    int             offset = 0;
-    char            *src = s->line;
-    size_t          len = s->line_len; 
-
     /* If the line is '.', end the data stream */
-    if ((len == 1) && strncmp(src, ".", 1) == 0) {
+    if ((len == 2) && strncmp(src, ".\n", 2) == 0) {
 
         /* TODO : set state to SMTP_STATE_FSYNC and call syncer */
 
@@ -269,12 +305,14 @@ smtpd_parse_data(struct session *s)
     }
 
     /* Ignore a leading '.' if there are additional characters */
-    if (strncmp(src, ".", 1) == 0)
-    offset = 1;
+    if (strncmp(src, ".", 1) == 0) {
+        len--;
+        src++;
+    }
 
-    /* Write the line and a trailing newline to the file */
-    if ((atomic_write(s->msg->fd, src + offset, len - offset) < (len - offset))
-            || (atomic_write(s->msg->fd, "\n", 1) < 1)) {
+    /* XXX-FIXME use writev(2) to write multiple lines in one syscall. */
+    /* Write the line to the file */
+    if (atomic_write(s->msg->fd, src, len) < len) {
         log_errno("atomic_write(3)");
         goto error;
     }
@@ -311,21 +349,6 @@ smtpd_greeting(struct session *s)
 }
 
 
-void
-smtpd_parser(struct session *s)
-{
-    int rv;
-
-    /* Pass control to the 'command' or 'data' subparser */
-    if (s->smtp_state != SMTP_STATE_DATA) {
-        rv = smtpd_parse_command(s);
-    } else {
-        rv = smtpd_parse_data(s);
-    }
-
-    if (rv != 0) 
-        s->errors++;
-}
 
 void
 smtpd_accept(struct session *s)
@@ -336,12 +359,6 @@ smtpd_accept(struct session *s)
     s->msg->session = s;
     smtpd_greeting(s);
     session_become_reader(s);
-}
-
-void
-smtpd_read(struct session *s)
-{
-    smtpd_parser(s);
 }
 
 void
