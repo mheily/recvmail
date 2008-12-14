@@ -22,13 +22,8 @@
 #include <stdio.h>
 
 /*
- * parse_address(dest, src)
- *
- * Takes an RFC2822 email address (<foo@bar.com>) and validates it, returning
+ * Take an RFC2822 email address (<foo@bar.com>) and validates it, returning
  * the canonical address or NULL if invalid.
- *
- * Returns: 0 if success, -1 if error
- *
  */
 struct mail_addr *
 address_parse(const char *src) 
