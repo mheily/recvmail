@@ -33,15 +33,14 @@ TESTS            = selftest
 check_PROGRAMS   = selftest
 
 loopback:
-	printf 'helo\nmail from:abc@def.ghi\nrcpt to:test@test.com\ndata\nSubject: hi\n\nHello\n.\nquit\n' | nc localhost 1025
-	printf 'GET /test HTTP/1.1\nConnection: close\n\n' | nc localhost 8025
+	printf "helo\nmail from:abc@def.ghi\nrcpt to:test@`hostname`@\ndata\nSubject: hi\n\nHello\n.\nquit\n" | nc localhost 1025
 
 debug: 
 	ulimit -c 999999; rm core; pkill recvmail; make && ( ./recvmail -fv & ) && sleep 1 && echo -e 'helo\nmail from:abc@def.ghi\nrcpt to:test@test.com\nquit' | nc localhost 1025
 	test -e /var/mail/core && gdb ./recvmail -c /var/mail/core  || true
 
 valgrind:
-	valgrind --tool=memcheck --leak-check=yes --show-reachable=yes --num-callers=20 --track-fds=yes ./recvmail -fv -p 1025
+	valgrind --tool=memcheck --leak-check=full --show-reachable=yes --num-callers=20 --track-fds=yes ./recvmail -fv -p 1025
 
 hammer:
 	while [ 1 -eq 1 ] ; do make loopback ; rm /var/recvmail/store/test.com/test/new/*; done

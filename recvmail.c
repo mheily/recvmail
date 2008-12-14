@@ -92,6 +92,8 @@ option_parse(const char *arg)
 int
 main(int argc, char *argv[])
 {
+    char mailname[256];
+    char *defaultdomain[2];
     int             c;
 
     /* Get arguments from ARGV */
@@ -141,16 +143,13 @@ main(int argc, char *argv[])
     }
 
     /* Get the hostname */
-    if (!OPT.mailname) {
-        if ((OPT.mailname = malloc(256)) == NULL)
-            err(1, "malloc");
-        if (gethostname(OPT.mailname, 256) != 0)
-            err(1, "gethostname");
-    }
+    OPT.mailname = (char *) &mailname;
+    if (gethostname(OPT.mailname, 256) != 0)
+        err(1, "gethostname");
     
     /* By default, only accept mail for the local machine. */
     /* FIXME: check for malloc failure */
-    OPT.domains = calloc(2, sizeof(char *));
+    OPT.domains = (char **) &defaultdomain;
     OPT.domains[0] = OPT.mailname;
     OPT.domains[1] = NULL;
 
@@ -158,7 +157,12 @@ main(int argc, char *argv[])
     if (access(SPOOLDIR, F_OK) != 0)
         err(1, "%s: %s", SPOOLDIR, strerror(errno));
 
+#ifdef FIXME
+    //causes valgrind error
+    aliases_init();
     aliases_parse("/etc/aliases");
+#endif
+
     server_init();
     server_bind(&smtpd);
     //TODO:server_bind(&pop3d);

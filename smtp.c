@@ -124,7 +124,7 @@ smtpd_rcpt(struct session *s, char *line)
 
 errout:
     free(buf);
-    free(ma);
+    address_free(ma);
     return (-1);
 }
 
