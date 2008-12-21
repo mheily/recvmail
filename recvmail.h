@@ -303,7 +303,7 @@ void            smtpd_close(struct session *s);
 
 /* From server.c */
 
-void server_dispatch(struct server *srv);
+int  server_dispatch(struct server *srv);
 void server_bind(struct server *srv);
 void server_init(void);
 void state_transition(struct session *s, int events);
