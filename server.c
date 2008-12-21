@@ -302,23 +302,22 @@ server_dispatch(struct server *srv)
 
         /* Wait for I/O activity */
         nfds = poll(srv->pfd, srv->pfd_count, -1);
-        if (nfds == -1 || (srv->pfd[0].revents & (POLLERR|POLLHUP|POLLNVAL))) {
+        if (nfds <= 0 && errno == EINTR) {
+            continue;
+        }
+        if (nfds <= 0) {
             log_errno("poll(2)");
             return (-1);
-        }
-        if (nfds == 0) {
-            if (errno == EINTR) {
-                continue;
-            } else {
-                log_errno("poll(2)");
-                return (-1);
-            }
         }
 
         /* Check for pending connection requests */
         if (srv->pfd[0].revents & POLLIN) {
             if ((s = server_accept(srv)) == 0)
                 continue;
+        }
+        if (nfds == -1 || (srv->pfd[0].revents & (POLLERR|POLLHUP|POLLNVAL))) {
+            log_errno("poll(2) failed on the server fd");
+            return (-1);
         }
 
         for (i = 1; i < srv->pfd_count; i++) {
