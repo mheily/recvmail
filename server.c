@@ -280,7 +280,7 @@ session_read(struct session *s)
     }
 }
 
-void
+int
 server_dispatch(struct server *srv)
 {
 	struct session *s;
@@ -302,13 +302,17 @@ server_dispatch(struct server *srv)
 
         /* Wait for I/O activity */
         nfds = poll(srv->pfd, srv->pfd_count, -1);
-        if (nfds == -1 || (srv->pfd[0].revents & (POLLERR|POLLHUP|POLLNVAL)))
-            err(1, "poll(2)");
+        if (nfds == -1 || (srv->pfd[0].revents & (POLLERR|POLLHUP|POLLNVAL))) {
+            log_errno("poll(2)");
+            return (-1);
+        }
         if (nfds == 0) {
-            if (errno == EINTR)
+            if (errno == EINTR) {
                 continue;
-            else
-                err(1, "poll(2)");
+            } else {
+                log_errno("poll(2)");
+                return (-1);
+            }
         }
 
         /* Check for pending connection requests */
@@ -341,4 +345,6 @@ server_dispatch(struct server *srv)
         /* Check for any socket read or write ready conditions */
         /*XXX-todo*/
     }
+
+    return (0);
 }
