@@ -157,7 +157,7 @@ main(int argc, char *argv[])
     if (access(SPOOLDIR, F_OK) != 0)
         err(1, "%s: %s", SPOOLDIR, strerror(errno));
 
-#ifdef FIXME
+#ifndef FIXME
     //causes valgrind error
     aliases_init();
     aliases_parse("/etc/aliases");
@@ -174,11 +174,12 @@ main(int argc, char *argv[])
 #ifdef UNIT_TESTING
     /* Run the testsuite */
     run_testsuite();
-#else
-
-    server_dispatch(&smtpd);
-
+    exit(EXIT_SUCCESS);
 #endif
 
-    exit(EXIT_SUCCESS);
+    if (server_dispatch(&smtpd) != 0) {
+        exit(EXIT_FAILURE);
+    } else {
+        exit(EXIT_SUCCESS);
+    }
 }
