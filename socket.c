@@ -81,11 +81,12 @@ socket_readv(struct socket_buf *sb, int fd)
         }
 
         /* Check for EOF */
+        /* XXX- is n==0 actually EOF? */
         if (n == 0) {
-            log_debug("got EOF from client");
+            log_debug("zero-length read(2)");
             //FIXME -- how to indicate to session object that no more reads are possible?
-            sb->sb_status = 1; //FIXME: magic constant, not checked anywhere else.
-            return (-1);
+            //sb->sb_status = 1; //FIXME: magic constant, not checked anywhere else.
+            return (0);
         }
 
     } while (n == -1 && errno == EINTR);
