@@ -39,6 +39,9 @@ debug:
 	ulimit -c 999999; rm core; pkill recvmail; make && ( ./recvmail -fv & ) && sleep 1 && echo -e 'helo\nmail from:abc@def.ghi\nrcpt to:test@test.com\nquit' | nc localhost 1025
 	test -e /var/mail/core && gdb ./recvmail -c /var/mail/core  || true
 
+nohup:
+	nohup ./recvmail -fv 2>&1 &
+
 valgrind:
 	valgrind --tool=memcheck --leak-check=full --show-reachable=yes --num-callers=20 --track-fds=yes ./recvmail -fv -p 1025
 
