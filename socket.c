@@ -86,7 +86,7 @@ socket_readv(struct socket_buf *sb, int fd)
             log_debug("zero-length read(2)");
             //FIXME -- how to indicate to session object that no more reads are possible?
             //sb->sb_status = 1; //FIXME: magic constant, not checked anywhere else.
-            return (0);
+            return (-1);
         }
 
     } while (n == -1 && errno == EINTR);
