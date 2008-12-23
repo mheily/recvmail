@@ -40,7 +40,7 @@ debug:
 	test -e /var/mail/core && gdb ./recvmail -c /var/mail/core  || true
 
 nohup:
-	rm nohup.out
+	rm -f nohup.out
 	nohup ./recvmail -fv 2>&1 &
 
 valgrind:
