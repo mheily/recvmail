@@ -322,16 +322,17 @@ server_dispatch(struct server *srv)
 
         for (i = 1; i < srv->pfd_count; i++) {
             if (srv->pfd[i].revents & (POLLERR|POLLHUP|POLLNVAL)) {
-                log_debug("POLLERR/HUP on session %d", i);
                 if ((s = session_lookup(srv, srv->pfd[i].fd)) == NULL)
                     errx(1, "session_lookup failed");
+                log_debug("POLLERR/HUP/NVAL on session %d (fd %d)", i, s->fd);
                 session_close(s);
                 free(s); //XXX-FIXME-recycle it.        
             } else if (srv->pfd[i].revents & POLLIN) {
-                log_debug("POLLIN on session %d", i);
 
                 if ((s = session_lookup(srv, srv->pfd[i].fd)) == NULL)
                     errx(1, "session_lookup failed");
+
+                log_debug("POLLIN on session %d (fd %d)", i, s->fd);
                 
                 session_read(s);
              
