@@ -21,8 +21,9 @@ man_MANS         = recvmail.8
 
 SOURCES		 = $(recvmail_SOURCES) $(selftest_SOURCES)
 
-recvmail_CFLAGS  = -g -O2 -Wall -Werror
-recvmail_SOURCES = address.c atomic.c aliases.c file.c socket.c message.c maildir.c session.c smtp.c server.c recvmail.c thread-pool.c
+recvmail_CFLAGS  = -g -O0 -Wall -Werror
+recvmail_SOURCES = address.c atomic.c aliases.c file.c poll.c \
+				   socket.c message.c maildir.c session.c smtp.c server.c recvmail.c thread-pool.c
 recvmail_LDADD   = -lpthread
 recvmail_HEADERS = recvmail.h queue.h
 
@@ -33,7 +34,7 @@ TESTS            = selftest
 check_PROGRAMS   = selftest
 
 loopback:
-	printf "helo\nmail from:abc@def.ghi\nrcpt to:test@`hostname`@\ndata\nSubject: hi\n\nHello\n.\nquit\n" | nc localhost 1025
+	printf "helo a\nmail from:abc@def.ghi\nrcpt to:test@`hostname`@\ndata\nSubject: hi\n\nHello\n.\nquit\n" | nc localhost 1025
 
 debug: 
 	ulimit -c 999999; rm core; pkill recvmail; make && ( ./recvmail -fv & ) && sleep 1 && echo -e 'helo\nmail from:abc@def.ghi\nrcpt to:test@test.com\nquit' | nc localhost 1025
@@ -47,7 +48,7 @@ valgrind:
 	valgrind --tool=memcheck --leak-check=full --show-reachable=yes --num-callers=20 --track-fds=yes ./recvmail -fv -p 1025
 
 hammer:
-	while [ 1 -eq 1 ] ; do make loopback ; rm /var/recvmail/store/test.com/test/new/*; done
+	while [ 1 -eq 1 ] ; do make loopback ; rm /var/spool/recvmail/new/*; done
 
 # Use GNU indent to re-indent the entire source tree
 indent:
