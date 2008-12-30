@@ -157,14 +157,15 @@ main(int argc, char *argv[])
     if (access(SPOOLDIR, F_OK) != 0)
         err(1, "%s: %s", SPOOLDIR, strerror(errno));
 
-#ifndef FIXME
+#ifdef FIXME
     //causes valgrind error
     aliases_init();
     aliases_parse("/etc/aliases");
 #endif
 
     server_init();
-    server_bind(&smtpd);
+    if (server_bind(&smtpd) != 0)
+        errx(1, "server initialization failed");
     //TODO:server_bind(&pop3d);
     drop_privileges(OPT.uid, OPT.gid, OPT.spooldir);
 
@@ -178,8 +179,10 @@ main(int argc, char *argv[])
 #endif
 
     if (server_dispatch(&smtpd) != 0) {
+        log_warning("server_dispatch() failed");
         exit(EXIT_FAILURE);
     } else {
+        log_info("exiting normally");
         exit(EXIT_SUCCESS);
     }
 }
