@@ -18,7 +18,7 @@
 
 #include "recvmail.h"
 
-#include <poll.h>
+#include "poll.h"
 
 void
 state_transition(struct session *s, int events)
@@ -265,7 +265,7 @@ session_read(struct session *s)
     /* Handle EAGAIN if no data was read. */
     if (n == 0) {
             log_debug("got EAGAIN");
-            state_transition(s, POLLIN);
+            state_transition(s, SOCK_CAN_READ);
             return;
     }
 

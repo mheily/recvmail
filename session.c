@@ -20,6 +20,8 @@
 
 #include <stdarg.h>
 
+#include "poll.h"
+
 /** vasprintf(3) is a GNU extension and not universally visible */
 extern int      vasprintf(char **, const char *, va_list);
 
@@ -233,12 +235,12 @@ session_close(struct session *s)
 void
 session_become_reader(struct session *s)
 {
-    state_transition(s, POLLIN);
+    state_transition(s, SOCK_CAN_READ);
 }
 
 /* Toggle the current I/O state of a session from reader to writer */
 void
 session_become_writer(struct session *s)
 {
-    state_transition(s, POLLOUT);
+    state_transition(s, SOCK_CAN_WRITE);
 }
