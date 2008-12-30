@@ -180,6 +180,22 @@ errout:
     return (NULL);
 }
 
+int
+session_flush(struct session *s)
+{
+#if DEADWOOD
+    struct nbuf *nbp;
+
+    while ((nbp = STAILQ_FIRST(&s->out_buf))) {
+   //XXX-FIXME - this actually kills all output data !! 
+            free(nbp->nb_data);
+            STAILQ_REMOVE_HEAD(&s->out_buf, entries);
+        }
+#endif
+    // FIXME -- this will be needed someday.
+    return (0);
+}
+
 void
 session_close(struct session *s)
 {
@@ -192,9 +208,13 @@ session_close(struct session *s)
 
     log_debug("closing transmission channel");
 
-    /* Remove the descriptor from the session table and the pollset */
+    /* Remove the descriptor from the session table */
     LIST_REMOVE(s, entries);
-    server_update_pollset(s->srv);
+
+    /* Unregister the file descriptor */
+    if (poll_disable(s->srv->evcb, s->fd) != 0) {
+        log_error("unable to disable events for fd # %d", s->fd);
+    }
 
     /* Clear the output buffer. Any unwritten data will be discarded. */
     while ((nbp = STAILQ_FIRST(&s->out_buf))) {
