@@ -2,3 +2,5 @@ PACKAGE=recvmail
 VERSION=1.4
 
 check_symbol strlcpy
+# FIXME: want to search for sys/epoll.h but ./configure won't handle it
+check_header epoll.h
