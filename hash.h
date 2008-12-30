@@ -21,6 +21,65 @@
 #include <string.h>
 #include <sys/queue.h>
 
+#ifdef DEADWOOD
+//hmm...
+struct hash_table {
+    unsigned int    ht_mask;        /* Number of bits from the hashing function */
+    unsigned int    ht_size;        /* Number of buckets (2^ht_bits) */
+	LIST_HEAD(, type) *ht_bucket;
+};
+
+struct hash_table *
+hash_table_new(unsigned int mask)
+{
+    struct hash_table *ht;
+
+    /* The default is 12 bits */
+    if (mask == 0 || mask > 32)
+        mask = 12;
+
+    if ((ht = malloc(sizeof(*ht))) == NULL)
+        return (NULL);
+    ht->ht_mask = mask;
+    ht->ht_size = 2 ^ mask;
+    ht->ht_bucket = calloc(ht->ht_size, sizeof(void *));
+    if (ht->ht_bucket == NULL) {
+        free(ht);
+        return (NULL);
+    }
+    return (ht);
+}
+
+/* Based on the public domain Jenkins one-at-a-time hashing algorithm */
+static inline unsigned int
+hash_func(const char *key, int bits)
+{
+    unsigned int hash = 0;
+    size_t key_len = strlen(key);
+    size_t i;
+ 
+    for (i = 0; i < key_len; i++) {
+        hash += (unsigned char) key[i];
+        hash += (hash << 10);
+        hash ^= (hash >> 6);
+    }
+    hash += (hash << 3);
+    hash ^= (hash >> 11);
+    hash += (hash << 15);
+    return (hash >> (32 - bits));
+}
+
+static inline int
+hash_insert(struct hash_table *ht, const char *key, void *value)
+{
+    unsigned int hv;
+
+    hv = hash_func(key, ht->ht_bits);
+    LIST_INSERT_HEAD(&ht->ht_bucket[hv], HASH_BUCKET((head), (elm)->cdata), elm, field)
+}
+#endif
+//========================================================================//
+
 /* 
  * The default is a hash table with 4096 buckets that uses 16K of memory.
  * This can be overridden in each translation unit by defining
@@ -59,8 +118,10 @@ struct name {                                                           \
 #define HASH_REMOVE             LIST_REMOVE
 #define HASH_BUCKET(head, str)  (&((head)->hh_table[HASH_FUNC(str)]))
 
-#define HASH_INIT(head)                                                 \
+#define OLDHASH_INIT(head)                                                 \
     memset((head)->hh_table, 0, sizeof(*((head)->hh_table)))
+#define HASH_INIT(head)                                                 \
+    memset((head), 0, sizeof(*(head)))
 
 #define HASH_INSERT(head, elm, cdata, field)                            \
     LIST_INSERT_HEAD(HASH_BUCKET((head), (elm)->cdata), elm, field)
