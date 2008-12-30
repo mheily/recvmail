@@ -36,7 +36,6 @@
 #include <syslog.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
-#include <sys/poll.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -159,9 +158,7 @@ struct server {
     LIST_HEAD(,session) idle;
     LIST_HEAD(,session) io_wait;
 
-    /* The poll(2) list. */
-    struct pollfd pfd[MAX_CLIENTS + PFD_RESERVED];
-    size_t        pfd_count;
+    struct evcb * evcb;
 
     /* The number of seconds to wait for incoming data from the client */
     int             timeout_read;
@@ -199,12 +196,13 @@ struct socket_buf {
     int           sb_status;        /* Status code */
 };
 
+
 /* A client session */
 struct session {
-    unsigned int closed;            /* If nonzero, the session has been terminated */
     struct server  *srv;            /* The server that owns this session */
     int             fd;		        /* The client socket descriptor */
-    int             events;         /* Desired poll(2) events */
+    int             events;
+    int closed; //TODO: deprecate this
     struct in_addr  remote_addr;	/* IP address of the client */
     struct socket_buf in_buf;
     STAILQ_HEAD(,nbuf) out_buf;     /* Output buffer */
@@ -304,7 +302,7 @@ void            smtpd_close(struct session *s);
 /* From server.c */
 
 int  server_dispatch(struct server *srv);
-void server_bind(struct server *srv);
+int  server_bind(struct server *srv);
 void server_init(void);
 void state_transition(struct session *s, int events);
 void server_update_pollset(struct server *srv);
@@ -313,6 +311,7 @@ void drop_privileges(const char *user, const char *group, const char *chroot_to)
 /* From socket.c */
 
 ssize_t socket_readv(struct socket_buf *, int);
+int socket_write(int, char **, size_t **);
 
 
 #endif
