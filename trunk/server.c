@@ -145,6 +145,7 @@ server_init(void)
 
     /* Open the log file */
     openlog("", logopt, OPT.log_facility);
+    setlogmask(OPT.log_level);
 
     /* Increase the allowable number of file descriptors */
     if (getuid() == 0) {
