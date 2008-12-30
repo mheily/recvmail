@@ -58,7 +58,7 @@ extern int detached;
     if (detached)                                                   \
         syslog(level, "%s(%s:%d): "format"\n", 						\
                __func__, __FILE__, __LINE__, ## __VA_ARGS__);       \
-    else                                                            \
+    else if (level < OPT.log_level)                                 \
         fprintf(stderr, "%s(%s:%d): " format "\n",                  \
                 __func__, __FILE__, __LINE__, ## __VA_ARGS__);      \
 } while (/*CONSTCOND*/0)
