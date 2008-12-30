@@ -86,7 +86,7 @@ poll_wait(struct evcb *e, int *events)
         *events |= SOCK_CAN_READ;
     if (e->cur->events & EPOLLOUT) 
         *events |= SOCK_CAN_WRITE;
-    if (e->cur->events & EPOLLRDHUP || e->cur->events & EPOLLHUP) 
+    if (e->cur->events & EPOLLHUP) 
         *events |= SOCK_EOF;
     if (e->cur->events & EPOLLERR) 
         *events |= SOCK_ERROR;
