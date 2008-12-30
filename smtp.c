@@ -301,7 +301,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 
         /* Allow the sender to pipeline another request */
         smtpd_rset(s);
-        return 0;
+        return (0);
     }
 
     /* Ignore a leading '.' if there are additional characters */
@@ -317,12 +317,12 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
         goto error;
     }
 
-    return 0;
+    return (0);
 
   error:
     session_println(s, "452 Error spooling message, try again later");
     session_close(s);
-    return 0;
+    return (0);
 }
 
 
