@@ -20,7 +20,21 @@
 
 #include <poll.h>
 
+void
+state_transition(struct session *s, int events)
+{
+    struct server *srv = s->srv;
 
+    LIST_REMOVE(s, entries);
+    if (events) {
+        LIST_INSERT_HEAD(&srv->io_wait, s, entries);
+    } else {
+        LIST_INSERT_HEAD(&srv->runnable, s, entries);
+    }
+    s->events = events;
+    //FIXME:server_update_pollset(srv);
+    log_debug("state transition to %d", events);
+}
 /*
  * drop_privileges(uid,gid,chroot_to)
  * 
@@ -88,52 +102,6 @@ register_signal_handlers(void)
 #endif
 }
 
-/* ------------------------- pollset handling functions -----------------*/
-
-void
-server_update_pollset(struct server *srv)
-{
-    size_t n;
-    struct session *s;
-
-    n = PFD_RESERVED;
-    LIST_FOREACH(s, &srv->io_wait, entries) {
-        srv->pfd[n].fd = s->fd;
-        srv->pfd[n++].events = s->events;
-    }
-    srv->pfd_count = n;
-}
-
-void
-state_transition(struct session *s, int events)
-{
-    struct server *srv = s->srv;
-
-    LIST_REMOVE(s, entries);
-    if (events) {
-        LIST_INSERT_HEAD(&srv->io_wait, s, entries);
-    } else {
-        LIST_INSERT_HEAD(&srv->runnable, s, entries);
-    }
-    s->events = events;
-    server_update_pollset(srv);
-    log_debug("state transition to %d", events);
-}
-
-/* Given a file descriptor, return a pointer to the associated session object */
-/* NOTE: only works for sessions that are waiting for I/O. */
-struct session *
-session_lookup(struct server *srv, int fd)
-{
-    struct session *s;
-
-    LIST_FOREACH(s, &srv->io_wait, entries) {
-        if (s->fd == fd)
-            return (s);
-    }
-
-    return (NULL);
-}
 
 /* ------------------- Public functions ----------------------- */
 
@@ -191,11 +159,18 @@ server_init(void)
 }
 
 
-void
+int
 server_bind(struct server *srv)
 {
     struct sockaddr_in srv_addr;
     int             one = 1;
+    int             fd = -1;
+
+    /* Create the event source */
+    if ((srv->evcb = poll_new()) == NULL) {
+        log_error("unable to create the event source");
+        return (-1);
+    }
 
 	/* Adjust the port number for non-privileged processes */
 	if (getuid() > 0 && srv->port < 1024)
@@ -208,19 +183,37 @@ server_bind(struct server *srv)
 	srv_addr.sin_port = htons(srv->port);
 
 	/* Create the socket and bind(2) to it */
-	if ((srv->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-		err(1, "Cannot create socket");
-	if (setsockopt
-			(srv->fd, SOL_SOCKET, SO_REUSEADDR, (char *) &one,
-			 sizeof(one)) != 0)
-		err(1, "setsockopt(3)");
-	if (bind(srv->fd, (struct sockaddr *) &srv_addr, sizeof(srv_addr)) < 0)
-		err(1, "Could not bind to the socket");
+	if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		log_errno("socket(2)");
+        goto errout;
+    }
+	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &one,
+			 sizeof(one)) != 0) {
+		log_errno("setsockopt(3)");
+        goto errout;
+    }
+	if (bind(fd, (struct sockaddr *) &srv_addr, sizeof(srv_addr)) < 0) {
+		log_errno("bind(2)");
+        goto errout;
+    }
 
 	/* Listen for incoming connections */
-	if (listen(srv->fd, 100) < 0)
-		err(1, "listen(2) failed");
+	if (listen(fd, 100) < 0) {
+		log_errno("listen(2)");
+        goto errout;
+    }
+
     log_debug("listening on port %d", srv->port);
+
+    srv->fd = fd;
+
+    return (0);
+
+errout:
+    if (fd >= 0)
+        close(fd);
+    srv->fd = -1;
+    return (-1);
 }
 
 static struct session *
@@ -231,6 +224,8 @@ server_accept(struct server *srv)
 	struct session *s;
 
     cli_len = sizeof(srv->sa);
+
+    log_debug("incoming connection on srv->fd %d", srv->fd);
 
     /* Accept the incoming connection */
     do { 
@@ -248,6 +243,8 @@ server_accept(struct server *srv)
 
     /* Mark the session as runnable, but do not monitor I/O readiness */
     LIST_INSERT_HEAD(&srv->runnable, s, entries);
+
+    poll_enable(s->srv->evcb, s->fd, s, SOCK_CAN_READ);
 
     log_debug("accepted session on fd %d", fd);
     srv->accept_hook(s);
@@ -283,67 +280,58 @@ session_read(struct session *s)
 int
 server_dispatch(struct server *srv)
 {
+    int events;
+    const void *srv_udata = (void *) -1L;
 	struct session *s;
-    int      i, nfds;
 
     /* Initialize the session table */
     LIST_INIT(&srv->runnable);
     LIST_INIT(&srv->io_wait);
     LIST_INIT(&srv->idle);
-    srv->pfd_count = 0;
 
     /* The first entry in the session table is the server descriptor */
-    srv->pfd[0].fd = srv->fd;
-    srv->pfd[0].events = POLLIN;
-    srv->pfd_count++;
+    if (poll_enable(srv->evcb, srv->fd, (void *) srv_udata, SOCK_CAN_READ) < 0) { 
+        log_errno("poll_enable() (srv->fd=%d)", srv->fd);
+        return (-1);
+    }
    
 	/* Dispatch incoming connections */
 	for (;;) {
 
-        /* Wait for I/O activity */
-        nfds = poll(srv->pfd, srv->pfd_count, -1);
-        if (nfds <= 0 && errno == EINTR) {
-            continue;
-        }
-        if (nfds <= 0) {
-            log_errno("poll(2)");
+        /* Get one event */
+        log_debug("waiting for event");
+        if ((s = poll_wait(srv->evcb, &events)) == NULL) {
+            log_errno("poll_wait()");
             return (-1);
         }
 
-        /* Check for pending connection requests */
-        if (srv->pfd[0].revents & POLLIN) {
-            if ((s = server_accept(srv)) == 0)
-                continue;
-        }
-        if (nfds == -1 || (srv->pfd[0].revents & (POLLERR|POLLHUP|POLLNVAL))) {
-            log_errno("poll(2) failed on the server fd");
-            return (-1);
-        }
-
-        for (i = 1; i < srv->pfd_count; i++) {
-            if (srv->pfd[i].revents & (POLLERR|POLLHUP|POLLNVAL)) {
-                if ((s = session_lookup(srv, srv->pfd[i].fd)) == NULL)
-                    errx(1, "session_lookup failed");
-                log_debug("POLLERR/HUP/NVAL on session %d (fd %d)", i, s->fd);
-                session_close(s);
-                free(s); //XXX-FIXME-recycle it.        
-            } else if (srv->pfd[i].revents & POLLIN) {
-
-                if ((s = session_lookup(srv, srv->pfd[i].fd)) == NULL)
-                    errx(1, "session_lookup failed");
-
-                log_debug("POLLIN on session %d (fd %d)", i, s->fd);
-                
-                session_read(s);
-             
-            } else if (srv->pfd[i].revents & POLLOUT) {
-                log_debug("POLLOUT on session %d", i);
-                /* XXX-TODO */
+        /* Special case for a pending accept(2) on the listening socket */
+        if (s == srv_udata) {
+            if (events & SOCK_ERROR) {
+                log_errno("bad server socket");
+                return (-1);
+            }
+            if ((events & SOCK_CAN_READ) && (s = server_accept(srv)) == NULL) {
+                log_errno("server_accept()");
+                return (-1);
             }
         }
 
-        /* Check for any socket read or write ready conditions */
-        /*XXX-todo*/
+        if (events & SOCK_EOF) {
+            err(1, "got eof");//FIXME
+                //log_debug("POLLERR/HUP/NVAL on session %d (fd %d)", i, s->fd);
+                //session_close(s);
+                //free(s); //XXX-FIXME-recycle it.        
+        }
+        if (events & SOCK_CAN_READ) {
+            //log_debug("POLLIN on session %d (fd %d)", i, s->fd);
+            log_debug("fd %d is now readable", s->fd);
+            session_read(s);
+        }
+        if (events & SOCK_CAN_WRITE) {
+            log_debug("fd %d is now writable", s->fd);
+            s->events |= SOCK_CAN_WRITE;
+        }
     }
 
     return (0);
