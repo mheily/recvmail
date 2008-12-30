@@ -64,6 +64,7 @@ usage()
 	    "        -h      Display this help message\n"
 	    "        -i      IP address to listen on         (default: 0.0.0.0)\n"
 	    "        -p      Port number                     (default: 25)\n"
+	    "        -q      Quiet (warning messages only)                \n"
 	    "        -u      Run under a different user ID   (default: 25)\n"
 	    "        -v      Verbose debugging messages      (default: no)\n"
 	    "\n");
@@ -121,7 +122,7 @@ main(int argc, char *argv[])
 	    smtpd.port = atoi(optarg);
 	    break;
 	case 'q':
-	    OPT.log_level = 0;
+	    OPT.log_level = LOG_ERR;
 	    break;
 	case 'u':
 	    if ((OPT.uid = strdup(optarg)) == NULL)
