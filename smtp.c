@@ -358,7 +358,6 @@ smtpd_accept(struct session *s)
     }
     s->msg->session = s;
     smtpd_greeting(s);
-    session_become_reader(s);
 }
 
 void
