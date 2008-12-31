@@ -45,7 +45,7 @@ nohup:
 	nohup ./recvmail -fv 2>&1 &
 
 valgrind:
-	valgrind --tool=memcheck --leak-check=full --show-reachable=yes --num-callers=20 --track-fds=yes ./recvmail -fv -p 1025
+	valgrind --tool=memcheck --leak-check=full --show-reachable=yes --num-callers=20 --track-fds=yes ./recvmail -fq
 
 hammer:
 	while [ 1 -eq 1 ] ; do make loopback ; rm /var/spool/recvmail/new/*; done

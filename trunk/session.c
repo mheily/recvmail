@@ -230,17 +230,3 @@ session_close(struct session *s)
     (void) atomic_close(s->fd);
     s->closed = 1;
 }
-
-/* Toggle the current I/O state of a session from writer to reader */
-void
-session_become_reader(struct session *s)
-{
-    state_transition(s, SOCK_CAN_READ);
-}
-
-/* Toggle the current I/O state of a session from reader to writer */
-void
-session_become_writer(struct session *s)
-{
-    state_transition(s, SOCK_CAN_WRITE);
-}

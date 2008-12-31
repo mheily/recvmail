@@ -201,7 +201,7 @@ struct socket_buf {
 struct session {
     struct server  *srv;            /* The server that owns this session */
     int             fd;		        /* The client socket descriptor */
-    int             events;
+    int             events;         //fixme this isnt really used
     int closed; //TODO: deprecate this
     struct in_addr  remote_addr;	/* IP address of the client */
     struct socket_buf in_buf;
@@ -290,8 +290,6 @@ void            session_free(struct session *s);
 char *          remote_addr(char *dest, size_t len, const struct session *s);
 //struct session * session_lookup(int fd);
 int session_readln(struct session *s);
-void session_become_writer(struct session *s);
-void session_become_reader(struct session *s);
 
 void            smtpd_accept(struct session *s);
 void            smtpd_parser(struct session *s);

@@ -27,7 +27,9 @@
 //#include "recvmail.h"
 
 /* Maximum number of events to read in a single system call */
-#define MAXEVENTS 500
+/* XXX-FIXME this should be much larger, but there are issues
+ * when using an event cache.. see epoll manpage for details */
+#define MAXEVENTS 1
 
 #if HAVE_SYS_EPOLL_H
 #include <sys/epoll.h>
@@ -112,7 +114,7 @@ poll_enable(struct evcb *e, int fd, void *udata, int events)
 #if HAVE_SYS_EPOLL_H
     struct epoll_event ev;
 
-    ev.events = EPOLLET;
+    ev.events = 0;                  /* TODO: use EPOLLET */
     if (events & SOCK_CAN_READ)
         ev.events |= EPOLLIN;
     if (events & SOCK_CAN_WRITE)
