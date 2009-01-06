@@ -21,6 +21,7 @@
 #include <stdarg.h>
 
 #include "poll.h"
+#include "server.h"
 
 /** vasprintf(3) is a GNU extension and not universally visible */
 extern int      vasprintf(char **, const char *, va_list);
@@ -210,24 +211,21 @@ session_close(struct session *s)
 
     log_debug("closing transmission channel");
 
-    /* Remove the descriptor from the session table */
-    LIST_REMOVE(s, entries);
-
-    /* Unregister the file descriptor */
-    if (poll_disable(s->srv->evcb, s->fd) != 0) {
-        log_error("unable to disable events for fd # %d", s->fd);
-    }
+    /* Run any protocol-specific hooks */
+    (void) protocol_close(s->srv, s);
 
     /* Clear the output buffer. Any unwritten data will be discarded. */
+    /* FIXME: shouldn't this be in an abort()-type function? */
     while ((nbp = STAILQ_FIRST(&s->out_buf))) {
              free(nbp->nb_data);
              STAILQ_REMOVE_HEAD(&s->out_buf, entries);
     }
 
-    /* Run any protocol-specific hooks */
-    s->srv->close_hook(s);
+    (void) server_disconnect(s->srv, s->fd); 
 
-    (void) atomic_close(s->fd);
+    /* Remove the descriptor from the session table */
+    LIST_REMOVE(s, entries);
+
     s->closed = 1;
 }
 

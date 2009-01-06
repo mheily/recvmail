@@ -20,6 +20,15 @@
 
 #include "poll.h"
 #include "thread-pool.h"
+#include "server.h"
+
+// wierd place for this..
+int
+protocol_close(struct server *srv, struct session *s)
+{
+    srv->close_hook(s);
+    return (0);
+}
 
 void
 state_transition(struct session *s, int events)
@@ -36,6 +45,23 @@ state_transition(struct session *s, int events)
     //FIXME:server_update_pollset(srv);
     log_debug("state transition to %d", events);
 }
+
+
+int
+server_disconnect(struct server *srv, int fd)
+{
+    /* Unregister the file descriptor */
+    if (poll_disable(srv->evcb, fd) != 0) {
+        log_error("unable to disable events for fd # %d", fd);
+        (void) atomic_close(fd);
+        return (-1);
+    }
+
+    (void) atomic_close(fd);
+
+    return (0);
+}
+
 /*
  * drop_privileges(uid,gid,chroot_to)
  * 
