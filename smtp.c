@@ -206,11 +206,10 @@ smtpd_parser(struct session *s)
 
         /* TODO: make configurable, max_errors or something */
         if (s->errors > 10) {
-            s->srv->reject_hook(s);
+            smtpd_client_error(s);
             session_close(s);
         }
     }
-
 }
 
 static int

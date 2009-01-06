@@ -17,6 +17,7 @@
  */
 
 #include "recvmail.h"
+#include "server.h"
 
 void            run_testsuite();
 
@@ -32,7 +33,6 @@ struct server   smtpd = {
     /* vtable */
     .accept_hook = smtpd_accept,
     .timeout_hook = smtpd_timeout,
-    .reject_hook = smtpd_client_error,
     .abort_hook = NULL,		// fixme
     .read_hook = smtpd_parser,
     .close_hook = smtpd_close,
