@@ -19,6 +19,7 @@
 #include "recvmail.h"
 
 #include "poll.h"
+#include "thread-pool.h"
 
 void
 state_transition(struct session *s, int events)
@@ -170,6 +171,13 @@ server_bind(struct server *srv)
     /* Create the event source */
     if ((srv->evcb = poll_new()) == NULL) {
         log_error("unable to create the event source");
+        return (-1);
+    }
+
+    /* Create a thread pool for blocking system calls */
+    // TODO: determine the best # of workers
+    if ((srv->tpool = thread_pool_create(4)) == NULL) {
+        log_error("unable to create a thread pool");
         return (-1);
     }
 
