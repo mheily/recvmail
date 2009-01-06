@@ -139,16 +139,13 @@ struct message {
      char           *filename;	/* The Maildir message-ID */
 };
 
-/* Mark the beginning of the client part of the pfd_set. The first entry is for the server. */
-/* (used by struct server) */
-#define PFD_RESERVED 1
-
 /** A server */
 struct server {
     int             port;	/* The port number to bind(2) to */
     struct in_addr  addr;	/* The IP address to listen(2) to */
     int             fd;		/* The descriptor returned by socket(2) */
     struct sockaddr sa;		/* The socket address of the server */
+    struct thread_pool *tpool;
 
     /**
      * At any given time, a session may be on one of the following lists.
@@ -201,6 +198,7 @@ struct socket_buf {
 struct session {
     struct server  *srv;            /* The server that owns this session */
     int             fd;		        /* The client socket descriptor */
+    int flags;          // see SFL_*
     int             events;         //fixme this isnt really used
     int closed; //TODO: deprecate this
     struct in_addr  remote_addr;	/* IP address of the client */
@@ -290,6 +288,7 @@ void            session_free(struct session *s);
 char *          remote_addr(char *dest, size_t len, const struct session *s);
 //struct session * session_lookup(int fd);
 int session_readln(struct session *s);
+int session_fdatasync(struct session *, int);
 
 void            smtpd_accept(struct session *s);
 void            smtpd_parser(struct session *s);

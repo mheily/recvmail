@@ -230,3 +230,33 @@ session_close(struct session *s)
     (void) atomic_close(s->fd);
     s->closed = 1;
 }
+
+#if FIXME
+//todo
+//
+void *
+_session_fdatasync(void *ptr)
+{
+    struct session *s = ptr;
+
+    if (fdatasync(s->msg->fd) != 0) {
+        log_errno("fdatasync(2)");
+        //XXX-FIXME set session error flag
+        return (NULL);
+    }
+
+    session_write(
+    return (NULL);
+}
+
+int
+session_fdatasync(struct session *s, int fd)
+{
+    if (thread_pool_run(
+    /* Place the session into the wait queue */
+    LIST_REMOVE(s, entries);
+    LIST_INSERT_HEAD(&s->srv->io_wait, s, entries);
+
+    return (0);
+}
+#endif
