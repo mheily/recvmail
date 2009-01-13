@@ -143,10 +143,6 @@ server_init(void)
 
     if (OPT.daemon) {
 
-        syslog(LOG_DEBUG,
-                "pid %d detatching from the controlling terminal",
-                getpid());
-
         /* Create a new process */
         if ((pid = fork()) < 0)
             err(1, "fork(2)");
@@ -171,8 +167,8 @@ server_init(void)
     }
 
     /* Open the log file */
-    openlog("", logopt, OPT.log_facility);
-    setlogmask(OPT.log_level);
+    openlog(OPT.log_ident, logopt, OPT.log_facility);
+    setlogmask(LOG_UPTO(OPT.log_level));
 
     /* Increase the allowable number of file descriptors */
     if (getuid() == 0) {
