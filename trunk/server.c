@@ -184,7 +184,6 @@ server_init(void)
     limit.rlim_cur = limit.rlim_max;
     if (setrlimit(RLIMIT_CORE, &limit) != 0)
         err(1, "setrlimit failed");
-    err(1, "setrlim %lu", limit.rlim_max);
 
     /* Register the standard signal handling functions */
     register_signal_handlers();
