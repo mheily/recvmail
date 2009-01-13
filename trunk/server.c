@@ -178,6 +178,14 @@ server_init(void)
             err(1, "setrlimit failed");
     }
 
+    /* Enable coredumps */
+    if (getrlimit(RLIMIT_CORE, &limit) != 0)
+        err(1, "getrlimit failed");
+    limit.rlim_cur = limit.rlim_max;
+    if (setrlimit(RLIMIT_CORE, &limit) != 0)
+        err(1, "setrlimit failed");
+    err(1, "setrlim %lu", limit.rlim_max);
+
     /* Register the standard signal handling functions */
     register_signal_handlers();
 }

@@ -131,7 +131,11 @@ main(int argc, char *argv[])
 		err(1, "strdup failed");
 	    break;
 	case 'v':
-        OPT.log_level = LOG_DEBUG;
+        if (! OPT.log_level & LOG_INFO) {
+            OPT.log_level = LOG_INFO;
+        } else if (! OPT.log_level & LOG_DEBUG) {
+            OPT.log_level = LOG_DEBUG;
+        }
 	    break;
 	default:
 	    usage();
