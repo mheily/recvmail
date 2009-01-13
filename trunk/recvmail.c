@@ -44,7 +44,9 @@ struct options  OPT = {
     .uid = "nobody",
     .gid = "mail",
     .spooldir = SPOOLDIR,
+    .log_ident = "recvmail",
     .log_level = LOG_NOTICE,
+    .log_facility = LOG_MAIL,
 };
 
 /* getopt(3) variables */
