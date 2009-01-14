@@ -19,11 +19,18 @@
 #ifndef _SERVER_H
 #define _SERVER_H
 
+#include <netinet/in.h>
+#include <pthread.h>
+#include "queue.h"
+
+struct session;
+
 struct server {
     int             port;	/* The port number to bind(2) to */
     struct in_addr  addr;	/* The IP address to listen(2) to */
     int             fd;		/* The descriptor returned by socket(2) */
     struct sockaddr sa;		/* The socket address of the server */
+    pthread_t       fsyncer;   /* Thread dedicated to calling fsync(2) */
     struct thread_pool *tpool;
 
     /**
