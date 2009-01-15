@@ -30,8 +30,17 @@ struct server {
     struct in_addr  addr;	/* The IP address to listen(2) to */
     int             fd;		/* The descriptor returned by socket(2) */
     struct sockaddr sa;		/* The socket address of the server */
-    pthread_t       fsyncer;   /* Thread dedicated to calling fsync(2) */
     struct thread_pool *tpool;
+
+    /* 
+     * Each server has a dedicated thread which handles fsync(2) calls
+     * by sessions. These are the variables to support this function.
+     */
+    int              spooldir_fd;
+    LIST_HEAD(,session) fsync_queue;
+    pthread_t        fsyncer; 
+    pthread_cond_t   fsyncer_cond;
+    pthread_mutex_t  fsyncer_lock;
 
     /**
      * At any given time, a session may be on one of the following lists.
