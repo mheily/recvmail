@@ -131,11 +131,9 @@ main(int argc, char *argv[])
 		err(1, "strdup failed");
 	    break;
 	case 'v':
-        if (OPT.log_level == LOG_NOTICE) {
-            OPT.log_level = LOG_INFO;
-        } else if (OPT.log_level == LOG_INFO) {
-            OPT.log_level = LOG_DEBUG;
-        }
+        if (OPT.log_level == LOG_DEBUG)
+            err(1, "cannot enable logging above LOG_DEBUG");
+        OPT.log_level++;
 	    break;
 	default:
 	    usage();
