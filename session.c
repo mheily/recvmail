@@ -1,4 +1,4 @@
-/*		$Id: $		*/
+/*		$Id$		*/
 
 /*
  * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
@@ -22,6 +22,7 @@
 
 #include "poll.h"
 #include "server.h"
+#include "session.h"
 
 /** vasprintf(3) is a GNU extension and not universally visible */
 extern int      vasprintf(char **, const char *, va_list);
@@ -229,32 +230,16 @@ session_close(struct session *s)
     s->closed = 1;
 }
 
-#if FIXME
-//todo
-//
-void *
-_session_fdatasync(void *ptr)
-{
-    struct session *s = ptr;
-
-    if (fdatasync(s->msg->fd) != 0) {
-        log_errno("fdatasync(2)");
-        //XXX-FIXME set session error flag
-        return (NULL);
-    }
-
-    session_write(
-    return (NULL);
-}
 
 int
-session_fdatasync(struct session *s, int fd)
+session_fsync(struct session *s, int (*cb)(struct session *))
 {
-    if (thread_pool_run(
-    /* Place the session into the wait queue */
-    LIST_REMOVE(s, entries);
-    LIST_INSERT_HEAD(&s->srv->io_wait, s, entries);
+    struct server *srv = s->srv;
+
+    if (poll_disable(srv->evcb, s->fd) != 0)
+        return (-1);
+    s->handler = cb;
+    SCHEDULE(srv, s, fsync_queue);
 
     return (0);
 }
-#endif

@@ -1,4 +1,4 @@
-/*		$Id: $		*/
+/*		$Id$		*/
 
 /*
  * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
@@ -17,6 +17,7 @@
  */
 
 #include "recvmail.h"
+#include "session.h"
 
 
 /* Generate a unique ID suitable for delivery to a Maildir */
