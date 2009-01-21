@@ -1,4 +1,4 @@
-/*      $Id: hash.h 5 2008-10-13 00:07:57Z mheily $      */
+/*      $Id$      */
 /*
  * Copyright (c) 2008 Mark Heily <devel@heily.com>
  *

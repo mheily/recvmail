@@ -1,4 +1,4 @@
-/*	$Id: thread-pool.h,v 1.1.1.1 2006/03/19 00:23:12 mheily Exp $	*/
+/*	$Id$	*/
 
 /*
  * Copyright (c) 2006 Mark Heily <devel@heily.com>

@@ -1,7 +1,7 @@
 /*		$Id$		*/
 
 /*
- * Copyright (c) 2008 Mark Heily <devel@heily.com>
+ * Copyright (c) 2009 Mark Heily <devel@heily.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,18 +16,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _POLL_H
-#define _POLL_H
+#ifndef _SMTP_H
+#define _SMTP_H
 
-#define SOCK_CAN_READ   0x0001
-#define SOCK_CAN_WRITE  0x0002
-#define SOCK_EOF        0x0004
-#define SOCK_ERROR      0x0008
+struct session;
 
-struct evcb;
-struct evcb * poll_new(void);
-int poll_disable(struct evcb *, int);
-int poll_enable(struct evcb *, int, void *, int);
-void * poll_wait(struct evcb *, int *);
+void            smtpd_accept(struct session *);
+int             smtpd_parser(struct session *);
+void            smtpd_timeout(struct session *);
+void            smtpd_client_error(struct session *);
+void            smtpd_close(struct session *);
 
-#endif /* _POLL_H */
+#endif /* _SMTP_H */

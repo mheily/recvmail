@@ -1,4 +1,4 @@
-/*		$Id: $		*/
+/*		$Id$		*/
 
 /*
  * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
@@ -21,6 +21,11 @@
 #include "poll.h"
 #include "thread-pool.h"
 #include "server.h"
+#include "session.h"
+
+/* From fsyncer.c */
+int fsyncer_init(struct server *);
+
 
 // wierd place for this..
 int
@@ -129,74 +134,9 @@ register_signal_handlers(void)
 #endif
 }
 
-/* NOTE: This was taken from thread-pool.c and is very similar. */
-#error totally unfinished skeleton
-static void *
-fsyncer_main(struct server *srv)
-{
-    struct session *s;
-
-    pthread_mutex_lock(&srv->fsyncer_lock);
-
-    for (;;) {
-
-        /* Wait until there is work to be done. */
-        if (LIST_EMPTY(&srv->fsync_queue) &&
-                pthread_cond_wait(&srv->fsyncer_cond, &srv->fsyncer_lock) != 0) {
-            log_error("pthread_cond_wait() failed");
-            break;
-        }
-
-        /* If the work queue is empty, go back to sleep */
-        if (LIST_EMPTY(&srv->fsync_queue)) {
-            pthread_mutex_unlock(&srv->fsyncer_lock);
-            continue;
-        }
-
-        /* Remove the first unit of work from the head of the queue */
-        s = LIST_FIRST(&srv->fsync_queue);
-        LIST_REMOVE(s, entries);
-        pthread_mutex_unlock(&srv->fsyncer_lock);
-
-        /* XXX-TODO all this */
-        /* Run the requested work routine */
-        /* Place the session back into the runnable queue. */
-        /* Start listening for session events. */
-        /* If the queue is empty, fsync the spooldir directory to update all metadata */
-        // DANGER -- don't deadlock clients that are trying to add to the queue during the
-        //          storm of fsyncing.
-        pthread_mutex_lock(&srv->fsyncer_lock);
-    }
-
-    pthread_mutex_unlock(&srv->fsyncer_lock);
-    return (NULL);
-}
-
 /* ------------------- Public functions ----------------------- */
 
-static int
-fsyncer_init(struct server *srv)
-{
-    pthread_cond_init(&srv->fsyncer_cond, NULL);
-    pthread_mutex_init(&srv->fsyncer_lock, NULL);
-    LIST_INIT(&srv->fsync_queue);
 
-    /* 
-     * Keep a file descriptor open to the spooldir 
-     * to enable the metadata to be sync'd 
-     */
-    if ((srv->spooldir_fd = open(OPT.spooldir, O_RDWR)) < 0) {
-        log_errno("open(2) of `%s'", OPT.spooldir);
-        return (-1);
-    }
-
-    if (pthread_create(&srv->fsyncer, NULL, (void *) fsyncer_main, (void *) srv) != 0) {
-        log_errno("pthread_create(3)");
-        return (-1);
-    }
-
-    return (0);
-}
 
 /* Initialization routines common to all servers */
 void
@@ -234,7 +174,7 @@ server_init(void)
 
     /* Open the log file */
     openlog(OPT.log_ident, logopt, OPT.log_facility);
-    setlogmask(LOG_UPTO(OPT.log_level));
+    setlogmask(OPT.log_level);
 
     /* Increase the allowable number of file descriptors */
     if (getuid() == 0) {
@@ -379,7 +319,8 @@ session_read(struct session *s)
             return;
     }
 
-    s->srv->read_hook(s);
+    // TODO: check return value
+    s->handler(s);
 
     // XXX-Very bad.. probably
     if (s->closed) {
@@ -395,9 +336,11 @@ server_dispatch(struct server *srv)
 	struct session *s;
 
     /* Initialize the session table */
+    pthread_mutex_init(&srv->sched_lock, NULL);
     LIST_INIT(&srv->runnable);
     LIST_INIT(&srv->io_wait);
     LIST_INIT(&srv->idle);
+    LIST_INIT(&srv->fsync_queue);
 
     /* The first entry in the session table is the server descriptor */
     if (poll_enable(srv->evcb, srv->fd, (void *) srv_udata, SOCK_CAN_READ) < 0) { 

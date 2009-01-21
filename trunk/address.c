@@ -1,4 +1,4 @@
-/*		$Id: $		*/
+/*		$Id$		*/
 
 /*
  * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>

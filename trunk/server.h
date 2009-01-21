@@ -1,4 +1,4 @@
-/*		$Id: $		*/
+/*		$Id$		*/
 
 /*
  * Copyright (c) 2009 Mark Heily <devel@heily.com>
@@ -31,24 +31,17 @@ struct server {
     int             fd;		/* The descriptor returned by socket(2) */
     struct sockaddr sa;		/* The socket address of the server */
     struct thread_pool *tpool;
-
-    /* 
-     * Each server has a dedicated thread which handles fsync(2) calls
-     * by sessions. These are the variables to support this function.
-     */
-    int              spooldir_fd;
-    LIST_HEAD(,session) fsync_queue;
-    pthread_t        fsyncer; 
-    pthread_cond_t   fsyncer_cond;
-    pthread_mutex_t  fsyncer_lock;
+    pthread_t        fsyncer_tid;
 
     /**
      * At any given time, a session may be on one of the following lists.
-     * 
+     * The list is protected by a mutex.
      */
+    pthread_mutex_t     sched_lock;
     LIST_HEAD(,session) runnable;
     LIST_HEAD(,session) idle;
     LIST_HEAD(,session) io_wait;
+    LIST_HEAD(,session) fsync_queue;
 
     struct evcb * evcb;
 
@@ -64,9 +57,6 @@ struct server {
     /* Called prior to close(2) for a session */
     void           (*close_hook) (struct session *);
 
-    /* Called when there is data available to read(2) from the client */
-    void           (*read_hook) (struct session *);
-
     /* Sends a 'fatal internal error' message to the client before closing 
      */
     void           (*abort_hook) (struct session *);
@@ -78,6 +68,13 @@ struct server {
      * closing */
     //DEADWOOD:void            (*reject_hook) (struct session *);
 };
+
+#define SCHEDULE(srv, s, listname)  do {                        \
+    pthread_mutex_lock(&(srv)->sched_lock);                     \
+    LIST_REMOVE((s), entries);                                  \
+    LIST_INSERT_HEAD(&(srv)->listname, (s), entries);           \
+    pthread_mutex_unlock(&(srv)->sched_lock);                   \
+} while (0)
 
 int  protocol_close(struct server *, struct session *);
 int  server_disconnect(struct server *, int);

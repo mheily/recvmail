@@ -1,4 +1,4 @@
-/*		$Id: $		*/
+/*		$Id$		*/
 
 /*
  * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
@@ -18,6 +18,7 @@
 
 #include "recvmail.h"
 #include "server.h"
+#include "smtp.h"
 
 void            run_testsuite();
 
@@ -34,7 +35,6 @@ struct server   smtpd = {
     .accept_hook = smtpd_accept,
     .timeout_hook = smtpd_timeout,
     .abort_hook = NULL,		// fixme
-    .read_hook = smtpd_parser,
     .close_hook = smtpd_close,
 };
 

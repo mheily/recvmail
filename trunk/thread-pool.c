@@ -1,4 +1,4 @@
-/*	$Id: thread-pool.c,v 1.1.1.1 2006/03/19 00:23:12 mheily Exp $	*/
+/*	$Id$	*/
 
 /*
  *              thread-pool.c - thread pools

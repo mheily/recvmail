@@ -1,4 +1,4 @@
-/*      $Id: $      */
+/*      $Id$      */
 
 /*
  * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
@@ -17,10 +17,13 @@
  */
 
 #include "recvmail.h"
+#include "session.h"
+#include "smtp.h"
 #include <ctype.h>
 
 static int smtpd_parse_command(struct session *, char *, size_t);
 static int smtpd_parse_data(struct session *, char *, size_t);
+static int smtpd_session_reset(struct session *);
 
 /* Test if we accept mail for a given domain */
 static inline int
@@ -35,6 +38,41 @@ relay_domain(const char *req)
     }
 
     return (-1);
+}
+
+static int
+smtp_fsyncer_callback(struct session *s)
+{
+    s->handler = smtpd_parser;
+
+    /* Reset the session to allow the sender to pipeline another request */
+    if (smtpd_session_reset(s) != 0) {
+        log_error("smtpd_session_reset()");
+        // FIXME - terminate session, what error code?
+        session_println(s, "666 NOT Ok");
+        return (-1);
+    };
+
+    session_println(s, "250 Ok");
+    return (0);
+}
+
+static int
+smtpd_session_reset(struct session *s)
+{
+   if (s->msg != NULL) {
+        s->msg->recipient_count = 0;
+        message_free(s->msg);
+        if ((s->msg = message_new()) == NULL) {
+            session_println(s, "421 Out of memory error");
+            session_close(s);
+            return (-1);
+        }
+        s->msg->session = s;
+    }
+
+    s->smtp_state = SMTP_STATE_MAIL;
+    return (0);
 }
 
 static int
@@ -151,18 +189,11 @@ smtpd_data(struct session *s, const char *arg)
 static int
 smtpd_rset(struct session *s)
 {
-    if (s->msg != NULL) {
-        s->msg->recipient_count = 0;
-        message_free(s->msg);
-        if ((s->msg = message_new()) == NULL) {
-            session_println(s, "421 Out of memory error");
-            session_close(s);
-            return (-1);
-        }
-        s->msg->session = s;
+    if (smtpd_session_reset(s) != 0) {
+        // FIXME -- What error code goes here?
+        return (-1);
     }
 
-    s->smtp_state = SMTP_STATE_MAIL;
     session_println(s, "250 Ok");
     return (0);
 }
@@ -182,7 +213,7 @@ smtpd_quit(struct session *s)
     return (0);
 }
 
-void
+int
 smtpd_parser(struct session *s)
 {
     struct iovec *iov;
@@ -208,8 +239,11 @@ smtpd_parser(struct session *s)
         if (s->errors > 10) {
             smtpd_client_error(s);
             session_close(s);
+            return (-1);
         }
     }
+
+    return (0);
 }
 
 static int
@@ -290,16 +324,18 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
     /* If the line is '.', end the data stream */
     if ((len == 2) && strncmp(src, ".\n", 2) == 0) {
 
-        /* TODO : set state to SMTP_STATE_FSYNC and call syncer */
-
-        /* Deliver the message immediately */
+        /* Close the tmp/ file and move it to new/ */
         if (maildir_msg_close(s->msg) < 0) {
             log_error("maildir_msg_close()");
             goto error;
         }
 
-        /* Allow the sender to pipeline another request */
-        smtpd_rset(s);
+        /* XXX-FIXME Need to fail if there is data still in the socket input buffer */
+        if (session_fsync(s, smtp_fsyncer_callback) != 0) {
+            log_error("session_fsync()");
+            goto error;
+        };
+
         return (0);
     }
 
@@ -356,6 +392,7 @@ smtpd_accept(struct session *s)
         errx(1,"FIXME: error handling (memfree)");
     }
     s->msg->session = s;
+    s->handler = smtpd_parser;
     smtpd_greeting(s);
 }
 

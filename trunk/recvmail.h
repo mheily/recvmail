@@ -1,4 +1,4 @@
-/*		$Id: $		*/
+/*		$Id$		*/
 
 /*
  * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
@@ -151,37 +151,6 @@ struct socket_buf {
 };
 
 
-/* A client session */
-struct session {
-    struct server  *srv;            /* The server that owns this session */
-    int             fd;		        /* The client socket descriptor */
-    int flags;          // see SFL_*
-    int             events;         //fixme this isnt really used
-    int closed; //TODO: deprecate this
-    struct in_addr  remote_addr;	/* IP address of the client */
-    struct socket_buf in_buf;
-    STAILQ_HEAD(,nbuf) out_buf;     /* Output buffer */
-
-    /* ---------- protocol specific members ------------ */
-
-    struct message *msg;
-
-    /* The state determines which SMTP commands are valid */
-    enum {
-        SMTP_STATE_HELO,
-        SMTP_STATE_MAIL,
-        SMTP_STATE_RCPT,
-        SMTP_STATE_DATA,
-        SMTP_STATE_FSYNC,
-        SMTP_STATE_QUIT,
-    } smtp_state;
-    unsigned int    errors;	/* The number of protocol errors */
-
-    /* ---------- end protocol specific members ---------- */
-
-    LIST_ENTRY(session) entries;
-};
-
 /* Forward declarations */
 
 int             open_maillog(const char *path);
@@ -230,28 +199,7 @@ int             message_write(struct message *msg, const char *src,
 int             maildir_msg_close(struct message *msg);
 void            message_free(struct message *msg);
 
-/* From http.c */
 
-void httpd_init(struct server *smtpd);
-
-/* From smtp.h */
-
-void session_write(struct session *, const char *, size_t size);
-void session_printf(struct session *, const char *, ...);
-void session_println(struct session *, const char *);
-void            session_close(struct session *s);
-struct session * session_new(int fd);
-void            session_free(struct session *s);
-char *          remote_addr(char *dest, size_t len, const struct session *s);
-//struct session * session_lookup(int fd);
-int session_readln(struct session *s);
-int session_fdatasync(struct session *, int);
-
-void            smtpd_accept(struct session *s);
-void            smtpd_parser(struct session *s);
-void            smtpd_timeout(struct session *s);
-void            smtpd_client_error(struct session *s);
-void            smtpd_close(struct session *s);
 
 /* From socket.c */
 
