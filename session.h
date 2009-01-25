@@ -22,7 +22,6 @@
 
 /* A client session */
 struct session {
-    struct server  *srv;            /* The server that owns this session */
     int             fd;		        /* The client socket descriptor */
     int flags;          // see SFL_*
     int             events;         //fixme this isnt really used

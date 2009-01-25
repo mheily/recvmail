@@ -157,10 +157,8 @@ main(int argc, char *argv[])
     aliases_parse("/etc/aliases");
 #endif
 
-    server_init();
-    if (server_bind(&smtpd) != 0)
+    if (server_init(&smtpd) < 0)
         errx(1, "server initialization failed");
-    //TODO:server_bind(&pop3d);
 
     /* Dump some variables to the log */
     log_debug("mailname=`%s'", OPT.mailname);
@@ -171,7 +169,7 @@ main(int argc, char *argv[])
     exit(EXIT_SUCCESS);
 #endif
 
-    if (server_dispatch(&smtpd) != 0) {
+    if (server_dispatch() < 0) {
         log_warning("server_dispatch() failed");
         exit(EXIT_FAILURE);
     } else {

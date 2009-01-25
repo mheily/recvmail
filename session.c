@@ -213,7 +213,7 @@ session_close(struct session *s)
     log_debug("closing transmission channel");
 
     /* Run any protocol-specific hooks */
-    (void) protocol_close(s->srv, s);
+    (void) protocol_close(s);
 
     /* Clear the output buffer. Any unwritten data will be discarded. */
     /* FIXME: shouldn't this be in an abort()-type function? */
@@ -222,7 +222,7 @@ session_close(struct session *s)
              STAILQ_REMOVE_HEAD(&s->out_buf, entries);
     }
 
-    (void) server_disconnect(s->srv, s->fd); 
+    (void) server_disconnect(s->fd); 
 
     /* Remove the descriptor from the session table */
     LIST_REMOVE(s, entries);
@@ -234,12 +234,10 @@ session_close(struct session *s)
 int
 session_fsync(struct session *s, int (*cb)(struct session *))
 {
-    struct server *srv = s->srv;
-
-    if (poll_disable(srv->evcb, s->fd) != 0)
+    if (poll_disable(srv.evcb, s->fd) != 0)
         return (-1);
     s->handler = cb;
-    SCHEDULE(srv, s, fsync_queue);
+    SCHEDULE(s, fsync_queue);
 
     return (0);
 }
