@@ -25,21 +25,6 @@ static int smtpd_parse_command(struct session *, char *, size_t);
 static int smtpd_parse_data(struct session *, char *, size_t);
 static int smtpd_session_reset(struct session *);
 
-/* Test if we accept mail for a given domain */
-static inline int
-relay_domain(const char *req)
-{
-    char **p;
-
-    for (p = OPT.domains; *p != NULL; p++) {
-        if (strcasecmp(*p, req) == 0) {
-            return (0);
-        }
-    }
-
-    return (-1);
-}
-
 static int
 smtp_fsyncer_callback(struct session *s)
 {
@@ -53,8 +38,7 @@ smtp_fsyncer_callback(struct session *s)
         return (-1);
     };
 
-    session_println(s, "250 Ok");
-    return (0);
+    return (smtpd_parser(s));
 }
 
 static int
@@ -147,15 +131,34 @@ smtpd_rcpt(struct session *s, char *line)
     }
 
     /* Check if we accept mail for this domain */
-    if (relay_domain(ma->domain) != 0) {
-        session_println(s, "551 Relay access denied");
-        goto errout;
+    switch (domain_exists(ma)) {
+        case -1: 
+            session_println(s, "421 Internal error, closing connection");
+            // FIXME: actually close the connection
+            goto errout;
+        case 0: 
+            session_println(s, "551 Relay access denied");
+            goto errout;
+            break;
     }
 
-    /* Add the address to recipient list */
-    LIST_INSERT_HEAD(&s->msg->recipient, ma, entries);
-    s->msg->recipient_count++;
-    session_println(s, "250 Ok");
+    /* Check if the mailbox exists */
+    switch (maildir_exists(ma)) {
+        case -1: 
+            session_println(s, "421 Internal error, closing connection");
+            // FIXME: actually close the connection
+            goto errout;
+            break;
+        case 0: 
+            session_println(s, "550 Mailbox does not exist");
+            goto errout;
+            break;
+        case 1:
+            LIST_INSERT_HEAD(&s->msg->recipient, ma, entries);
+            s->msg->recipient_count++;
+            session_println(s, "250 Ok");
+            break;
+    }
 
     free(buf);
     return (0);
@@ -230,6 +233,7 @@ smtpd_parser(struct session *s)
             rv = smtpd_parse_command(s, iov[i].iov_base, iov[i].iov_len - 1);
         } else {
             rv = smtpd_parse_data(s, iov[i].iov_base, iov[i].iov_len);
+//XXX-FIXME after switching to fsyncer, any extra data is lost
         }
 
         if (rv != 0) 
@@ -325,8 +329,13 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
     if ((len == 2) && strncmp(src, ".\n", 2) == 0) {
 
         /* Close the tmp/ file and move it to new/ */
-        if (maildir_msg_close(s->msg) < 0) {
-            log_error("maildir_msg_close()");
+        if (message_close(s->msg) < 0) {
+            log_error("message_close()");
+            goto error;
+        }
+
+        if (maildir_deliver(s->msg) < 0) {
+            log_error("maildir_deliver()");
             goto error;
         }
 
