@@ -16,9 +16,65 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// FIXME - needed to get asprintf decl in stdio.h
+#define _GNU_SOURCE
+
+#include <limits.h>
+#include <stdio.h>
+
 #include "recvmail.h"
 #include "session.h"
 
+static int
+path_exists(const char *path)
+{
+    if (access(path, W_OK) < 0) {
+        if (errno == ENOENT) {
+            return (0);
+        } else {
+            log_errno("access(2) of `%s'", path);
+            return (-1);
+        }
+    }
+
+    return (1);
+}
+
+static int 
+maildir_get_path(char *buf, size_t n, const struct mail_addr *ma)
+{
+    if (snprintf(buf, n, "box/%s/%s", ma->domain, ma->local_part) >= n) {
+        log_error("mailbox name too long");
+        return (-1);
+    }
+
+    return (0);
+}
+
+int
+domain_exists(const struct mail_addr *ma)
+{
+    char buf[PATH_MAX];
+
+    if (snprintf((char *) &buf, sizeof(buf), "box/%s",
+                ma->domain) >= sizeof(buf)) {
+        log_error("mailbox name too long");
+        return (-1);
+    }
+
+    return (path_exists((char *) &buf));
+}
+
+int
+maildir_exists(const struct mail_addr *ma)
+{
+    char buf[PATH_MAX];
+
+    if (maildir_get_path((char *) &buf, sizeof(buf), ma) != 0)
+        return (-1);
+
+    return (path_exists((char *) &buf));
+}
 
 /* Generate a unique ID suitable for delivery to a Maildir */
 char *
@@ -69,7 +125,7 @@ maildir_msg_open(struct message *msg)
     /* Generate the message pathname */
     if ((msg->filename = maildir_generate_id()) == NULL)
         return -1;
-    if (asprintf(&msg->path, "tmp/%s", msg->filename) < 0)
+    if (asprintf(&msg->path, "spool/tmp/%s", msg->filename) < 0)
         return -1;
 
     /* Try to open the message file for writing */
@@ -110,6 +166,51 @@ errout:
 }
 
 
+int
+maildir_deliver(struct message *msg)
+{
+    char prefix[PATH_MAX];
+    char dest[PATH_MAX];
+
+    struct mail_addr *ma;
+
+    LIST_FOREACH(ma, &msg->recipient, entries) {
+        if (maildir_get_path((char *) &prefix, sizeof(prefix), ma) != 0) {
+            log_error("prefix too long");
+            goto errout;
+        }
+        if (snprintf((char *) &dest, sizeof(dest), "%s/new/%s",
+                    (char *) &prefix, msg->filename) >= sizeof(dest)) {
+            log_error("path too long");
+            goto errout;
+        }
+        if (link(msg->path, dest) != 0) {
+            log_errno("link(2) of `%s' to `%s'", msg->path, dest);
+            goto errout;
+        }
+    }
+
+    /* Delete the spooled message */
+    if (unlink(msg->path) != 0) {
+            log_errno("unlink(2) of `%s'", msg->path);
+            goto errout;
+    }
+#if FIXME
+    //this seems dangerous
+    message_free(msg);
+    free(msg->path);
+    msg->path = NULL;
+#endif
+
+    return (0);
+
+errout:
+    /* Try to "undeliver" the message */
+    LIST_FOREACH(ma, &msg->recipient, entries) {
+        log_warning("XXX-fixme todo");
+    }
+    return (-1);
+}
 
 /**
  * Close the file descriptor associated with <msg>
@@ -117,7 +218,7 @@ errout:
  * Modifies: msg->path
  */
 int
-maildir_msg_close(struct message *msg)
+message_close(struct message *msg)
 {
     char *path = NULL;
 
@@ -128,7 +229,7 @@ maildir_msg_close(struct message *msg)
     }
 
     /* Generate the new/ pathname */
-    if (asprintf(&path, "new/%s", msg->filename) < 0) {
+    if (asprintf(&path, "spool/new/%s", msg->filename) < 0) {
         log_errno("asprintf(3)");
         goto error;
     }
