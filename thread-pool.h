@@ -23,23 +23,16 @@
 
 #include "queue.h"
 
-struct tpool_work {
-	int	(*func)();
-	void	 *arg;
-    STAILQ_ENTRY(tpool_work) entries;
-};
-
-STAILQ_HEAD(work_queue, tpool_work);
-
 struct thread_pool {
 	pthread_mutex_t  lock; 
+LIST_HEAD(,session)      queue; 
+	void           (*dispatch)(struct thread_pool *, struct session *);
 	size_t	         num_workers;
-	STAILQ_HEAD(,tpool_work) work_queue; 
 	pthread_cond_t   queue_not_empty;
 };
 
-struct thread_pool * thread_pool_create(unsigned int);
-void thread_pool_destroy(struct thread_pool *);
-int thread_pool_run(struct thread_pool *, void *, void *);
+struct thread_pool * 	thread_pool_create(unsigned int);
+void 			thread_pool_destroy(struct thread_pool *);
+int 			thread_pool_run(struct thread_pool *, void *, void *);
 
 #endif

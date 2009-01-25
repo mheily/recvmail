@@ -20,39 +20,53 @@
 
 #include "recvmail.h"
 #include "thread-pool.h"
+#include "session.h"
 
-/* NOTE: to kill the threadpool, add a work entry that invokes pthread_exit() */
+
+/* 
+
+
+thread pools --
+
+  POOL_NAME		DESCRIPTION							NOTES
+  listener 		waits for incoming connections and calls accept(2)		no queue items, not a thread_pool
+  authorize		looks up the client in a DNS block list,			multi-worker FIFO
+  			checks for too many sessions-per-client
+  reverse_lookup	gets the PTR record for the client				multi-worker FIFO
+  smtp			SMTP conversation						multi-worker FIFO
+  idle			place where sessions live when waiting for client I/O		no workers
+  fsyncer		call fsync(2) and closes the open file				multi-worker FIFO
+
+ */
 
 static int
 thread_main(struct thread_pool *tpool)
 {
-	struct tpool_work *work = NULL;
+	struct session *s = NULL;
 
     pthread_mutex_lock(&tpool->lock);
 
 	for (;;) {
 
 		/* Wait until there is work to be done. */
-		if (STAILQ_EMPTY(&tpool->work_queue) &&
+		if (LIST_EMPTY(&tpool->queue) &&
                 pthread_cond_wait(&tpool->queue_not_empty, &tpool->lock) != 0) {
             log_error("pthread_cond_wait() failed");
 			break;
 		}
 
+
+		/* Remove the first unit of work from the head of the queue */
 		/* If the work queue is empty, go back to sleep */
-		if (STAILQ_EMPTY(&tpool->work_queue)) {
+		if ((s = LIST_FIRST(&tpool->queue)) == NULL) {
 			pthread_mutex_unlock(&tpool->lock);
 			continue;
 		}
-
-		/* Remove the first unit of work from the head of the queue */
-        work = STAILQ_FIRST(&tpool->work_queue);
-        STAILQ_REMOVE_HEAD(&tpool->work_queue, entries);
+		LIST_REMOVE(s, entries);
 		pthread_mutex_unlock(&tpool->lock);
 		
 		/* Run the requested work routine */
-		(*(work->func))(work->arg);
-        free(work);
+		tpool->dispatch(tpool, s);
 
 		pthread_mutex_lock(&tpool->lock);
 	}
@@ -72,7 +86,7 @@ thread_pool_create(unsigned int num_workers)
     if ((tpool = calloc(1, sizeof(*tpool))) == NULL)
         return (NULL);
 
-    STAILQ_INIT(&tpool->work_queue);
+    LIST_INIT(&tpool->queue);
 	pthread_mutex_init(&tpool->lock, NULL);
 	pthread_cond_init(&tpool->queue_not_empty, NULL);
 
@@ -91,42 +105,39 @@ thread_pool_create(unsigned int num_workers)
 void
 thread_pool_destroy(struct thread_pool *tpool)
 {
-    struct tpool_work *work;
 
+#if FIXME
+    struct session *s;
+    // should be done somewhere else
     /* Destroy the work queue */
     while (! STAILQ_EMPTY(&tpool->work_queue)) {
         work = STAILQ_FIRST(&tpool->work_queue);
         STAILQ_REMOVE_HEAD(&tpool->work_queue, entries);
         free(work);
     }
+#endif
 	
     /* FIXME: Kill each worker thread */
 
 	free(tpool);
 }
 
-
-int
-thread_pool_run(struct thread_pool *tpool, void *func, void *arg)
+void
+server_schedule(struct thread_pool *dst, 
+			struct thread_pool *src,
+			struct session *s)
 {
-	struct tpool_work  *work;
+    /* Remove the item from the source */	
+	if (src != NULL) {
+		pthread_mutex_lock(&src->lock);
+		LIST_REMOVE(s, entries);
+		pthread_mutex_unlock(&src->lock);
+	}
 
-	/* Generate a unit of work */
-    if ((work = malloc(sizeof(*work))) == NULL) {
-        log_errno("malloc(3)");
-        return (-1);
-    }
-	work->func = func;
-	work->arg = arg;
-
-    /* Add it to the work queue */
-	pthread_mutex_lock(&tpool->lock);
-    STAILQ_INSERT_TAIL(&tpool->work_queue, work, entries);
-    pthread_mutex_unlock(&tpool->lock);
-
-	/* Signal that the queue is not empty */
-	/* FIXME - RACE CONDITION - this may fire before the new thread calls cond_wait() */
-	pthread_cond_signal(&tpool->queue_not_empty);
-
-    return (0);
+    /* Add the item to the destination */
+    pthread_mutex_lock(&dst->lock);
+    LIST_INSERT_HEAD(&dst->queue, s, entries);	// TODO: want to put at the end of the list
+    pthread_cond_signal(&dst->queue_not_empty);
+    pthread_mutex_unlock(&dst->lock);
 }
+
