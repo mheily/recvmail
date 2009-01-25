@@ -23,9 +23,7 @@
 #include "server.h"
 #include "session.h"
 
-/* From fsyncer.c */
-int fsyncer_init(struct server *);
-
+static void drop_privileges(struct server *);
 
 // wierd place for this..
 int
@@ -68,8 +66,6 @@ server_disconnect(struct server *srv, int fd)
 }
 
 /*
- * drop_privileges(uid,gid,chroot_to)
- * 
  * Remove root privileges from the running process.
  * 
  * If the process is running as root, change the UID and GID to the ID's of
@@ -78,8 +74,8 @@ server_disconnect(struct server *srv, int fd)
  * Also chroot(2) to another directory, if desired.
  * 
  */
-void
-drop_privileges(const char *user, const char *group, const char *chroot_to)
+static void
+drop_privileges(struct server *srv)
 {
     struct group   *grent;
     struct passwd  *pwent;
@@ -87,8 +83,8 @@ drop_privileges(const char *user, const char *group, const char *chroot_to)
     gid_t           gid;
 
     /* Chdir into the chroot directory */
-    if (chroot_to && (chdir(chroot_to) < 0)) 
-        err(1, "chdir(2) to `%s'", chroot_to);
+    if (srv->chrootdir && (chdir(srv->chrootdir) < 0)) 
+        err(1, "chdir(2) to `%s'", srv->chrootdir);
 
     /* Only root is allowed to drop privileges */
     if (getuid() > 0) {
@@ -98,15 +94,15 @@ drop_privileges(const char *user, const char *group, const char *chroot_to)
 
     /* Convert the symbolic group to numeric GID */
     /* Convert the symbolic user-id to the numeric UID */
-    if ((grent = getgrnam(group)) == NULL) 
-        err(1, "a group named '%s' does not exist", group);
-    if ((pwent = getpwnam(user)) == NULL)
-        err(1, "a user named '%s' does not exist", user);
+    if ((grent = getgrnam(srv->gid)) == NULL) 
+        err(1, "a group named '%s' does not exist", srv->gid);
+    if ((pwent = getpwnam(srv->uid)) == NULL)
+        err(1, "a user named '%s' does not exist", srv->uid);
     gid = grent->gr_gid;
     uid = pwent->pw_uid;
 
     /* chroot */
-    if (chroot_to && (chroot(chroot_to) < 0))
+    if (srv->chrootdir && (chroot(srv->chrootdir) < 0))
         err(1, "chroot(2)");
 
     /* Set the real UID and GID */
@@ -115,7 +111,7 @@ drop_privileges(const char *user, const char *group, const char *chroot_to)
     if (setuid(uid) < 0)
         err(1, "setuid(2)");
     
-    log_info("setuid(2) to %s(%d)", user, uid);
+    log_info("setuid(2) to %s(%d)", srv->uid, uid);
 }
 
 
@@ -209,12 +205,8 @@ server_bind(struct server *srv)
         return (-1);
     }
 
-    /* Create a thread pool for blocking system calls */
-    // TODO: determine the best # of workers
-    if ((srv->tpool = thread_pool_create(4)) == NULL) {
-        log_error("unable to create a thread pool");
-        return (-1);
-    }
+    // FIXME -- fsyncer depends on this being init first
+    pthread_mutex_init(&srv->sched_lock, NULL);
 
     /* Start the fsync(2) worker thread */
     if (fsyncer_init(srv) < 0) {
@@ -256,6 +248,8 @@ server_bind(struct server *srv)
     log_debug("listening on port %d", srv->port);
 
     srv->fd = fd;
+
+    drop_privileges(srv);
 
     return (0);
 
@@ -336,7 +330,6 @@ server_dispatch(struct server *srv)
 	struct session *s;
 
     /* Initialize the session table */
-    pthread_mutex_init(&srv->sched_lock, NULL);
     LIST_INIT(&srv->runnable);
     LIST_INIT(&srv->io_wait);
     LIST_INIT(&srv->idle);

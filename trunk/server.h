@@ -30,7 +30,11 @@ struct server {
     struct in_addr  addr;	/* The IP address to listen(2) to */
     int             fd;		/* The descriptor returned by socket(2) */
     struct sockaddr sa;		/* The socket address of the server */
-    struct thread_pool *tpool;
+    
+    char           *chrootdir;	/* The directory to chroot(2) to */
+    char           *uid;        /* The symbolic user-ID to setuid(2) to */
+    char           *gid;        /* The symbolic group-ID to setgid(2) to */
+
     pthread_t        fsyncer_tid;
 
     /**
@@ -42,6 +46,7 @@ struct server {
     LIST_HEAD(,session) idle;
     LIST_HEAD(,session) io_wait;
     LIST_HEAD(,session) fsync_queue;
+    pthread_cond_t      fsync_queue_not_empty;
 
     struct evcb * evcb;
 
@@ -73,6 +78,7 @@ struct server {
     pthread_mutex_lock(&(srv)->sched_lock);                     \
     LIST_REMOVE((s), entries);                                  \
     LIST_INSERT_HEAD(&(srv)->listname, (s), entries);           \
+    pthread_cond_signal(&(srv)->listname##_not_empty);          \
     pthread_mutex_unlock(&(srv)->sched_lock);                   \
 } while (0)
 
@@ -81,8 +87,7 @@ int  server_disconnect(struct server *, int);
 int  server_dispatch(struct server *);
 int  server_bind(struct server *);
 void server_init(void);
-void state_transition(struct session *s, int events);
-void server_update_pollset(struct server *srv);
-void drop_privileges(const char *user, const char *group, const char *chroot_to);
+void state_transition(struct session *, int);
+void server_update_pollset(struct server *);
 
 #endif /* _SERVER_H */
