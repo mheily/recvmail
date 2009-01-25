@@ -23,26 +23,27 @@
 #include "server.h"
 #include "session.h"
 
-static void drop_privileges(struct server *);
+struct server srv;
+
+static void drop_privileges(void);
+static int  server_bind(void);
 
 // wierd place for this..
 int
-protocol_close(struct server *srv, struct session *s)
+protocol_close(struct session *s)
 {
-    srv->close_hook(s);
+    srv.close_hook(s);
     return (0);
 }
 
 void
 state_transition(struct session *s, int events)
 {
-    struct server *srv = s->srv;
-
     LIST_REMOVE(s, entries);
     if (events) {
-        LIST_INSERT_HEAD(&srv->io_wait, s, entries);
+        LIST_INSERT_HEAD(&srv.io_wait, s, entries);
     } else {
-        LIST_INSERT_HEAD(&srv->runnable, s, entries);
+        LIST_INSERT_HEAD(&srv.runnable, s, entries);
     }
     s->events = events;
     //FIXME:server_update_pollset(srv);
@@ -51,10 +52,10 @@ state_transition(struct session *s, int events)
 
 
 int
-server_disconnect(struct server *srv, int fd)
+server_disconnect(int fd)
 {
     /* Unregister the file descriptor */
-    if (poll_disable(srv->evcb, fd) != 0) {
+    if (poll_disable(srv.evcb, fd) != 0) {
         log_error("unable to disable events for fd # %d", fd);
         (void) atomic_close(fd);
         return (-1);
@@ -75,7 +76,7 @@ server_disconnect(struct server *srv, int fd)
  * 
  */
 static void
-drop_privileges(struct server *srv)
+drop_privileges(void)
 {
     struct group   *grent;
     struct passwd  *pwent;
@@ -83,8 +84,8 @@ drop_privileges(struct server *srv)
     gid_t           gid;
 
     /* Chdir into the chroot directory */
-    if (srv->chrootdir && (chdir(srv->chrootdir) < 0)) 
-        err(1, "chdir(2) to `%s'", srv->chrootdir);
+    if (srv.chrootdir && (chdir(srv.chrootdir) < 0)) 
+        err(1, "chdir(2) to `%s'", srv.chrootdir);
 
     /* Only root is allowed to drop privileges */
     if (getuid() > 0) {
@@ -94,15 +95,15 @@ drop_privileges(struct server *srv)
 
     /* Convert the symbolic group to numeric GID */
     /* Convert the symbolic user-id to the numeric UID */
-    if ((grent = getgrnam(srv->gid)) == NULL) 
-        err(1, "a group named '%s' does not exist", srv->gid);
-    if ((pwent = getpwnam(srv->uid)) == NULL)
-        err(1, "a user named '%s' does not exist", srv->uid);
+    if ((grent = getgrnam(srv.gid)) == NULL) 
+        err(1, "a group named '%s' does not exist", srv.gid);
+    if ((pwent = getpwnam(srv.uid)) == NULL)
+        err(1, "a user named '%s' does not exist", srv.uid);
     gid = grent->gr_gid;
     uid = pwent->pw_uid;
 
     /* chroot */
-    if (srv->chrootdir && (chroot(srv->chrootdir) < 0))
+    if (srv.chrootdir && (chroot(srv.chrootdir) < 0))
         err(1, "chroot(2)");
 
     /* Set the real UID and GID */
@@ -111,7 +112,7 @@ drop_privileges(struct server *srv)
     if (setuid(uid) < 0)
         err(1, "setuid(2)");
     
-    log_info("setuid(2) to %s(%d)", srv->uid, uid);
+    log_info("setuid(2) to %s(%d)", srv.uid, uid);
 }
 
 
@@ -135,13 +136,16 @@ register_signal_handlers(void)
 
 
 /* Initialization routines common to all servers */
-void
-server_init(void)
+int
+server_init(struct server *_srv)
 {
     struct rlimit   limit;
     int             logopt = LOG_NDELAY;
     pid_t           pid,
                     sid;
+
+    memcpy(&srv, _srv, sizeof(srv));
+    pthread_mutex_init(&srv.sched_lock, NULL);
 
     if (OPT.daemon) {
 
@@ -189,40 +193,43 @@ server_init(void)
 
     /* Register the standard signal handling functions */
     register_signal_handlers();
+
+    /* Create the event source */
+    if ((srv.evcb = poll_new()) == NULL) {
+        log_error("unable to create the event source");
+        return (-1);
+    }
+
+
+    /* Start the fsync(2) worker thread */
+    if (fsyncer_init(&srv) < 0) {
+        log_error("unable to create the fsyncer thread");
+        return (-1);
+    }
+
+    if (server_bind() != 0) 
+        return (-1);
+
+    return (0);
 }
 
 
-int
-server_bind(struct server *srv)
+static int
+server_bind(void)
 {
     struct sockaddr_in srv_addr;
     int             one = 1;
     int             fd = -1;
 
-    /* Create the event source */
-    if ((srv->evcb = poll_new()) == NULL) {
-        log_error("unable to create the event source");
-        return (-1);
-    }
-
-    // FIXME -- fsyncer depends on this being init first
-    pthread_mutex_init(&srv->sched_lock, NULL);
-
-    /* Start the fsync(2) worker thread */
-    if (fsyncer_init(srv) < 0) {
-        log_error("unable to create the fsyncer thread");
-        return (-1);
-    }
-
 	/* Adjust the port number for non-privileged processes */
-	if (getuid() > 0 && srv->port < 1024)
-		srv->port += 1000;
+	if (getuid() > 0 && srv.port < 1024)
+		srv.port += 1000;
 
 	/* Initialize the socket variable */
 	memset(&srv_addr, 0, sizeof(srv_addr));
 	srv_addr.sin_family = AF_INET;
-	srv_addr.sin_addr = srv->addr;
-	srv_addr.sin_port = htons(srv->port);
+	srv_addr.sin_addr = srv.addr;
+	srv_addr.sin_port = htons(srv.port);
 
 	/* Create the socket and bind(2) to it */
 	if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -245,35 +252,35 @@ server_bind(struct server *srv)
         goto errout;
     }
 
-    log_debug("listening on port %d", srv->port);
+    log_debug("listening on port %d", srv.port);
 
-    srv->fd = fd;
+    srv.fd = fd;
 
-    drop_privileges(srv);
+    drop_privileges();
 
     return (0);
 
 errout:
     if (fd >= 0)
         close(fd);
-    srv->fd = -1;
+    srv.fd = -1;
     return (-1);
 }
 
 static struct session *
-server_accept(struct server *srv)
+server_accept(void)
 {
 	socklen_t cli_len;
     int fd;
 	struct session *s;
 
-    cli_len = sizeof(srv->sa);
+    cli_len = sizeof(srv.sa);
 
-    log_debug("incoming connection on srv->fd %d", srv->fd);
+    log_debug("incoming connection on fd %d", srv.fd);
 
     /* Accept the incoming connection */
     do { 
-        fd = accept(srv->fd, &srv->sa, &cli_len);
+        fd = accept(srv.fd, &srv.sa, &cli_len);
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
         log_errno("accept(2)");
@@ -283,15 +290,13 @@ server_accept(struct server *srv)
     /* Create a new session */
     if ((s = session_new(fd)) == NULL) 
         return (NULL);
-    s->srv = srv;
 
     /* Mark the session as runnable, but do not monitor I/O readiness */
-    LIST_INSERT_HEAD(&srv->runnable, s, entries);
-
-    poll_enable(s->srv->evcb, s->fd, s, SOCK_CAN_READ);
+    LIST_INSERT_HEAD(&srv.runnable, s, entries);
+    poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ);
 
     log_debug("accepted session on fd %d", fd);
-    srv->accept_hook(s);
+    srv.accept_hook(s);
     return (s);
 }
 
@@ -323,21 +328,21 @@ session_read(struct session *s)
 }
 
 int
-server_dispatch(struct server *srv)
+server_dispatch(void)
 {
     int events;
     const void *srv_udata = (void *) -1L;
 	struct session *s;
 
     /* Initialize the session table */
-    LIST_INIT(&srv->runnable);
-    LIST_INIT(&srv->io_wait);
-    LIST_INIT(&srv->idle);
-    LIST_INIT(&srv->fsync_queue);
+    LIST_INIT(&srv.runnable);
+    LIST_INIT(&srv.io_wait);
+    LIST_INIT(&srv.idle);
+    LIST_INIT(&srv.fsync_queue);
 
     /* The first entry in the session table is the server descriptor */
-    if (poll_enable(srv->evcb, srv->fd, (void *) srv_udata, SOCK_CAN_READ) < 0) { 
-        log_errno("poll_enable() (srv->fd=%d)", srv->fd);
+    if (poll_enable(srv.evcb, srv.fd, (void *) srv_udata, SOCK_CAN_READ) < 0) { 
+        log_errno("poll_enable() (srv.fd=%d)", srv.fd);
         return (-1);
     }
    
@@ -346,7 +351,7 @@ server_dispatch(struct server *srv)
 
         /* Get one event */
         log_debug("waiting for event");
-        if ((s = poll_wait(srv->evcb, &events)) == NULL) {
+        if ((s = poll_wait(srv.evcb, &events)) == NULL) {
             log_errno("poll_wait()");
             return (-1);
         }
@@ -357,7 +362,7 @@ server_dispatch(struct server *srv)
                 log_errno("bad server socket");
                 return (-1);
             }
-            if ((events & SOCK_CAN_READ) && (s = server_accept(srv)) == NULL) {
+            if ((events & SOCK_CAN_READ) && (s = server_accept()) == NULL) {
                 log_errno("server_accept()");
                 return (-1);
             }

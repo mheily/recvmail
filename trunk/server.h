@@ -74,19 +74,20 @@ struct server {
     //DEADWOOD:void            (*reject_hook) (struct session *);
 };
 
-#define SCHEDULE(srv, s, listname)  do {                        \
-    pthread_mutex_lock(&(srv)->sched_lock);                     \
+extern struct server srv;
+
+#define SCHEDULE(s, listname)  do {                             \
+    pthread_mutex_lock(&srv.sched_lock);                        \
     LIST_REMOVE((s), entries);                                  \
-    LIST_INSERT_HEAD(&(srv)->listname, (s), entries);           \
-    pthread_cond_signal(&(srv)->listname##_not_empty);          \
-    pthread_mutex_unlock(&(srv)->sched_lock);                   \
+    LIST_INSERT_HEAD(&srv.listname, (s), entries);              \
+    pthread_cond_signal(&srv.listname##_not_empty);             \
+    pthread_mutex_unlock(&srv.sched_lock);                      \
 } while (0)
 
-int  protocol_close(struct server *, struct session *);
-int  server_disconnect(struct server *, int);
-int  server_dispatch(struct server *);
-int  server_bind(struct server *);
-void server_init(void);
+int  protocol_close(struct session *);
+int  server_disconnect(int);
+int  server_dispatch(void);
+int  server_init(struct server *);
 void state_transition(struct session *, int);
 void server_update_pollset(struct server *);
 
