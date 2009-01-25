@@ -30,6 +30,9 @@ struct server   smtpd = {
     .addr.s_addr = INADDR_ANY,
     .timeout_read = 15,
     .timeout_write = 30,
+    .chrootdir = "/srv/mail",
+    .uid = "nobody",
+    .gid = "mail",
 
     /* vtable */
     .accept_hook = smtpd_accept,
@@ -41,9 +44,6 @@ struct server   smtpd = {
 struct options  OPT = {
     .debugging = 0,
     .daemon = 1,
-    .uid = "nobody",
-    .gid = "mail",
-    .spooldir = SPOOLDIR,
     .log_ident = "recvmail",
     .log_level = LOG_NOTICE,
     .log_facility = LOG_MAIL,
@@ -96,7 +96,6 @@ int
 main(int argc, char *argv[])
 {
     char mailname[256];
-    char *defaultdomain[2];
     int             c;
 
     /* Get arguments from ARGV */
@@ -152,16 +151,6 @@ main(int argc, char *argv[])
     if (gethostname(OPT.mailname, 256) != 0)
         err(1, "gethostname");
     
-    /* By default, only accept mail for the local machine. */
-    /* FIXME: check for malloc failure */
-    OPT.domains = (char **) &defaultdomain;
-    OPT.domains[0] = OPT.mailname;
-    OPT.domains[1] = NULL;
-
-    /* Check directory accesses */
-    if (access(SPOOLDIR, F_OK) != 0)
-        err(1, "%s: %s", SPOOLDIR, strerror(errno));
-
 #ifdef FIXME
     //causes valgrind error
     aliases_init();
@@ -172,7 +161,6 @@ main(int argc, char *argv[])
     if (server_bind(&smtpd) != 0)
         errx(1, "server initialization failed");
     //TODO:server_bind(&pop3d);
-    drop_privileges(OPT.uid, OPT.gid, OPT.spooldir);
 
     /* Dump some variables to the log */
     log_debug("mailname=`%s'", OPT.mailname);

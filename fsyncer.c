@@ -21,9 +21,6 @@
 #include "poll.h"
 #include "session.h"
 
-/* How frequently this thread wakes up, in seconds */
-#define INTERVAL    15
-
 /* NOTE: This was taken from thread-pool.c and is very similar. */
 static void *
 fsyncer_main(struct server *srv)
@@ -32,13 +29,11 @@ fsyncer_main(struct server *srv)
     LIST_HEAD(,session) q;
     struct session *s;
 
-    //log_debug("fsyncer main woke up");
-    pthread_mutex_lock(&srv->sched_lock);
-
     for (;;) {
-        sleep(INTERVAL);
-        //log_debug("fsyncer woke up");
         pthread_mutex_lock(&srv->sched_lock);
+        if (LIST_EMPTY(&srv->fsync_queue))
+                pthread_cond_wait(&srv->fsync_queue_not_empty, &srv->sched_lock);
+        log_debug("fsyncer woke up");
         if (LIST_EMPTY(&srv->fsync_queue)) {
             pthread_mutex_unlock(&srv->sched_lock);
             continue;
@@ -72,14 +67,6 @@ fsyncer_main(struct server *srv)
             }
         }
 
-#if FIXME
-        /* Force a sync of the metadata for the spool directory. */
-        if (fsync(s->msg->fd) != 0) {
-            log_errno("fsync(2) of spooldir");
-            //FIXME - should probably crash now.
-        }
-#endif
-
         /* Send an OK message to the remote client */
         // FIXME -- handle fsync failure
         LIST_FOREACH(s, &q, entries) {
@@ -104,23 +91,10 @@ fsyncer_main(struct server *srv)
 int
 fsyncer_init(struct server *srv)
 {
-
-#if FIXME
-    // only for ext3, not softupdates
-    
-    /* 
-     * Keep a file descriptor open to the spooldir 
-     * to enable the metadata to be sync'd 
-     */
-    if ((srv->spooldir_fd = open(OPT.spooldir, O_RDWR)) < 0) {
-        log_errno("open(2) of `%s'", OPT.spooldir);
-        return (-1);
-    }
-#endif
-
+    pthread_cond_init(&srv->fsync_queue_not_empty, NULL);
     if (pthread_create(&srv->fsyncer_tid, NULL, (void *) fsyncer_main, (void *) srv) != 0) {
         log_errno("pthread_create(3)");
-       return (-1);
+        return (-1);
     }
 
     return (0);

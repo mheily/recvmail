@@ -21,7 +21,9 @@
 #include "config.h"
 
 /* Include GNU extensions */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE 1
+#endif
 
 #include <assert.h>
 #include <errno.h>
@@ -49,6 +51,7 @@
 
 #include "queue.h"
 #include "nbuf.h"
+#include "message.h"
 
 extern int detached;
 
@@ -101,17 +104,15 @@ extern int detached;
 
 /* Configuration options */
 
-#define SPOOLDIR            "/var/spool/recvmail"
+#define CHROOTDIR            "/srv/mail"
 
 struct options {
     bool            debugging;
     char           *mailname;
-    char           **domains; /* domain(s) to accept mail for */
     bool            daemon;	/* If TRUE, the server will run as a
 				 * daemon */
     char           *uid;	/* The symbolic user-ID to setuid(2) to */
     char           *gid;	/* The symbolic group-ID to setgid(2) to */
-    char           *spooldir;	/* The directory to chroot(2) to */
     char           *log_ident;	/* Program name to use in syslog */
     int             log_facility;	/* The log facility to provide to
 					 * syslog(3) */
@@ -123,23 +124,6 @@ extern struct options OPT;
 struct session;
 struct server;
 
-struct mail_addr {
-    char   *local_part, 
-           *domain;
-    LIST_ENTRY(mail_addr) entries;
-};
-
-/* An RFC-2822 message */
-struct message {
-    int             fd;		/* A file descriptor opened for writing the message */
-    char           *path;	/* The path to the message */
-    struct mail_addr *sender;	/* The email address of the sender */
-    struct session *session;
-    LIST_HEAD(,mail_addr) recipient;
-    size_t          recipient_count;
-    size_t          size;
-     char           *filename;	/* The Maildir message-ID */
-};
 
 /* A socket buffer */
 struct socket_buf {
@@ -168,7 +152,7 @@ int atomic_close(int d);
 
 #define USERNAME_MAX            63
 
-int             domain_exists(const char *domain);
+int             domain_exists(const struct mail_addr *);
 
 struct rfc2822_addr *rfc2822_addr_new();
 struct mail_addr * address_parse(const char *src);
@@ -183,12 +167,6 @@ void            aliases_init(void);
 void            aliases_parse(const char *);
 struct alias_entry * aliases_lookup(const char *name);
 
-/* From message.h */
-
-int             init_message(struct message *msg);
-int             rset_message(struct message *msg);
-int             valid_message(struct message *msg);
-
 /* From maildir.h */
 
 int             maildir_msg_open(struct message *msg);
@@ -196,8 +174,10 @@ int             open_message(struct message *msg);
 struct message *message_new();
 int             message_write(struct message *msg, const char *src,
 				  size_t len);
-int             maildir_msg_close(struct message *msg);
+int             message_close(struct message *);
 void            message_free(struct message *msg);
+int             maildir_exists(const struct mail_addr *);
+int             maildir_deliver(struct message *);
 
 
 
@@ -206,5 +186,8 @@ void            message_free(struct message *msg);
 ssize_t socket_readv(struct socket_buf *, int);
 int socket_write(int, char **, size_t **);
 
+/* From fsyncer.c */
+int  fsyncer_init(struct server *);
+void fsyncer_wakeup(struct server *);
 
 #endif
