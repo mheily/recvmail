@@ -1,4 +1,5 @@
 #include "recvmail.h"
+#include "message.h"
 
 struct message *
 message_new()
