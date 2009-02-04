@@ -223,9 +223,10 @@ smtpd_parser(struct session *s)
     int i, rv;
 
     iov = s->in_buf.sb_iov;
+    s->in_buf.sb_iovpos = 0; 
 
     /* Pass control to the 'command' or 'data' subparser */
-    for (i = 0; i < s->in_buf.sb_iovlen; i++) {
+    for (i = 0; i < s->in_buf.sb_iovlen; i++, s->in_buf.sb_iovpos++) {
         if (s->smtp_state != SMTP_STATE_DATA) {
             // XXX-FIXME assumes len >0
             memset(iov[i].iov_base + iov[i].iov_len - 1, 0, 1);     /* Replace LF with NUL */
@@ -339,11 +340,24 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
             goto error;
         }
 
-        /* XXX-FIXME Need to fail if there is data still in the socket input buffer */
-        if (session_fsync(s, smtp_fsyncer_callback) != 0) {
-            log_error("session_fsync()");
-            goto error;
-        };
+        /* If there is no more data in the input buffer, move the session
+           to the fsyncer thread.
+        */
+        if ((s->in_buf.sb_iovpos + 1) == s->in_buf.sb_iovlen) {
+            if (session_fsync(s, smtp_fsyncer_callback) != 0) {
+                log_error("session_fsync()");
+                goto error;
+            };
+        } else {
+            /* If the client send the '.' DATA terminator but doesn't wait for a response,
+               we are not going to fsync(2) their data.
+             */
+            log_debug("skipping fsync(2) because the client doesn't care.");
+
+            //NOTE: tried to run callback but got caught in infinite loop.
+            // this is a lame reimplementation
+            smtpd_session_reset(s); // XXX-FIXME: this is errorhandling
+        }
 
         return (0);
     }
