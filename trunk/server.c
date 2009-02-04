@@ -200,7 +200,6 @@ server_init(struct server *_srv)
         return (-1);
     }
 
-
     /* Start the fsync(2) worker thread */
     if (fsyncer_init(&srv) < 0) {
         log_error("unable to create the fsyncer thread");
@@ -374,7 +373,6 @@ server_dispatch(void)
                 continue;       // FIXME: this will discard anything in the read buffer
         }
         if (events & SOCK_CAN_READ) {
-            //log_debug("POLLIN on session %d (fd %d)", i, s->fd);
             log_debug("fd %d is now readable", s->fd);
             session_read(s);
         }

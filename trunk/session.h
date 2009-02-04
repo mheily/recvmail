@@ -22,6 +22,11 @@
 
 /* A client session */
 struct session {
+    int (*handler)(struct session *);    /* 
+                                          * Callback function when data is ready. 
+                                          * This MUST be the first element in the structure.
+                                          */ 
+
     int             fd;		        /* The client socket descriptor */
     int flags;          // see SFL_*
     int             events;         //fixme this isnt really used
@@ -29,7 +34,6 @@ struct session {
     struct in_addr  remote_addr;	/* IP address of the client */
     struct socket_buf in_buf;
     STAILQ_HEAD(,nbuf) out_buf;     /* Output buffer */
-    int (*handler)(struct session *);    /* Callback function when data is ready */
 
     /* ---------- protocol specific members ------------ */
 
