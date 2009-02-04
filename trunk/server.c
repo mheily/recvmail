@@ -369,10 +369,9 @@ server_dispatch(void)
         }
 
         if (events & SOCK_EOF) {
-            err(1, "got eof");//FIXME
-                //log_debug("POLLERR/HUP/NVAL on session %d (fd %d)", i, s->fd);
-                //session_close(s);
-                //free(s); //XXX-FIXME-recycle it.        
+                session_close(s);
+                free(s);
+                continue;       // FIXME: this will discard anything in the read buffer
         }
         if (events & SOCK_CAN_READ) {
             //log_debug("POLLIN on session %d (fd %d)", i, s->fd);
