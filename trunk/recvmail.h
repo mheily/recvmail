@@ -129,6 +129,7 @@ struct server;
 struct socket_buf {
     struct iovec *sb_iov;           /* Buffer of lines */
     size_t        sb_iovlen;        /* Number of structures in sb_iov */
+    size_t        sb_iovpos;        /* Current read offset within sb_iov */
     char         *sb_frag;          /* Line fragment */
     size_t        sb_fraglen;       /* Length of the line fragment */
     int           sb_status;        /* Status code */
