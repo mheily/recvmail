@@ -24,7 +24,6 @@ void            run_testsuite();
 
 /* Global variables */
 
-int detached = 0;
 struct server   smtpd = {
     .port = 25,
     .addr.s_addr = INADDR_ANY,
