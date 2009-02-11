@@ -16,8 +16,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "recvmail.h"
+#include <stdlib.h>
+
 #include "hash.h"
+#include "log.h"
 
 struct alias_entry {
     char    *name;

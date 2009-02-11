@@ -19,11 +19,20 @@
 // FIXME - needed to get asprintf decl in stdio.h
 #define _GNU_SOURCE
 
+#include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <sys/time.h>
+#include <time.h>
+#include <unistd.h>
 
-#include "recvmail.h"
+#include "address.h"
+#include "atomic.h"
+#include "message.h"
 #include "session.h"
+#include "options.h"
+#include "log.h"
 
 static int
 path_exists(const char *path)

@@ -21,7 +21,7 @@ man_MANS         = recvmail.8
 
 SOURCES		 = $(recvmail_SOURCES) $(selftest_SOURCES)
 
-recvmail_CFLAGS  = -g -O0 -Wall -Werror
+recvmail_CFLAGS  = -g -O0 -Wall -Werror -include config.h
 recvmail_SOURCES = address.c atomic.c aliases.c fsyncer.c poll.c \
 				   log.c \
 				   socket.c message.c maildir.c session.c smtp.c server.c recvmail.c thread-pool.c

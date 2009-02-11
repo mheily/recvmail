@@ -24,6 +24,7 @@
 #include <netinet/in.h>
 
 #include "socket.h"
+#include "queue.h"
 #include "log.h"
 
 /* A client session */

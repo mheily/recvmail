@@ -40,4 +40,8 @@ int     init_message(struct message *);
 int     rset_message(struct message *);
 int     valid_message(struct message *);
 
+struct message *message_new();
+int             message_close(struct message *);
+void            message_free(struct message *);
+
 #endif /* _MESSAGE_H */
