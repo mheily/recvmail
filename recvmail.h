@@ -55,11 +55,6 @@
 /* Maximum limits */
 
 #define MAX_CLIENTS         1024
-#define MAIL_ADDRSTRLEN     130
-#define RECIPIENT_MAX		100
-#define DOMAIN_MAX		63
-#define HOSTNAME_MAX		63
-#define ADDRESS_MAX             (DOMAIN_MAX + HOSTNAME_MAX + 1)
 #define SMTP_LINE_MAX       998
 
 /* Configuration options */
@@ -86,7 +81,6 @@ struct server;
 
 /* Forward declarations */
 
-int             open_maillog(const char *path);
 int             valid_pathname(const char *pathname);
 int             file_exists(const char *path);
 
@@ -97,18 +91,6 @@ ssize_t atomic_read(int d, void *buf, size_t nbytes);
 ssize_t atomic_write(int d, const void *buf, size_t nbytes);
 int atomic_close(int d);
 
-/* From address.h (TODO: cleanup) */
-
-#define USERNAME_MAX            63
-
-int             domain_exists(const struct mail_addr *);
-
-struct rfc2822_addr *rfc2822_addr_new();
-struct mail_addr * address_parse(const char *src);
-void            address_free(struct mail_addr *addr);
-char * address_get(char *dst, size_t len, struct mail_addr *src);
-int             valid_address(const struct rfc2822_addr *addr);
-int             valid_domain(const char *domain);
 
 /* From aliases.c */
 

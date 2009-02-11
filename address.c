@@ -16,10 +16,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "recvmail.h"
-
+#include <errno.h>
 #include <dirent.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "address.h"
+#include "log.h"
+
+#define USERNAME_MAX            63
+#define DOMAIN_MAX		63
+#define HOSTNAME_MAX		63
+#define ADDRESS_MAX             (DOMAIN_MAX + HOSTNAME_MAX + 1)
 
 /*
  * Take an RFC2822 email address (<foo@bar.com>) and validates it, returning
