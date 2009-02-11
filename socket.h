@@ -18,6 +18,8 @@
 #ifndef _SOCKET_H
 #define _SOCKET_H
 
+#include <sys/types.h>
+
 /* A socket buffer */
 struct socket_buf {
     struct iovec *sb_iov;           /* Buffer of lines */

@@ -23,8 +23,8 @@
 
 #include <stdlib.h>
 #include <errno.h>
+
 #include "poll.h"
-//#include "recvmail.h"
 
 /* Maximum number of events to read in a single system call */
 /* XXX-FIXME this should be much larger, but there are issues

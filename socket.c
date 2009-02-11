@@ -25,8 +25,6 @@
 #include "socket.h"
 #include "log.h"
 
-//#include "recvmail.h"
-
 /* TODO: make tunable, must be larger than kernel socket buffer */
 #define __BUFSIZE       (1024 * 256)
 
