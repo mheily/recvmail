@@ -16,7 +16,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "recvmail.h"
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+#include "options.h"
+#include "log.h"
 #include "server.h"
 #include "smtp.h"
 

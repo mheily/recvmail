@@ -16,13 +16,31 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "recvmail.h"
+#include <ctype.h>
+
+#include "atomic.h"
+#include "log.h"
+#include "options.h"
+#include "message.h"
 #include "session.h"
 #include "smtp.h"
-#include <ctype.h>
 
 #define RECIPIENT_MAX		100
 
+/* FIXME - put this somewhere else */
+/* From aliases.c */
+
+void            aliases_init(void);
+void            aliases_parse(const char *);
+struct alias_entry * aliases_lookup(const char *name);
+
+/* FIXME - put this somewhere else */
+/* From maildir.h */
+
+int             maildir_msg_open(struct message *msg);
+int             open_message(struct message *msg);
+int             maildir_exists(const struct mail_addr *);
+int             maildir_deliver(struct message *);
 static int smtpd_parse_command(struct session *, char *, size_t);
 static int smtpd_parse_data(struct session *, char *, size_t);
 static int smtpd_session_reset(struct session *);

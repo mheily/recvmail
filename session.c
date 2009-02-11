@@ -16,13 +16,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "recvmail.h"
-
+#include <fcntl.h>
 #include <stdarg.h>
+#include <unistd.h>
 
+#include "log.h"
 #include "poll.h"
 #include "server.h"
 #include "session.h"
+#include "nbuf.h"
 
 /** vasprintf(3) is a GNU extension and not universally visible */
 extern int      vasprintf(char **, const char *, va_list);

@@ -16,8 +16,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "recvmail.h"
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#include "log.h"
 #include "server.h"
+#include "message.h"
 #include "poll.h"
 #include "session.h"
 

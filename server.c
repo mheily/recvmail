@@ -16,12 +16,21 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "recvmail.h"
+#include <grp.h>
+#include <pwd.h>
+#include <sys/resource.h>
+#include <unistd.h>
 
+#include "atomic.h"
+#include "options.h"
 #include "poll.h"
 #include "thread-pool.h"
 #include "server.h"
 #include "session.h"
+
+/* From fsyncer.c */
+int  fsyncer_init(struct server *);
+void fsyncer_wakeup(struct server *);
 
 struct server srv;
 
