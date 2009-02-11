@@ -21,6 +21,8 @@
 #include "smtp.h"
 #include <ctype.h>
 
+#define RECIPIENT_MAX		100
+
 static int smtpd_parse_command(struct session *, char *, size_t);
 static int smtpd_parse_data(struct session *, char *, size_t);
 static int smtpd_session_reset(struct session *);

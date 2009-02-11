@@ -19,14 +19,9 @@
 #define _MESSAGE_H
 
 #include "queue.h"
+#include "address.h"
 
 struct session;
-
-struct mail_addr {
-    char   *local_part, 
-           *domain;
-    LIST_ENTRY(mail_addr) entries;
-};
 
 /* An RFC-2822 message */
 struct message {
