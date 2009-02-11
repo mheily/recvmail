@@ -79,18 +79,12 @@ extern struct options OPT;
 struct session;
 struct server;
 
-/* Forward declarations */
-
-int             valid_pathname(const char *pathname);
-int             file_exists(const char *path);
-
 /* From atomic.c */
 
 ssize_t atomic_printfd(int d, const char *fmt, ...);
 ssize_t atomic_read(int d, void *buf, size_t nbytes);
 ssize_t atomic_write(int d, const void *buf, size_t nbytes);
 int atomic_close(int d);
-
 
 /* From aliases.c */
 
