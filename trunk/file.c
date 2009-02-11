@@ -22,27 +22,24 @@
 
 
 /*
- * test_file_exists(path)
+ * file_exists(path)
  *
  * Test if a file exists at a given <path>
  *
  * Returns: 1 if the file exists, 0 if it does not, or -1 if there was a system error
- *
  */
 int
 file_exists(const char *path)
 {
-    struct stat     st;
-
-    if (stat(path, &st) < 0) {
-	if (errno != ENOENT) {
-	    log_errno("stat(2)");
-	    return -1;
-	}
-	return 0;
-    } else {
-	return 1;
+    if (access(path, F_OK) < 0) {
+        if (errno != ENOENT) {
+            log_errno("stat(2)");
+            return (-1);
+        }
+        return (0);
     }
+
+    return (1);
 }
 
 

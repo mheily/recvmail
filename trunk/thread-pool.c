@@ -18,7 +18,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "recvmail.h"
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
 #include "thread-pool.h"
 #include "session.h"
 

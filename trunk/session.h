@@ -20,7 +20,11 @@
 #ifndef _SESSION_H
 #define _SESSION_H
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+
 #include "socket.h"
+#include "log.h"
 
 /* A client session */
 struct session {
