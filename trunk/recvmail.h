@@ -35,14 +35,12 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
-#include <syslog.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/uio.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -52,45 +50,7 @@
 #include "queue.h"
 #include "nbuf.h"
 #include "message.h"
-
-extern int detached;
-
-/* Logging */
-
-#define _log_all(level, format,...) do {                            \
-    if (detached)                                                   \
-        syslog(level, "%s(%s:%d): "format"\n", 						\
-               __func__, __FILE__, __LINE__, ## __VA_ARGS__);       \
-    else if (OPT.log_level >= level)                                \
-        fprintf(stderr, "%s(%s:%d): " format "\n",                  \
-                __func__, __FILE__, __LINE__, ## __VA_ARGS__);      \
-} while (/*CONSTCOND*/0)
-
-#define log_error(format,...) _log_all(LOG_ERR, "**ERROR** "format, ## __VA_ARGS__)
-#define log_warning(format,...) _log_all(LOG_WARNING, "WARNING: "format, ## __VA_ARGS__)
-#define log_notice(format,...) _log_all(LOG_NOTICE, format, ## __VA_ARGS__)
-#define log_info(format,...) _log_all(LOG_INFO, format, ## __VA_ARGS__)
-#define log_debug(format,...) _log_all(LOG_DEBUG, format, ## __VA_ARGS__)
-#define log_errno(format,...) _log_all(LOG_ERR, format": %s (errno=%d)", ## __VA_ARGS__, strerror(errno), errno)
-
-/* Emulate macros from <err.h> but use syslog logging instead of stderr */
-/* TODO: make variadic functions instead */
-
-#define err(rc,format,...) do {						                        \
-    if (detached)                                                           \
-        log_errno(format, ## __VA_ARGS__);					                \
-    else                                                                    \
-        fprintf(stderr, "ERROR: " format "\n", ## __VA_ARGS__);                              \
-   exit(rc);								                                \
-} while (0)
-
-#define errx(rc,format,...) do {					\
-    if (detached)                                                           \
-       log_error(format, ## __VA_ARGS__);					\
-    else                                                                    \
-        fprintf(stderr, "ERROR: " format "\n", ## __VA_ARGS__);                              \
-    exit(rc);								\
-} while (0)
+#include "log.h"
 
 /* Maximum limits */
 
@@ -123,18 +83,6 @@ extern struct options OPT;
 
 struct session;
 struct server;
-
-
-/* A socket buffer */
-struct socket_buf {
-    struct iovec *sb_iov;           /* Buffer of lines */
-    size_t        sb_iovlen;        /* Number of structures in sb_iov */
-    size_t        sb_iovpos;        /* Current read offset within sb_iov */
-    char         *sb_frag;          /* Line fragment */
-    size_t        sb_fraglen;       /* Length of the line fragment */
-    int           sb_status;        /* Status code */
-};
-
 
 /* Forward declarations */
 
@@ -179,13 +127,6 @@ int             message_close(struct message *);
 void            message_free(struct message *msg);
 int             maildir_exists(const struct mail_addr *);
 int             maildir_deliver(struct message *);
-
-
-
-/* From socket.c */
-
-ssize_t socket_readv(struct socket_buf *, int);
-int socket_write(int, char **, size_t **);
 
 /* From fsyncer.c */
 int  fsyncer_init(struct server *);

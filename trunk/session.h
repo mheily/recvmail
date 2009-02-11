@@ -20,6 +20,8 @@
 #ifndef _SESSION_H
 #define _SESSION_H
 
+#include "socket.h"
+
 /* A client session */
 struct session {
     int (*handler)(struct session *);    /* 

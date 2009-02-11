@@ -16,12 +16,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "recvmail.h"
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/uio.h>
+#include <unistd.h>
 
-//DEADWOOD:
-/* Return true if the iovec contains a line without a terminal LF. */
-#define IOVEC_IS_FRAGMENTED(iov)     \
-    (((iov)->iov_len == 0) || ((iov)->iov_base[(iov)->iov_len - 1] != '\n'))
+#include "socket.h"
+#include "log.h"
+
+//#include "recvmail.h"
 
 /* TODO: make tunable, must be larger than kernel socket buffer */
 #define __BUFSIZE       (1024 * 256)
@@ -188,68 +192,3 @@ socket_readv(struct socket_buf *sb, int fd)
 
     return (nlines);
 } 
-
-
-#if DEADWOOD
-/* Try to read a line of input from the client */
-static int 
-client_readln(struct session *s)
-{
-    struct smtpbuf *b = &s->buf;
-    int rv;
-
-    /* Read data into the buffer if it is empty or incomplete */
-    if (b->len == 0 || b->fragmented)  {
-        if ((rv = client_read(s)) != 0)
-            return (rv);
-    }
-
-    /* WORKAROUND:
-     * If the client disconnects abruptly, client_read()
-     * will return 0 but len==0.
-     */
-    if (b->len == 0) {
-        log_warning("remote end has disconnected");
-        return (-1);
-    }
-
-    log_debug("read: len=%zu pos=%zu", b->len, b->pos);
-
-    /* Look for the line terminator inside the buffer */
-    for (; b->pos <= b->len; b->pos++) {
-        if ((b->data[b->pos] == '\r' && b->data[b->pos + 1] == '\n') 
-                || (b->data[b->pos] == '\n')) {
-
-            /* Copy the line to the 'line' field */
-            b->line_len = b->pos + 1;
-            memcpy(b->line, b->data, b->line_len);
-
-            /* Shift the rest of the buffer all the way to the left */
-            /* TODO: optimize this away by creating a 'b->start' variable */
-            if (b->data[b->pos] == '\r') {
-                b->pos++;
-            }
-            if (b->pos == b->len) {
-                b->len = 0;
-                b->fragmented = 0;
-            } else {
-                memmove(b->data, b->data + b->pos + 1, b->len - b->pos - 1);
-                b->len = b->len - b->pos - 1;
-            }
-            b->pos = 0;
-            
-            /* Convert the trailing CR or LF into a NUL */
-            b->line[b->line_len - 1] = '\0';
-
-            log_debug("line=`%s' line_len=%zu pos=%zu len=%zu", 
-                    b->line, b->line_len, b->pos, b->len);
-
-            return (0);
-        }
-    }
-
-    log_debug("line is fragmented");
-    s->buf.fragmented = 1;
-    return (1);
-}
-#endif

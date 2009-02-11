@@ -140,7 +140,6 @@ int
 server_init(struct server *_srv)
 {
     struct rlimit   limit;
-    int             logopt = LOG_NDELAY;
     pid_t           pid,
                     sid;
 
@@ -167,14 +166,9 @@ server_init(struct server *_srv)
         close(2);
 
         detached = 1;
-    } else {
-	    logopt |= LOG_PERROR;
-
     }
 
-    /* Open the log file */
-    openlog(OPT.log_ident, logopt, OPT.log_facility);
-    setlogmask(OPT.log_level);
+    log_open(OPT.log_ident, 0, OPT.log_facility, OPT.log_level);
 
     /* Increase the allowable number of file descriptors */
     if (getuid() == 0) {
