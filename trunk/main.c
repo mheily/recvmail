@@ -166,6 +166,7 @@ main(int argc, char *argv[])
         errx(1, "server initialization failed");
 
     /* Dump some variables to the log */
+    log_debug("_SC_NPROCESSORS_ONLN=%ld", sysconf(_SC_NPROCESSORS_ONLN));
     log_debug("mailname=`%s'", OPT.mailname);
 
 #ifdef UNIT_TESTING
