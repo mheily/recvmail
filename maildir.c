@@ -87,22 +87,22 @@ maildir_exists(const struct mail_addr *ma)
 
 /* Generate a unique ID suitable for delivery to a Maildir */
 char *
-maildir_generate_id(void)
+maildir_generate_id(int worker_id, unsigned long delivery_counter)
 {
-    static unsigned long delivery_counter = 0;
     char *buf;
     struct timeval  tv;
 
     gettimeofday(&tv, NULL);
 
-    if (asprintf(&buf, "%lu.M%luP%u_%lu.%s", 
+    if (asprintf(&buf, "%lu.M%luP%uT%u_%lu.%s", 
 			    tv.tv_sec, 
 			    tv.tv_usec,
 			    getpid(),
-			    delivery_counter++,
+                worker_id,
+			    delivery_counter,
 			    OPT.mailname) < 0) {
 	    log_warning("asprintf(3)");
-	    return NULL;
+	    return (NULL);
     }
 
 	return (buf);
@@ -123,7 +123,6 @@ maildir_msg_open(struct message *msg)
     char            timestr[64];
     size_t          len;
     char            in_addr[INET_ADDRSTRLEN + 1];
-    char            ma_addr[MAIL_ADDRSTRLEN + 1];
     char           *buf = NULL;
 
     if (LIST_EMPTY(&msg->recipient)) {
@@ -132,8 +131,6 @@ maildir_msg_open(struct message *msg)
     }
 
     /* Generate the message pathname */
-    if ((msg->filename = maildir_generate_id()) == NULL)
-        return -1;
     if (asprintf(&msg->path, "spool/tmp/%s", msg->filename) < 0)
         return -1;
 
@@ -146,14 +143,20 @@ maildir_msg_open(struct message *msg)
 	return -1;
     }
 
+    /* XXX-FIXME: put a Return-Path header at the top */
+
     /* Prepend the local 'Received:' header */
     time(&now);
     gmtime_r(&now, &timeval);
     asctime_r(&timeval, timestr);
     len = asprintf(&buf,
-            "Received: from %s ([%s])\n        by %s (recvmail) on %s",
-            address_get(ma_addr, sizeof(ma_addr), msg->sender),
-            remote_addr(in_addr, sizeof(in_addr), msg->session), OPT.mailname, timestr);
+            "Received: from %s (%s [%s])\n"
+            "        by %s (recvmail) ; %s",
+            msg->helo, 
+            msg->session->remote_name,
+            remote_addr(in_addr, sizeof(in_addr), msg->session), 
+            OPT.mailname, 
+            timestr);
     if (len < 0) {
         log_errno("asprintf(3)");
         goto errout;

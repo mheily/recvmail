@@ -46,6 +46,7 @@ message_free(struct message *msg)
     }
 
     free(msg->path);
+    free(msg->helo);
     address_free(msg->sender);
     free(msg->filename);
 

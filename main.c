@@ -43,6 +43,7 @@ struct server   smtpd = {
     .accept_hook = smtpd_accept,
     .timeout_hook = smtpd_timeout,
     .abort_hook = NULL,		// fixme
+    .read_hook = smtpd_parser,
     .close_hook = smtpd_close,
 };
 
@@ -52,6 +53,7 @@ struct options  OPT = {
     .log_ident = "recvmail",
     .log_level = LOG_NOTICE,
     .log_facility = LOG_MAIL,
+    .max_clients = 512,
 };
 
 /* getopt(3) variables */
@@ -175,11 +177,7 @@ main(int argc, char *argv[])
     exit(EXIT_SUCCESS);
 #endif
 
-    if (server_dispatch() < 0) {
-        log_warning("server_dispatch() failed");
-        exit(EXIT_FAILURE);
-    } else {
-        log_info("exiting normally");
-        exit(EXIT_SUCCESS);
-    }
+    pause();
+
+    exit(EXIT_SUCCESS);
 }

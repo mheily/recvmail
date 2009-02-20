@@ -35,20 +35,9 @@ struct server {
     char           *uid;        /* The symbolic user-ID to setuid(2) to */
     char           *gid;        /* The symbolic group-ID to setgid(2) to */
 
-    pthread_t        fsyncer_tid;
-
-    /**
-     * At any given time, a session may be on one of the following lists.
-     * The list is protected by a mutex.
-     */
-    pthread_mutex_t     sched_lock;
-    LIST_HEAD(,session) runnable;
-    LIST_HEAD(,session) idle;
-    LIST_HEAD(,session) io_wait;
-    LIST_HEAD(,session) fsync_queue;
-    pthread_cond_t      fsync_queue_not_empty;
-
-    struct evcb * evcb;
+    /* Threads to service each connection */
+    struct worker  *worker;
+    size_t          num_workers;
 
     /* The number of seconds to wait for incoming data from the client */
     int             timeout_read;
@@ -58,6 +47,9 @@ struct server {
 
     /* Called after accept(2) */
     void           (*accept_hook) (struct session *);
+
+    /* Called when data is available to read(2) */
+    int            (*read_hook) (struct session *);
 
     /* Called prior to close(2) for a session */
     void           (*close_hook) (struct session *);
@@ -72,6 +64,12 @@ struct server {
     /* Sends a 'too many errors' message to a misbehaving client before
      * closing */
     //DEADWOOD:void            (*reject_hook) (struct session *);
+};
+
+struct worker {
+    pthread_t   tid;
+    int         id;
+    int         delivery_counter;
 };
 
 extern struct server srv;

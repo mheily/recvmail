@@ -17,14 +17,16 @@
  */
 
 #include <fcntl.h>
+#include <netdb.h>
 #include <stdarg.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
+#include "atomic.h"
 #include "log.h"
 #include "poll.h"
 #include "server.h"
 #include "session.h"
-#include "nbuf.h"
 
 /** vasprintf(3) is a GNU extension and not universally visible */
 extern int      vasprintf(char **, const char *, va_list);
@@ -50,59 +52,6 @@ remote_addr(char *dest, size_t len, const struct session *s)
 }
 
 void
-session_write(struct session *s, const char *buf, size_t len)
-{
-    ssize_t n;
-    char *p;
-    struct nbuf *nbp;
-
-    /* If the output buffer is empty, try writing directly to the client */
-    if (STAILQ_FIRST(&s->out_buf) == NULL) {
-        for (;;) {
-            n = write(s->fd, buf, len);
-            if (n == len)
-                return;
-            if (n >= 0 && n < len) {
-                buf += n;
-                len -= n;
-                if (errno == EINTR) {
-                    continue; 
-                } else if (errno == EAGAIN) {
-                    break;
-                } else {
-                    log_errno("unusual short write(2)");
-                    session_close(s);
-                    return;
-                }
-            }
-            if (n < 0) {
-                log_errno("write(2)");
-                break; /*FIXME - better error handling, should kill the session */
-            }
-        }
-    }
-
-    /* Copy the unwritten portion to a new buffer*/
-    /* FIXME -- This will fail in low-memory situations. */
-    if ((nbp = calloc(1, sizeof(*nbp))) == NULL) 
-        goto errout;
-    if ((p = strdup(buf)) == NULL) {
-        free(nbp);
-        goto errout;
-    }
-    NBUF_INIT(nbp, p, strlen(p));
-    STAILQ_INSERT_TAIL(&s->out_buf, nbp, entries);
-    return;
-
-errout:
-        log_errno("calloc(3)");
-        session_close(s);
-        return;
-}
-
-
-
-void
 session_vprintf(struct session *s, const char *format, va_list ap)
 {
         char    *buf = NULL;
@@ -115,7 +64,7 @@ session_vprintf(struct session *s, const char *format, va_list ap)
         }
 
         /* Write the buffer to the socket */
-        session_write(s, (const char *) buf, len);
+        atomic_write(s->fd, (const char *) buf, len);
         free(buf);
 }
 
@@ -157,11 +106,19 @@ session_new(int fd)
     }
     s->fd = fd;
 
-    /* Initialize the input buffer */
-    memset(&s->in_buf, 0, sizeof(s->in_buf));
+    /* Upgrade the socket descriptor to a FILE stream */
+    s->in = fdopen(fd, "r");
+    s->out = fdopen(fd, "w");
+    if (s->in == NULL || s->out == NULL) {
+        log_errno("fdopen(3)");
+        (void) fclose(s->in);
+        (void) fclose(s->out);
+        goto errout;
+    }
 
-    /* Initialize the output buffer */
-    STAILQ_INIT(&s->out_buf);
+    /* Enable line-buffering */
+    setlinebuf(s->in);
+    setlinebuf(s->out);
 
     /* Determine the IP address of the client */
     if (getpeername(s->fd, (struct sockaddr *) &name, &namelen) < 0) {
@@ -171,42 +128,29 @@ session_new(int fd)
     }
     s->remote_addr = name.sin_addr;
 
-    /* Use non-blocking I/O */
-    if (fcntl(s->fd, F_SETFL, O_NONBLOCK) < 0) {
-            log_errno("fcntl(2)");
-            goto errout;
-    }
-
     /* TODO: Determine the reverse DNS name for the host */
+    if (getnameinfo((struct sockaddr *) &name, namelen, s->buf, sizeof(s->buf),
+                NULL, 0, NI_NUMERICHOST) != 0) {
+        log_warning("getnameinfo(3)");
+    }
+    if ((s->remote_name = strdup(s->buf)) == NULL) {
+        log_errno("strdup(3)");
+        goto errout;
+    }
+    log_debug("remote_name=%s", s->remote_name);
+
 
     return (s);
 
 errout:
+    free(s->remote_name);
     free(s);
     return (NULL);
-}
-
-int
-session_flush(struct session *s)
-{
-#if DEADWOOD
-    struct nbuf *nbp;
-
-    while ((nbp = STAILQ_FIRST(&s->out_buf))) {
-   //XXX-FIXME - this actually kills all output data !! 
-            free(nbp->nb_data);
-            STAILQ_REMOVE_HEAD(&s->out_buf, entries);
-        }
-#endif
-    // FIXME -- this will be needed someday.
-    return (0);
 }
 
 void
 session_close(struct session *s)
 {
-    struct nbuf *nbp;
-
     if (s->closed) {
         log_debug("double session_close() detected");
         return;
@@ -217,29 +161,12 @@ session_close(struct session *s)
     /* Run any protocol-specific hooks */
     (void) protocol_close(s);
 
-    /* Clear the output buffer. Any unwritten data will be discarded. */
-    /* FIXME: shouldn't this be in an abort()-type function? */
-    while ((nbp = STAILQ_FIRST(&s->out_buf))) {
-             free(nbp->nb_data);
-             STAILQ_REMOVE_HEAD(&s->out_buf, entries);
-    }
-
+    (void) fclose(s->in);
+    (void) fclose(s->out);
     (void) server_disconnect(s->fd); 
 
-    /* Remove the descriptor from the session table */
-    LIST_REMOVE(s, entries);
+    free(s->remote_name);
+    s->remote_name = NULL;
 
     s->closed = 1;
-}
-
-
-int
-session_fsync(struct session *s, int (*cb)(struct session *))
-{
-    if (poll_disable(srv.evcb, s->fd) != 0)
-        return (-1);
-    s->handler = cb;
-    SCHEDULE(s, fsync_queue);
-
-    return (0);
 }

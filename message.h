@@ -26,6 +26,7 @@ struct session;
 /* An RFC-2822 message */
 struct message {
     int             fd;		/* A file descriptor opened for writing the message */
+    char           *helo;   /* The remote server name provided via HELO or EHLO */
     char           *path;	/* The path to the message */
     struct mail_addr *sender;	/* The email address of the sender */
     struct session *session;
@@ -43,5 +44,8 @@ int     valid_message(struct message *);
 struct message *message_new();
 int             message_close(struct message *);
 void            message_free(struct message *);
+
+// from maildir.h
+char * maildir_generate_id(int, unsigned long);
 
 #endif /* _MESSAGE_H */

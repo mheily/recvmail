@@ -24,13 +24,8 @@
 #include "atomic.h"
 #include "options.h"
 #include "poll.h"
-#include "thread-pool.h"
 #include "server.h"
 #include "session.h"
-
-/* From fsyncer.c */
-int  fsyncer_init(struct server *);
-void fsyncer_wakeup(struct server *);
 
 struct server srv;
 
@@ -45,31 +40,9 @@ protocol_close(struct session *s)
     return (0);
 }
 
-void
-state_transition(struct session *s, int events)
-{
-    LIST_REMOVE(s, entries);
-    if (events) {
-        LIST_INSERT_HEAD(&srv.io_wait, s, entries);
-    } else {
-        LIST_INSERT_HEAD(&srv.runnable, s, entries);
-    }
-    s->events = events;
-    //FIXME:server_update_pollset(srv);
-    log_debug("state transition to %d", events);
-}
-
-
 int
 server_disconnect(int fd)
 {
-    /* Unregister the file descriptor */
-    if (poll_disable(srv.evcb, fd) != 0) {
-        log_error("unable to disable events for fd # %d", fd);
-        (void) atomic_close(fd);
-        return (-1);
-    }
-
     (void) atomic_close(fd);
 
     return (0);
@@ -153,7 +126,9 @@ server_init(struct server *_srv)
                     sid;
 
     memcpy(&srv, _srv, sizeof(srv));
-    pthread_mutex_init(&srv.sched_lock, NULL);
+
+    /* FIXME - kludge */
+    srv.uid = OPT.uid;
 
     if (OPT.daemon) {
 
@@ -180,11 +155,17 @@ server_init(struct server *_srv)
     log_open(OPT.log_ident, 0, OPT.log_facility, OPT.log_level);
 
     /* Increase the allowable number of file descriptors */
+    /* Note: the '+ 50' allows some headroom for logfds, etc. */
+    if (getrlimit(RLIMIT_NOFILE, &limit) != 0)
+        err(1, "getrlimit failed");
+    log_debug("RLIMIT_NOFILE cur=%lu max=%lu", limit.rlim_cur, limit.rlim_max);
     if (getuid() == 0) {
-        limit.rlim_cur = 50000;
-        limit.rlim_max = 50000;
-        if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
-            err(1, "setrlimit failed");
+        limit.rlim_cur = OPT.max_clients + 50;
+        limit.rlim_max = OPT.max_clients + 50;
+        if (setrlimit(RLIMIT_NOFILE, &limit) != 0) {
+            log_errno("setrlimit(3) RLIMIT_NOFILE");
+            goto errout;
+        }
     }
 
     /* Enable coredumps */
@@ -197,24 +178,82 @@ server_init(struct server *_srv)
     /* Register the standard signal handling functions */
     register_signal_handlers();
 
-    /* Create the event source */
-    if ((srv.evcb = poll_new()) == NULL) {
-        log_error("unable to create the event source");
-        return (-1);
-    }
-
-    /* Start the fsync(2) worker thread */
-    if (fsyncer_init(&srv) < 0) {
-        log_error("unable to create the fsyncer thread");
-        return (-1);
-    }
-
     if (server_bind() != 0) 
         return (-1);
 
     return (0);
+
+errout:
+    return (-1);
 }
 
+
+static void *
+worker_main(struct worker *self)
+{
+	socklen_t cli_len;
+    int fd;
+	struct session *s;
+    cli_len = sizeof(srv.sa);
+
+    for (;;) {
+        /* Accept the incoming connection */
+        do { 
+            fd = accept(srv.fd, &srv.sa, &cli_len);
+        } while (fd < 0 && errno == EINTR);
+        if (fd < 0) {
+            log_errno("accept(2)");
+            return (NULL);
+        }
+        log_debug("incoming connection on fd %d", srv.fd);
+
+        /* Create a new session */
+        if ((s = session_new(fd)) == NULL) 
+            return (NULL);
+
+        s->worker = self;
+        log_debug("accepted session on fd %d", fd);
+        srv.accept_hook(s);
+
+        /* Wait for input from the client */
+        for (;;) {
+#if FIXME
+            fd_set fds;
+            struct timeval tv;
+            int rv;
+
+            // might not work with fgets()
+            FD_ZERO(&fds);
+            FD_SET(s->fd, &fds);
+            tv.tv_sec = srv.timeout_read;
+            tv.tv_usec = 0;
+
+            log_debug("waiting for input");
+            rv = select(1, &fds, NULL, NULL, &tv);
+            if (rv < 0) {
+                log_errno("select(2)");
+                //XXX-fail?
+                abort();
+            }
+            if (rv == 0) {
+                //XXX - timeout
+            }
+#endif
+
+            log_debug("reading input");
+            if (fgets((char *) &s->buf, sizeof(s->buf), s->in) == NULL) {
+                log_errno("fgets(3)");
+                break;
+            }
+            if (srv.read_hook(s) < 0)
+                break;
+            if (s->smtp_state == SMTP_STATE_QUIT)
+                break;
+        }
+        session_close(s);
+        free(s);
+    }
+}
 
 static int
 server_bind(void)
@@ -222,6 +261,7 @@ server_bind(void)
     struct sockaddr_in srv_addr;
     int             one = 1;
     int             fd = -1;
+    int             i;
 
 	/* Adjust the port number for non-privileged processes */
 	if (getuid() > 0 && srv.port < 1024)
@@ -260,6 +300,16 @@ server_bind(void)
 
     drop_privileges();
 
+    /* Create a thread-per-client */
+    srv.num_workers = OPT.max_clients;
+    srv.worker = calloc(srv.num_workers, sizeof(struct worker));
+    for (i = 0; i < srv.num_workers; i++) {
+        srv.worker[i].id = i;
+        if (pthread_create(&srv.worker[i].tid, NULL, (void *) worker_main, &srv.worker[i]) != 0)
+            err(1, "pthread_create(3)");
+    }
+    log_debug("created %zu workers", srv.num_workers);
+
     return (0);
 
 errout:
@@ -267,123 +317,4 @@ errout:
         close(fd);
     srv.fd = -1;
     return (-1);
-}
-
-static struct session *
-server_accept(void)
-{
-	socklen_t cli_len;
-    int fd;
-	struct session *s;
-
-    cli_len = sizeof(srv.sa);
-
-    log_debug("incoming connection on fd %d", srv.fd);
-
-    /* Accept the incoming connection */
-    do { 
-        fd = accept(srv.fd, &srv.sa, &cli_len);
-    } while (fd < 0 && errno == EINTR);
-    if (fd < 0) {
-        log_errno("accept(2)");
-        return (NULL);
-    }
-
-    /* Create a new session */
-    if ((s = session_new(fd)) == NULL) 
-        return (NULL);
-
-    /* Mark the session as runnable, but do not monitor I/O readiness */
-    LIST_INSERT_HEAD(&srv.runnable, s, entries);
-    poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ);
-
-    log_debug("accepted session on fd %d", fd);
-    srv.accept_hook(s);
-    return (s);
-}
-
-static void
-session_read(struct session *s) 
-{
-    ssize_t n;
-
-    if ((n = socket_readv(&s->in_buf, s->fd)) < 0) {
-        log_info("readln failed");
-        session_close(s);
-        return;
-    } 
-    
-    /* Handle EAGAIN if no data was read. */
-    if (n == 0) {
-            log_debug("got EAGAIN");
-            state_transition(s, SOCK_CAN_READ);
-            return;
-    }
-
-    // TODO: check return value
-    s->handler(s);
-
-    // XXX-Very bad.. probably
-    if (s->closed) {
-        free(s);        //TODO: recycle by putting on the idle list 
-    }
-}
-
-int
-server_dispatch(void)
-{
-    int events;
-    const void *srv_udata = (void *) -1L;
-	struct session *s;
-
-    /* Initialize the session table */
-    LIST_INIT(&srv.runnable);
-    LIST_INIT(&srv.io_wait);
-    LIST_INIT(&srv.idle);
-    LIST_INIT(&srv.fsync_queue);
-
-    /* The first entry in the session table is the server descriptor */
-    if (poll_enable(srv.evcb, srv.fd, (void *) srv_udata, SOCK_CAN_READ) < 0) { 
-        log_errno("poll_enable() (srv.fd=%d)", srv.fd);
-        return (-1);
-    }
-   
-	/* Dispatch incoming connections */
-	for (;;) {
-
-        /* Get one event */
-        log_debug("waiting for event");
-        if ((s = poll_wait(srv.evcb, &events)) == NULL) {
-            log_errno("poll_wait()");
-            return (-1);
-        }
-
-        /* Special case for a pending accept(2) on the listening socket */
-        if (s == srv_udata) {
-            if (events & SOCK_ERROR) {
-                log_errno("bad server socket");
-                return (-1);
-            }
-            if ((events & SOCK_CAN_READ) && (s = server_accept()) == NULL) {
-                log_errno("server_accept()");
-                return (-1);
-            }
-        }
-
-        if (events & SOCK_EOF) {
-                session_close(s);
-                free(s);
-                continue;       // FIXME: this will discard anything in the read buffer
-        }
-        if (events & SOCK_CAN_READ) {
-            log_debug("fd %d is now readable", s->fd);
-            session_read(s);
-        }
-        if (events & SOCK_CAN_WRITE) {
-            log_debug("fd %d is now writable", s->fd);
-            s->events |= SOCK_CAN_WRITE;
-        }
-    }
-
-    return (0);
 }

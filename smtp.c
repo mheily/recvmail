@@ -17,12 +17,14 @@
  */
 
 #include <ctype.h>
+#include <limits.h>
 
 #include "atomic.h"
 #include "log.h"
 #include "options.h"
 #include "message.h"
 #include "session.h"
+#include "server.h"
 #include "smtp.h"
 
 #define RECIPIENT_MAX		100
@@ -46,22 +48,6 @@ static int smtpd_parse_data(struct session *, char *, size_t);
 static int smtpd_session_reset(struct session *);
 
 static int
-smtp_fsyncer_callback(struct session *s)
-{
-    s->handler = smtpd_parser;
-
-    /* Reset the session to allow the sender to pipeline another request */
-    if (smtpd_session_reset(s) != 0) {
-        log_error("smtpd_session_reset()");
-        // FIXME - terminate session, what error code?
-        session_println(s, "666 NOT Ok");
-        return (-1);
-    };
-
-    return (smtpd_parser(s));
-}
-
-static int
 smtpd_session_reset(struct session *s)
 {
    if (s->msg != NULL) {
@@ -69,7 +55,7 @@ smtpd_session_reset(struct session *s)
         message_free(s->msg);
         if ((s->msg = message_new()) == NULL) {
             session_println(s, "421 Out of memory error");
-            session_close(s);
+            s->smtp_state = SMTP_STATE_QUIT;
             return (-1);
         }
         s->msg->session = s;
@@ -83,6 +69,10 @@ static int
 smtpd_helo(struct session *s, const char *arg)
 {
     log_debug("HELO=`%s'", arg);
+    if ((s->msg->helo = strdup(arg)) == NULL) {
+        log_errno("strdup(3)");
+        return (-1);
+    }
     session_printf(s, "250 %s\r\n", OPT.mailname);
     return (0);
 }
@@ -92,6 +82,10 @@ static int
 smtpd_ehlo(struct session *s, const char *arg)
 {
     log_debug("EHLO=`%s'", arg);
+    if ((s->msg->helo = strdup(arg)) == NULL) {
+        log_errno("strdup(3)");
+        return (-1);
+    }
     session_printf(s, "250-%s\r\n"
                     "250-PIPELINING\r\n"
                     "250 8BITMIME\r\n" 
@@ -199,14 +193,18 @@ smtpd_data(struct session *s, const char *arg)
         session_println(s, "503 Error: need one or more recipients first");
         return (-1);
     }
-    if (maildir_msg_open(s->msg)) {
-        session_println(s, "421 Error creating message");
-        session_close(s);
-        return (-1);
-    }
+    if ((s->msg->filename = maildir_generate_id(s->worker->id, s->worker->delivery_counter)) == NULL) 
+        goto errout;
+    if (maildir_msg_open(s->msg)) 
+        goto errout;
     session_println(s, "354 End data with <CR><LF>.<CR><LF>");
     s->smtp_state = SMTP_STATE_DATA;
     return (0);
+
+errout:
+    session_println(s, "421 Error creating message");
+    s->smtp_state = SMTP_STATE_QUIT;
+    return (-1);
 }
 
 static int
@@ -232,40 +230,43 @@ static int
 smtpd_quit(struct session *s)
 {
     session_println(s, "221 Bye");
-    session_close(s);
+    s->smtp_state = SMTP_STATE_QUIT;
     return (0);
 }
 
 int
 smtpd_parser(struct session *s)
 {
-    struct iovec *iov;
-    int i, rv;
+    int rv;
+    size_t len;
 
-    iov = s->in_buf.sb_iov;
-    s->in_buf.sb_iovpos = 0; 
+    len = strlen(s->buf);
+    if (len == 0) {
+        log_error("zero-length read");
+        return (-1);
+    }
 
-    /* Pass control to the 'command' or 'data' subparser */
-    for (i = 0; i < s->in_buf.sb_iovlen; i++, s->in_buf.sb_iovpos++) {
-        if (s->smtp_state != SMTP_STATE_DATA) {
-            // XXX-FIXME assumes len >0
-            memset(iov[i].iov_base + iov[i].iov_len - 1, 0, 1);     /* Replace LF with NUL */
-            log_debug("CMD=`%s'", (char *) iov[i].iov_base);
-            rv = smtpd_parse_command(s, iov[i].iov_base, iov[i].iov_len - 1);
-        } else {
-            rv = smtpd_parse_data(s, iov[i].iov_base, iov[i].iov_len);
-//XXX-FIXME after switching to fsyncer, any extra data is lost
-        }
+    if (s->smtp_state != SMTP_STATE_DATA) {
 
-        if (rv != 0) 
-            s->errors++;
+        /* Remove the trailing CR+LF */
+        if (s->buf[len - 1] == '\n')
+            s->buf[--len] = '\0';
+        if (s->buf[len - 1] == '\r')
+            s->buf[--len] = '\0';
+        log_debug ("SMTP command=`%s' len=%zu", s->buf, len);
 
-        /* TODO: make configurable, max_errors or something */
-        if (s->errors > 10) {
-            smtpd_client_error(s);
-            session_close(s);
-            return (-1);
-        }
+        rv = smtpd_parse_command(s, s->buf, len);
+    } else {
+        rv = smtpd_parse_data(s, s->buf, len);
+    }
+
+    if (rv != 0) 
+        s->errors++;
+
+    /* TODO: make configurable, max_errors or something */
+    if (s->errors > 10) {
+        smtpd_client_error(s);
+        return (-1);
     }
 
     return (0);
@@ -360,24 +361,15 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
             goto error;
         }
 
-        /* If there is no more data in the input buffer, move the session
-           to the fsyncer thread.
-        */
-        if ((s->in_buf.sb_iovpos + 1) == s->in_buf.sb_iovlen) {
-            if (session_fsync(s, smtp_fsyncer_callback) != 0) {
-                log_error("session_fsync()");
-                goto error;
-            };
-        } else {
-            /* If the client send the '.' DATA terminator but doesn't wait for a response,
-               we are not going to fsync(2) their data.
-             */
-            log_debug("skipping fsync(2) because the client doesn't care.");
+        /* XXX-FIXME need to fsync(2) */
+        session_println(s, "250 Ok - message has been delivered");
+        (void) smtpd_session_reset(s); // todo -- errorhandling
 
-            //NOTE: tried to run callback but got caught in infinite loop.
-            // this is a lame reimplementation
-            smtpd_session_reset(s); // XXX-FIXME: this is errorhandling
-        }
+        /* Increment the delivery counter and explicitly wrap around */
+        if (s->worker->delivery_counter == ULONG_MAX)
+            s->worker->delivery_counter = 0;
+        else
+            s->worker->delivery_counter++;
 
         return (0);
     }
@@ -388,7 +380,6 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
         src++;
     }
 
-    /* XXX-FIXME use writev(2) to write multiple lines in one syscall. */
     /* Write the line to the file */
     if (atomic_write(s->msg->fd, src, len) < len) {
         log_errno("atomic_write(3)");
@@ -399,7 +390,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 
   error:
     session_println(s, "452 Error spooling message, try again later");
-    session_close(s);
+    s->smtp_state = SMTP_STATE_QUIT;
     return (0);
 }
 
@@ -408,18 +399,6 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 int
 smtpd_greeting(struct session *s)
 {
-#ifdef XXX_FIXME_DEADWOOD
-    // dont do this until the envelope is accepted [see: spam]
-    //
-    /* Create a message object */
-    if ((s->msg = message_new()) == NULL) {
-        log_error("message_new()");
-        goto err421;
-    } else {
-        s->msg->session = s;
-    }
-#endif
-
     /* Send the initial greeting */
     session_printf(s, "220 %s recvmail/%s\r\n", OPT.mailname, VERSION);
 
@@ -435,7 +414,6 @@ smtpd_accept(struct session *s)
         errx(1,"FIXME: error handling (memfree)");
     }
     s->msg->session = s;
-    s->handler = smtpd_parser;
     smtpd_greeting(s);
 }
 
