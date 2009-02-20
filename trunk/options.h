@@ -18,6 +18,7 @@ struct options {
     int             log_facility;	/* The log facility to provide to
 					 * syslog(3) */
     int             log_level;	/* The level used by setlogmask(3) */
+    unsigned int    max_clients;    /* Maximum number of concurrent clients */
 };
 
 extern struct options OPT;
