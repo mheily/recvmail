@@ -21,13 +21,10 @@
 #define DOMAIN_MAX		63
 #define HOSTNAME_MAX		63
 
-/*
- * domain_exists(domain)
- *
+/**
  * Checks if <domain> exists in the mailstore. 
  *
- * Returns: 0 if the domain exists, -1 if it does not.
- *
+ * @return 0 if the domain exists, nonzero if it does not.
  */
 int
 domain_exists(const char *domain)
@@ -35,10 +32,10 @@ domain_exists(const char *domain)
 	char *path = NULL;
 	int result;
 
-	if ( valid_domain(domain) < 0)
+	if (valid_domain(domain) < 0)
 		return -EINVAL;
 
-	if (asprintf(&path, "store/%s", domain) < 0)
+	if (asprintf(&path, "box/%s", domain) < 0)
 		return -ENOMEM;
 
 	result = file_exists(domain);
@@ -47,13 +44,10 @@ domain_exists(const char *domain)
 }
 
 
-/*
- * valid_domain(domain)
- *
+/**
  * Checks <domain> for validity.
  *
- * Returns: 0 if domain is valid, -1 if invalid
- *
+ * @return 0 if domain is valid, nonzero if invalid
  */
 int valid_domain(const char *domain)
 {
@@ -81,13 +75,10 @@ int valid_domain(const char *domain)
 }
 
 
-/*
- * valid_address(address)
- *
+/**
  * Check if <address> is a syntactically valid RFC-2821 e-mail address
  *
- * Returns: 0 if address is valid, -1 if it is invalid
- *
+ * @return 0 if address is valid, -1 if it is invalid
  */
 int valid_address(const struct rfc2822_addr *addr)
 {
@@ -169,7 +160,7 @@ rfc2822_addr_parse(struct rfc2822_addr * dest, const char *src)
 	}
 
 	/* Compute the path to the mailbox */
-	if (asprintf(&dest->path, "store/%s/%s", dest->domain, dest->user) < 0) {
+	if (asprintf(&dest->path, "box/%s/%s", dest->domain, dest->user) < 0) {
 		free(dest->user);
 		free(dest->domain);
 		return -ENOMEM;

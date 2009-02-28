@@ -18,6 +18,7 @@
 
 #include "recvmail.h"
 
+#include <limits.h>
 
 /*
  * test_file_exists(path)

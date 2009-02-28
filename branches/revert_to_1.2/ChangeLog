@@ -1,6 +1,10 @@
 recvmail revision history
 =========================
 
+1.2  ?
+
+* [ChangeLog missing]
+
 1.1  Thursday, May 18th 2006
 
 * Fixed a non-exploitable memory allocation error in the accept(2) loop.
