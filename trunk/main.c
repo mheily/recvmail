@@ -16,10 +16,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <signal.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+
+#include <event.h>
 
 #include "options.h"
 #include "log.h"
@@ -40,6 +44,7 @@ struct server   smtpd = {
     .gid = "mail",
 
     /* vtable */
+    .init_hook = smtpd_init,
     .accept_hook = smtpd_accept,
     .timeout_hook = smtpd_timeout,
     .abort_hook = NULL,		// fixme
@@ -53,7 +58,7 @@ struct options  OPT = {
     .log_ident = "recvmail",
     .log_level = LOG_NOTICE,
     .log_facility = LOG_MAIL,
-    .max_clients = 512,
+    .max_clients = 32,
 };
 
 /* getopt(3) variables */
@@ -99,11 +104,24 @@ option_parse(const char *arg)
 	free(buf);
 }
 
+void
+sigint_handler(int signal, short what, void *unused)
+{
+    log_warning("caught SIGINT");
+    abort();
+}
+
 int
 main(int argc, char *argv[])
 {
+    struct event ev_sigint;
     char mailname[256];
     int             c;
+
+    event_init();
+
+    signal_set(&ev_sigint, SIGINT, sigint_handler, NULL);
+    signal_add(&ev_sigint, NULL);
 
     /* Get arguments from ARGV */
     while ((c = getopt(argc, argv, "fg:hi:o:p:qu:v")) != -1) {
@@ -177,7 +195,8 @@ main(int argc, char *argv[])
     exit(EXIT_SUCCESS);
 #endif
 
-    pause();
+    event_dispatch();
 
+    /* NOTREACHED */
     exit(EXIT_SUCCESS);
 }
