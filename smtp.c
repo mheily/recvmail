@@ -306,7 +306,7 @@ smtpd_greeting(struct session *s)
 	s->data->msg->remote_addr = s->remote_addr;
 
 	/* Send the initial greeting */
-	printf_response(s, "220 %s recvmail/%s", OPT.mailname, VERSION);
+	printf_response(s, "220 %s ESMTP server ready", OPT.mailname);
 	return 0;
 }
 
