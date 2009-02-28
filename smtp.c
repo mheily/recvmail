@@ -1,4 +1,4 @@
-/*      $Id$      */
+/*		$Id: $		*/
 
 /*
  * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
@@ -16,320 +16,231 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <ctype.h>
-#include <limits.h>
-
-#include "atomic.h"
-#include "log.h"
-#include "options.h"
-#include "message.h"
-#include "session.h"
-#include "server.h"
-#include "smtp.h"
-
-/* Response to HELO and EHLO */
-static char smtp_helo_greeting[HOST_NAME_MAX + 8];
-static char smtp_ehlo_greeting[HOST_NAME_MAX + 512];
-
-#define RECIPIENT_MAX		100
-
-#define PUTS(s,c) bufferevent_write((s)->buf_ev, c"\r\n", sizeof(c) + 2)
-
-/* FIXME - put this somewhere else */
-/* From aliases.c */
-
-void            aliases_init(void);
-void            aliases_parse(const char *);
-struct alias_entry * aliases_lookup(const char *name);
-
-/* FIXME - put this somewhere else */
-/* From maildir.h */
-
-int             maildir_msg_open(struct message *msg);
-int             open_message(struct message *msg);
-int             maildir_exists(const struct mail_addr *);
-int             maildir_deliver(struct message *);
-static int smtpd_parse_command(struct session *, char *, size_t);
-static int smtpd_parse_data(struct session *, char *, size_t);
-static int smtpd_session_reset(struct session *);
-
-static int
-smtpd_session_reset(struct session *s)
-{
-   if (s->msg != NULL) {
-        s->msg->recipient_count = 0;
-        message_free(s->msg);
-        if ((s->msg = message_new()) == NULL) {
-            PUTS(s, "421 Out of memory error");
-            s->smtp_state = SMTP_STATE_QUIT;
-            return (-1);
-        }
-        s->msg->session = s;
-    }
-
-    s->smtp_state = SMTP_STATE_MAIL;
-    return (0);
-}
-
-static int
-smtpd_helo(struct session *s, const char *arg)
-{
-    log_debug("HELO=`%s'", arg);
-    if ((s->msg->helo = strdup(arg)) == NULL) {
-        log_errno("strdup(3)");
-        return (-1);
-    }
-    session_puts(s, smtp_helo_greeting);
-    return (0);
-}
+#include "recvmail.h"
 
 
-static int
-smtpd_ehlo(struct session *s, const char *arg)
-{
-    log_debug("EHLO=`%s'", arg);
-    if ((s->msg->helo = strdup(arg)) == NULL) {
-        log_errno("strdup(3)");
-        return (-1);
-    }
-    session_puts(s, smtp_ehlo_greeting);
-    return (0);
-}
-
-
-static int
-smtpd_mail(struct session *s, const char *arg)
-{
-    if (s->msg->sender != NULL)
-        free(s->msg->sender);
-    if ((s->msg->sender = address_parse(arg)) == NULL) {
-            PUTS(s, "501 Malformed address");
-            return (-1);
-    }
-    PUTS(s, "250 Ok");
-    return (0);
-}
-
-
-static int
-smtpd_rcpt(struct session *s, char *line)
-{
-    char *p;
-    char *buf = NULL;
-    struct mail_addr *ma = NULL;
-
-    /* Limit the number of recipients per envelope */
-    if (s->msg->recipient_count > RECIPIENT_MAX) {
-        PUTS(s, "503 Error: Too many recipients");
-        goto errout;
-    }
-
-    /* Require 'MAIL FROM' before 'RCPT TO' */
-    if (s->msg->sender == NULL) {
-        PUTS(s, "503 Error: need MAIL command first");
-        goto errout;
-    }
-
-    /* Remove leading whitespace and '<' bracket */
-    for (; *line == ' ' || *line == '<'; line++);  
-
-    buf = strdup(line); //fixme: errhandling
-
-    /* Ignore any trailing whitespace and additional options */
-    /* FIXME - doesn't handle quoted whitespace */
-    if ((p = strchr(buf, ' ')) != NULL)
-        memset(p, 0, 1);
-    if ((p = strchr(buf, '>')) != NULL)
-        memset(p, 0, 1);
-
-    if ((ma = address_parse(buf)) == NULL) {
-        PUTS(s, "501 Invalid address syntax");
-        goto errout;
-    }
-
-    /* Check if we accept mail for this domain */
-    switch (domain_exists(ma)) {
-        case -1: 
-            PUTS(s, "421 Internal error, closing connection");
-            // FIXME: actually close the connection
-            goto errout;
-        case 0: 
-            PUTS(s, "551 Relay access denied");
-            goto errout;
-            break;
-    }
-
-    /* Check if the mailbox exists */
-    switch (maildir_exists(ma)) {
-        case -1: 
-            PUTS(s, "421 Internal error, closing connection");
-            // FIXME: actually close the connection
-            goto errout;
-            break;
-        case 0: 
-            PUTS(s, "550 Mailbox does not exist");
-            goto errout;
-            break;
-        case 1:
-            LIST_INSERT_HEAD(&s->msg->recipient, ma, entries);
-            s->msg->recipient_count++;
-            PUTS(s, "250 Ok");
-            break;
-    }
-
-    free(buf);
-    return (0);
-
-errout:
-    free(buf);
-    address_free(ma);
-    return (-1);
-}
-
-
-static int
-smtpd_data(struct session *s, const char *arg)
-{
-    log_debug("DATA arg=%s", arg);
-
-    if (s->msg->recipient_count == 0) {
-        PUTS(s, "503 Error: need one or more recipients first");
-        return (-1);
-    }
-    if ((s->msg->filename = maildir_generate_id(s->worker->id, s->worker->delivery_counter)) == NULL) 
-        goto errout;
-    if (maildir_msg_open(s->msg)) 
-        goto errout;
-    PUTS(s, "354 End data with <CR><LF>.<CR><LF>");
-    s->smtp_state = SMTP_STATE_DATA;
-    return (0);
-
-errout:
-    PUTS(s, "421 Error creating message");
-    s->smtp_state = SMTP_STATE_QUIT;
-    return (-1);
-}
-
-static int
-smtpd_rset(struct session *s)
-{
-    if (smtpd_session_reset(s) != 0) {
-        // FIXME -- What error code goes here?
-        return (-1);
-    }
-
-    PUTS(s, "250 Ok");
-    return (0);
-}
-
-static int
-smtpd_noop(struct session *s)
-{
-    PUTS(s, "250 Ok");
-    return (0);
-}
-
-static int
-smtpd_quit(struct session *s)
-{
-    PUTS(s, "221 Goodbye");
-    s->smtp_state = SMTP_STATE_QUIT;
-    return (0);
-}
+/*
+ * printf_response(session, format, ...)
+ *
+ * Print a formatted string to the output buffer of <session>
+ */
+// TODO: error handling
+#define printf_response(s,format,...) do { 				\
+	struct evbuffer *evbuf = evbuffer_new();			\
+	evbuffer_add_printf(evbuf, format, __VA_ARGS__);		\
+	evbuffer_add_buffer(s->bev->output, evbuf);			\
+	evbuffer_free(evbuf); \
+	session_write(s, "\r\n", 3);					\
+} while (0)
 
 int
-smtpd_parser(struct session *s, char *buf)
+print_response(struct session *s, char *msg)
 {
-    int rv;
-    size_t len;
-
-    len = strlen(buf);
-
-    if (s->smtp_state != SMTP_STATE_DATA) {
-        log_debug ("SMTP command=`%s' len=%zu", buf, len);
-        rv = smtpd_parse_command(s, buf, len);
-    } else {
-        rv = smtpd_parse_data(s, buf, len);
-    }
-
-    /* Stop reading new data after a QUIT is issued */
-    if (s->smtp_state == SMTP_STATE_QUIT) {
-        bufferevent_disable(s->buf_ev, EV_READ); 
-        return (0);//why?
-    }
-
-    if (rv != 0) 
-        s->errors++;
-
-    /* TODO: make configurable, max_errors or something */
-    if (s->errors > 10) {
-        smtpd_client_error(s);
-        return (-1);
-    }
-
-    return (0);
+	session_write(s, msg, strlen(msg) + 1);
+	session_write(s, "\r\n", 3);
+	return 0;
 }
 
 static int
+smtpd_helo(struct session *s, char *arg)
+{
+	printf_response(s, "250 %s", OPT.mailname);
+	return 0;
+}
+
+
+static int
+smtpd_ehlo(struct session *s, char *arg)
+{
+	printf_response(s, "250-%s", OPT.mailname);
+	print_response(s, "250-VRFY\r\n250-PIPELINING");
+	/* TODO: printf_response(s, "250-SIZE %d", MAX_MESSAGE_BYTES); */
+	print_response(s, "250 8BITMIME");
+	return 0;
+}
+
+
+static int
+smtpd_mail(struct session *s, char *arg)
+{
+	if (rfc2822_addr_parse(s->data->msg->sender, arg) != 0)  {
+		print_response(s, "501 Malformed address");
+		return -1;
+	}
+	print_response(s, "250 Ok");
+	return 0;
+}
+
+
+int
+smtpd_rcpt(struct session *s, char *addr)
+{
+	struct rfc2822_msg *msg;
+	struct rfc2822_addr *rcpt_to;
+	int domain_ok;
+
+	/* Initialize variables */
+	if ((rcpt_to = calloc(1, sizeof(*rcpt_to))) == NULL) {
+		log_errno("malloc");
+		return -1;
+	}
+	msg = s->data->msg;
+
+	/* Limit the number of recipients  per envelope */
+	if (msg->num_recipients > RECIPIENT_MAX) {
+		print_response(s, "503 Error: Too many recipients");
+		return -1;
+	}
+
+	/* Require 'MAIL FROM' before 'RCPT TO' */
+	if (!msg->sender->user) {
+		print_response(s, "503 Error: need MAIL command first");
+		return -1;
+	}
+
+	if (rfc2822_addr_parse(rcpt_to, addr) != 0) {
+		print_response(s, "501 Invalid address syntax");
+		return -1;
+	}
+
+	domain_ok = (domain_exists(rcpt_to->domain) == 1);
+
+	/* Test if there were any filesystem errors */
+	if (domain_ok < 0 || rcpt_to->exists < 0) {
+		print_response(s, "554 Internal server error, closing connection");
+		session_close(s);
+		return 0;
+	}
+	
+#if DEADWOOD
+	// should we really care here? isnt 550 good enough??
+
+	/* If the domain does not exist, do not relay the message */
+	if (!domain_ok) {
+		print_response(s, "554 Relay access denied");
+		return -1;
+	}
+#endif
+
+	/* If the mailbox does not exist, do not accept the message */
+	if (rcpt_to->exists != 1) {
+		print_response(s, "550 Mailbox unavailable");
+		return -1;
+	}
+
+	/* Everything is OK, add the recipient */
+	msg->rcpt_to[ msg->num_recipients++ ] = rcpt_to;
+	print_response(s, "250 Ok");
+
+	return 0;
+}
+
+
+static int
+smtpd_data(struct session *s, char *arg)
+{
+	if (s->data->msg->num_recipients == 0) {
+		print_response(s, "503 Error: need one or more recipients first");
+		return -1;
+	} else {
+		if (maildir_msg_open(s->data->msg)) {
+			print_response(s, "421 Error spooling message");
+			session_close(s);
+			return -1;
+		}
+		print_response(s, "354 End data with <CR><LF>.<CR><LF>");
+		s->data->smtp_state = SMTP_STATE_DATA;
+		return 0;
+	}
+}
+
+
+static int
+smtpd_vrfy(struct session *s, char *arg)
+{
+	print_response(s, "252 Don't count on it");
+	return 0;
+}
+
+
+static int
+smtpd_rset(struct session *s, char *arg)
+{
+        s->data->num_recipients = 0;
+	rfc2822_msg_free(s->data->msg);
+	if ((s->data->msg = rfc2822_msg_new()) == NULL) {
+		print_response(s, "421 Out of memory error");
+		session_close(s);
+		return 0;
+	}
+	s->data->smtp_state = SMTP_STATE_MAIL;
+	print_response(s, "250 Ok");
+	return 0;
+}
+
+static int
+smtpd_noop(struct session *s, char *arg)
+{
+	print_response(s, "250 Ok");
+	return 0;
+}
+
+static int
+smtpd_quit(struct session *s, char *arg)
+{
+	print_response(s, "221 Bye");
+	session_close(s);
+	return 0;
+}
+
+
+int
 smtpd_parse_command(struct session *s, char *src, size_t len)
 {
-    size_t          i;
-    int             c;
+	size_t          i, cmd_len;
+	int             c;
+	char           *cp;
+	static const char *cmd[9] = {
+		"HELO", "EHLO", "MAIL FROM:", "VRFY", "RCPT TO:",
+		"DATA", "RSET", "NOOP", "QUIT"
+	};
+	static int (*func[])(struct session *,char *) = {
+		smtpd_helo, smtpd_ehlo, smtpd_mail, smtpd_vrfy, smtpd_rcpt,
+		smtpd_data, smtpd_rset, smtpd_noop, smtpd_quit,
+	};
 
-    /* SMTP commands must be at least four characters plus the trailing NUL */
-    if (len < 4) {
-            PUTS(s, "502 Illegal command");
-            return (-1);
-    }
+	/*
+	 * Test for invalid ASCII characters. 
+	 * SMTP commands must be 7-bit clean with no control characters.
+	 */
+	for (i = 0; i < len; i++) {
+		c = src[i];
+		if (c < 32 || c > 127) {
+			log_debug("Syntax error: illegal character(s)");
+			print_response(s, "502 Illegal request");
+			return -1;
+		}
+	}
 
-    /* 
-     * Test for invalid ASCII characters. 
-     * SMTP commands must be 7-bit clean with no control characters.
-     */
-    for (i = 0; i < len; i++) {
-        c = src[i];
-        if (c < 32 || c > 127) {
-            log_debug("illegal character at position %zu", i);
-            PUTS(s, "502 Illegal request");
-            return -1;
-        }
-    }
+	/* Test for a valid command name */
+	for (i = 0 ; i < 9; i++) {
+		cmd_len = strlen(cmd[i]);
+		if (strncasecmp(src, cmd[i], cmd_len) != 0) 
+			continue;
 
-    /* Parse the command and call the associated function */
-    switch (toupper(src[0])) {
-        case 'D': if (strcasecmp(src, "DATA") == 0)
-                      return (smtpd_data(s, NULL));
-                  break;
+		/* Parse the parameter */
+		if (len > cmd_len) {
+			cp = src + cmd_len;
+		} else {
+			cp = "";
+		}
 
-        case 'E': if (strncasecmp(src, "EHLO ", 5) == 0)
-                      return (smtpd_ehlo(s, src + 5));
-                  break;
+		syslog(LOG_DEBUG,"method = `%s', options = `%s'", cmd[i], cp);
+		return func[i](s, cp);
+	}
 
-        case 'H': if (strncasecmp(src, "HELO ", 5) == 0)
-                      return (smtpd_helo(s, src + 5));
-                  break;
-
-        case 'M': if (strncasecmp(src, "MAIL FROM:", 10) == 0)
-                      return (smtpd_mail(s, src + 10));
-                  break;
-
-        case 'N': if (strcasecmp(src, "NOOP") == 0)
-                      return (smtpd_noop(s));
-                  break;
-
-        case 'Q': if (strcasecmp(src, "QUIT") == 0)
-                      return (smtpd_quit(s));
-                  break;
-
-        case 'R': if (strncasecmp(src, "RCPT TO:", 8) == 0)
-                      return (smtpd_rcpt(s, src + 8));
-                  if (strcasecmp(src, "RSET") == 0)
-                      return (smtpd_rset(s));
-                  break;
-    }
-
-    PUTS(s, "502 Error: invalid command");
-    return (-1);
+	print_response(s, "502 Error: command not implemented");
+	return -1;
 }
 
 
@@ -342,60 +253,42 @@ smtpd_parse_command(struct session *s, char *src, size_t len)
  *            or -1 if an error occurred
  *
  */
-static int
-smtpd_parse_data(struct session *s, char *src, size_t len)
+int
+smtpd_parse_data(struct session * s, char *src, size_t len)
 {
-    /* If the line is '.', end the data stream */
-    if ((len == 1) && (*src == '.')) {
+	int offset = 0;
 
-        /* Close the tmp/ file and move it to new/ */
-        if (message_close(s->msg) < 0) {
-            log_error("message_close()");
-            goto error;
-        }
+	/* If the line is '.', end the data stream */
+	if ((len == 1) && strncmp(src, ".", 1) == 0) {
 
-        if (maildir_deliver(s->msg) < 0) {
-            log_error("maildir_deliver()");
-            goto error;
-        }
+		/* TODO : set state to SMTP_STATE_FSYNC and call syncer */
 
-        /* XXX-FIXME need to fsync(2) */
-        PUTS(s, "250 Ok - message has been delivered");
-        (void) smtpd_session_reset(s); // todo -- errorhandling
+		/* Deliver the message immediately */
+		if ( rfc2822_msg_close(s->data->msg) < 0) 
+			goto error;
 
-        /* Increment the delivery counter and explicitly wrap around */
-        if (s->worker->delivery_counter == ULONG_MAX)
-            s->worker->delivery_counter = 0;
-        else
-            s->worker->delivery_counter++;
+		/* Allow the sender to pipeline another request */ 
+		smtpd_rset(s, "");
+		return 0;
+	}
 
-        return (0);
-    }
+	/* Ignore a leading '.' if there are additional characters */
+	if (strncmp(src, ".", 1) == 0) 
+		offset = 1;
 
-    /* Ignore a leading '.' if there are additional characters */
-    if (strncmp(src, ".", 1) == 0) {
-        len--;
-        src++;
-    }
+	/* Write the line and a trailing newline to the file */
+	if ((rfc2822_msg_write(s->data->msg, src + offset, len - offset) < 0) ||
+			(rfc2822_msg_write(s->data->msg, "\n", 1) < 0))
+	{
+		goto error;
+	}
+	
+	return 0;
 
-    /* Write the line to the file */
-    if (atomic_write(s->msg->fd, src, len) < len) {
-        log_errno("atomic_write(3)");
-        goto error;
-    }
-
-    /* Write a newline */
-    if (atomic_write(s->msg->fd, "\n", 1) < 1) {
-        log_errno("atomic_write(3)");
-        goto error;
-    }
-
-    return (0);
-
-  error:
-    PUTS(s, "452 Error spooling message, try again later");
-    s->smtp_state = SMTP_STATE_QUIT;
-    return (0);
+error:
+	print_response(s, "452 Error spooling message, try again later");
+	session_close(s);
+	return 0;
 }
 
 
@@ -403,55 +296,47 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 int
 smtpd_greeting(struct session *s)
 {
-    PUTS(s, "220 ESMTP server ready");
+	/* Allocate memory for the session data */
+	if ((s->data = calloc(1, sizeof(struct session_data))) == NULL ||
+	    (s->data->msg = rfc2822_msg_new()) == NULL) {
+		print_response(s, "421 Internal server error");
+		session_close(s);
+		return 0;
+	}
+	s->data->msg->remote_addr = s->remote_addr;
 
-    return (0);
+	/* Send the initial greeting */
+	printf_response(s, "220 %s recvmail/%s", OPT.mailname, VERSION);
+	return 0;
 }
 
 
-
-void
-smtpd_accept(struct session *s)
+int
+smtpd_parser(struct session *s, char *buf, size_t len)
 {
-    if ((s->msg = message_new()) == NULL) {
-        errx(1,"FIXME: error handling (memfree)");
-    }
-    s->msg->session = s;
-    smtpd_greeting(s);
+	/* Pass control to the 'command' or 'data' subparser */
+	if (s->data->smtp_state != SMTP_STATE_DATA) 
+		return smtpd_parse_command(s, buf, len);
+	else
+		return smtpd_parse_data(s, buf, len);
 }
 
 void
 smtpd_timeout(struct session *s)
 {
-    PUTS(s, "421 Idle time limit exceeded, goodbye");
+	print_response(s, "421 Idle time limit exceeded, goodbye");
 }
 
 void
 smtpd_client_error(struct session *s)
 {
-    PUTS(s, "421 Too many errors");
-}
-
-void
-smtpd_close(struct session *s)
-{
-    message_free(s->msg);
+	print_response(s, "421 Too many unrecognized commands");
 }
 
 int
-smtpd_init(void)
+smtpd_close_hook(struct session *s)
 {
-    memset(&smtp_helo_greeting, 0, sizeof(smtp_helo_greeting));
-    memset(&smtp_ehlo_greeting, 0, sizeof(smtp_ehlo_greeting));
-
-    snprintf((char *) &smtp_helo_greeting, sizeof(smtp_helo_greeting) - 1,
-            "250 %s\r\n", OPT.mailname);
-
-    snprintf((char *) &smtp_ehlo_greeting, sizeof(smtp_ehlo_greeting) - 1,
-        "250-%s\r\n"
-        "250-PIPELINING\r\n"
-        "250 8BITMIME\r\n" 
-        , OPT.mailname);
-
-    return (0);
+	rfc2822_msg_free(s->data->msg);
+	free(s->data);
+	return 0;
 }

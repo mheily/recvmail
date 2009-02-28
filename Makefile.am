@@ -17,15 +17,12 @@
 #
 
 sbin_PROGRAMS    = recvmail
-man_MANS         = recvmail.8
+dist_man8_MANS   = recvmail.8
 
-SOURCES		 = $(recvmail_SOURCES) $(selftest_SOURCES)
-
-recvmail_CFLAGS  = -g -O0 -Wall -Werror -include config.h
-recvmail_SOURCES = address.c atomic.c log.c epoll.c \
-				   message.c maildir.c session.c smtp.c server.c main.c
-recvmail_LDADD   = -lpthread -levent
-recvmail_HEADERS = recvmail.h queue.h
+recvmail_LDADD   = -levent
+recvmail_CFLAGS  = -Wall -Werror -g -O2
+recvmail_SOURCES = address.c file.c maildir.c smtp.c server.c \
+		   recvmail.c recvmail.h
 
 selftest_SOURCES = $(recvmail_SOURCES) selftest.c
 selftest_CFLAGS  = $(recvmail_CFLAGS) -DUNIT_TESTING
@@ -33,31 +30,11 @@ selftest_LDADD   = $(recvmail_LDADD)
 TESTS            = selftest
 check_PROGRAMS   = selftest
 
-loopback:
-	printf "helo a\nmail from:abc@def.ghi\nrcpt to:example@example.com\ndata\nSubject: hi\n\nHello\n.\nquit\n" | nc localhost 1025
-
 debug: 
 	ulimit -c 999999; rm core; pkill recvmail; make && ( ./recvmail -fv & ) && sleep 1 && echo -e 'helo\nmail from:abc@def.ghi\nrcpt to:test@test.com\nquit' | nc localhost 1025
 	test -e /var/mail/core && gdb ./recvmail -c /var/mail/core  || true
 
-nohup:
-	rm -f nohup.out
-	nohup ./recvmail -fv 2>&1 &
-
-valgrind:
-	valgrind --tool=memcheck --leak-check=full --show-reachable=yes --num-callers=20 --track-fds=yes ./recvmail -fq
-
 hammer:
-	while [ 1 -eq 1 ] ; do make loopback ; rm /var/spool/recvmail/new/*; done
+	while [ 1 -eq 1 ] ; do echo -e 'helo\nmail from:a@b.com\nrcpt to:test@test.com\ndata\nhi\n.\nquit' | nc localhost 1025 ; rm /srv/mail/store/test.com/test/new/*; done
 
-# Use GNU indent to re-indent the entire source tree
-indent:
-	indent -orig -ncdb -nfc1 *.[ch]
 
-# Reformat, diff, and checkin changes
-checkin: indent
-	svn diff | less
-	svn ci
-
-edit:
-	gvim *.c *.h Makefile* configure*

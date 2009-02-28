@@ -1,4 +1,4 @@
-/*		$Id$		*/
+/*		$Id: $		*/
 
 /*
  * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
@@ -16,213 +16,135 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// FIXME - needed to get asprintf decl in stdio.h
-#define _GNU_SOURCE
+#include "recvmail.h"
 
-#include <fcntl.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/time.h>
-#include <time.h>
-#include <unistd.h>
 
-#include "address.h"
-#include "atomic.h"
-#include "message.h"
-#include "session.h"
-#include "options.h"
-#include "log.h"
-
+/**
+ *
+ * Generate a unique ID suitable for delivery to a Maildir
+ */
 static int
-path_exists(const char *path)
+maildir_generate_id(char **dest)
 {
-    if (access(path, W_OK) < 0) {
-        if (errno == ENOENT) {
-            return (0);
-        } else {
-            log_errno("access(2) of `%s'", path);
-            return (-1);
-        }
-    }
+	static uint32_t delivery_counter = 0;
+	struct timeval tv;
 
-    return (1);
+	gettimeofday(&tv,NULL);
+
+	/* Increment the delivery counter and rollover at 1,000,000 */
+	if (delivery_counter++ > 999999)
+		delivery_counter = 0;
+
+	return asprintf(dest, "%lu.M%luP%u_%d.%s", tv.tv_sec, tv.tv_usec,
+				getpid(),
+				delivery_counter, OPT.mailname);
 }
-
-static int 
-maildir_get_path(char *buf, size_t n, const struct mail_addr *ma)
-{
-    if (snprintf(buf, n, "box/%s/%s", ma->domain, ma->local_part) >= n) {
-        log_error("mailbox name too long");
-        return (-1);
-    }
-
-    return (0);
-}
-
-int
-domain_exists(const struct mail_addr *ma)
-{
-    char buf[PATH_MAX];
-
-    if (snprintf((char *) &buf, sizeof(buf), "box/%s",
-                ma->domain) >= sizeof(buf)) {
-        log_error("mailbox name too long");
-        return (-1);
-    }
-
-    return (path_exists((char *) &buf));
-}
-
-int
-maildir_exists(const struct mail_addr *ma)
-{
-    char buf[PATH_MAX];
-
-    if (maildir_get_path((char *) &buf, sizeof(buf), ma) != 0)
-        return (-1);
-
-    return (path_exists((char *) &buf));
-}
-
-/* Generate a unique ID suitable for delivery to a Maildir */
-char *
-maildir_generate_id(int worker_id, unsigned long delivery_counter)
-{
-    char *buf;
-    struct timeval  tv;
-
-    gettimeofday(&tv, NULL);
-
-    if (asprintf(&buf, "%lu.M%luP%uT%u_%lu.%s", 
-			    tv.tv_sec, 
-			    tv.tv_usec,
-			    getpid(),
-                worker_id,
-			    delivery_counter,
-			    OPT.mailname) < 0) {
-	    log_warning("asprintf(3)");
-	    return (NULL);
-    }
-
-	return (buf);
-}
-
+  
 
 /*
+ * open_message(message_t *msg);
+ *
  * Open a file descriptor to receive the data of <msg>.
  *
  * Modifies: msg->fd, msg->id, msg->path
  *
  */
 int
-maildir_msg_open(struct message *msg)
+maildir_msg_open(struct rfc2822_msg *msg)
 {
-    time_t          now;
-    struct tm       timeval;
-    char            timestr[64];
-    size_t          len;
-    char            in_addr[INET_ADDRSTRLEN + 1];
-    char           *buf = NULL;
+	time_t          now;
+	struct tm	timeval;
+	char		timestr[64];
+	size_t          len;
+	char *buf = NULL;
 
-    if (LIST_EMPTY(&msg->recipient)) {
-    	log_warning("cannot deliver a message with no recipients");
-        return (-1);
-    }
+	/* Generate the message pathname */
+	if (maildir_generate_id(&msg->filename) < 0)
+		return -1;
+	if (asprintf(&msg->path, "spool/tmp/%s", msg->filename) < 0)
+		return -1;
 
-    /* Generate the message pathname */
-    if (asprintf(&msg->path, "spool/tmp/%s", msg->filename) < 0)
-        return -1;
+	/* Try to open the message file for writing */
+	/* NOTE: O_EXCL may not work on older NFS servers */
+	msg->fd = open(msg->path, O_CREAT | O_APPEND | O_WRONLY | O_EXCL, 00660);
+	if (msg->fd < 0) {
+		log_errno("open(2) of `%s'", msg->path);
+		return -1;
+	}
 
-    /* Try to open the message file for writing */
-    /* NOTE: O_EXCL may not work on older NFS servers */
-    msg->fd =
-	open(msg->path, O_CREAT | O_APPEND | O_WRONLY | O_EXCL, 00660);
-    if (msg->fd < 0) {
-	log_errno("open(2) of `%s'", msg->path);
-	return -1;
-    }
+	/* Prepend the local 'Received:' header */
+	time(&now);
+ 	gmtime_r(&now, &timeval);
+ 	asctime_r(&timeval, timestr);
+	len = asprintf(&buf, "Received: from %s@%s ([%s])\n        by %s (recvmail) on %s",
+			msg->sender->user,
+			msg->sender->domain,
+			msg->remote_addr_str,
+			OPT.mailname,
+			timestr
+		 );
+	if ((len < 0) || rfc2822_msg_write(msg, buf, len) < 0)  {
+		free(buf);
+		return -1;
+	}
 
-    /* XXX-FIXME: put a Return-Path header at the top */
-
-    /* Prepend the local 'Received:' header */
-    time(&now);
-    gmtime_r(&now, &timeval);
-    asctime_r(&timeval, timestr);
-    len = asprintf(&buf,
-            "Received: from %s (%s [%s])\n"
-            "        by %s (recvmail) ; %s",
-            msg->helo, 
-            msg->session->remote_name,
-            remote_addr(in_addr, sizeof(in_addr), msg->session), 
-            OPT.mailname, 
-            timestr);
-    if (len < 0) {
-        log_errno("asprintf(3)");
-        goto errout;
-    }
-
-    /* Write the buffer to disk */
-    if (atomic_write(msg->fd, buf, len) < len) {
-        log_errno("atomic_write() failed");
-        goto errout;
-    }
-    msg->size += len;
-
-    free(buf);
-    return (0);
-
-errout:
-    free(buf);
-    return (-1);
+	free(buf);
+	return 0;
 }
 
 
+struct rfc2822_msg *
+rfc2822_msg_new()
+{
+	struct rfc2822_msg * msg;
+
+	msg = calloc(1, sizeof(struct rfc2822_msg));
+	if (!msg)
+		return NULL;
+
+	if ((msg->sender = rfc2822_addr_new()) == NULL) {
+		free(msg);
+		return NULL;
+	}
+
+	return msg;
+}
+
+void
+rfc2822_msg_free(struct rfc2822_msg * msg)
+{
+	int i;
+
+	if (msg) {
+		free(msg->path);
+		rfc2822_addr_free(msg->sender);
+		for (i = 0; i < msg->num_recipients; i++) 
+			rfc2822_addr_free(msg->rcpt_to[i]);
+		free(msg->filename);
+		free(msg);
+	}
+}
+
+/**
+ * Write <len> bytes of <line> to the <message> file descriptor (or buffer).
+ *
+ * Returns: 0 if the operation succeded, -1 if there was an error.
+ *
+ */
 int
-maildir_deliver(struct message *msg)
+rfc2822_msg_write(struct rfc2822_msg *msg, const char *src, size_t len)
 {
-    char prefix[PATH_MAX];
-    char dest[PATH_MAX];
+	/* write(2) to the file descriptor */
+	if ( write(msg->fd, src, len) < len ) {
+		log_errno("write(2)");
+		return -1;
+	}
 
-    struct mail_addr *ma;
+	msg->size += len;
 
-    LIST_FOREACH(ma, &msg->recipient, entries) {
-        if (maildir_get_path((char *) &prefix, sizeof(prefix), ma) != 0) {
-            log_error("prefix too long");
-            goto errout;
-        }
-        if (snprintf((char *) &dest, sizeof(dest), "%s/new/%s",
-                    (char *) &prefix, msg->filename) >= sizeof(dest)) {
-            log_error("path too long");
-            goto errout;
-        }
-        if (link(msg->path, dest) != 0) {
-            log_errno("link(2) of `%s' to `%s'", msg->path, dest);
-            goto errout;
-        }
-    }
-
-    /* Delete the spooled message */
-    if (unlink(msg->path) != 0) {
-            log_errno("unlink(2) of `%s'", msg->path);
-            goto errout;
-    }
-#if FIXME
-    //this seems dangerous
-    message_free(msg);
-    free(msg->path);
-    msg->path = NULL;
-#endif
-
-    return (0);
-
-errout:
-    /* Try to "undeliver" the message */
-    LIST_FOREACH(ma, &msg->recipient, entries) {
-        log_warning("XXX-fixme todo");
-    }
-    return (-1);
+	return 0;
 }
+
 
 /**
  * Close the file descriptor associated with <msg>
@@ -230,38 +152,48 @@ errout:
  * Modifies: msg->path
  */
 int
-message_close(struct message *msg)
+rfc2822_msg_close(struct rfc2822_msg *msg)
 {
-    char *path = NULL;
+	char   *path = NULL;
+	int	i;
 
-    /* Close the file */
-    if (atomic_close(msg->fd) < 0) {
-        log_errno("atomic_close(3)");
-        goto error;
-    }
+	/* Close the file */
+	if (close(msg->fd) < 0) {
+		log_errno("close(2)");
+		return -1;
+	}
 
-    /* Generate the new/ pathname */
-    if (asprintf(&path, "spool/new/%s", msg->filename) < 0) {
-        log_errno("asprintf(3)");
-        goto error;
-    }
+	/* Move the message into the 'new/' directory */
+	if (asprintf(&path, "%s/new/%s", msg->rcpt_to[0]->path, msg->filename) < 0) 
+		goto error;
+	if (rename(msg->path, path) < 0) {
+		log_errno("rename(2) of `%s' to `%s'", msg->path, path);
+		(void) unlink(msg->path);
+		goto error;
+	}
+	free(msg->path);
+	msg->path = path;
+	path = NULL;
 
-    /* Move the message into the 'new/' directory */
-    if (rename(msg->path, path) < 0) {
-        log_errno("rename(2) of `%s' to `%s'", msg->path, path);
-        goto error;
-    }
+	/* For each additional recipient, create a hard link */
+	for (i = 1; i < msg->num_recipients; i++) {
+		free(path);
+		if (asprintf(&path, "%s/new/%s", 
+					msg->rcpt_to[0]->path, 
+					msg->filename) < 0) {
+			goto error;
+		}
+		if (link(msg->path, path) < 0) {
+			/* TODO: unlink previous attempts */
+			log_errno("link(2) of `%s' to `%s'", msg->path, path);
+			goto error;
+		}
+	}
 
-    /* Update msg->path to point at the new location */
-    free(msg->path);
-    msg->path = path;
+	free(path);
+	return 0;
 
-    log_debug("message delivered to %s", msg->path);
-
-    return (0);
-
-  error:
-    free(path);
-    (void) unlink(msg->path);
-    return (-1);
+error:
+	free(path);
+	return -1;
 }

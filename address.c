@@ -1,4 +1,4 @@
-/*		$Id$		*/
+/*		$Id: $		*/
 
 /*
  * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
@@ -16,105 +16,177 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <dirent.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "recvmail.h"
 
-#include "address.h"
-#include "log.h"
-
-#define USERNAME_MAX            63
 #define DOMAIN_MAX		63
 #define HOSTNAME_MAX		63
-#define ADDRESS_MAX             (DOMAIN_MAX + HOSTNAME_MAX + 1)
 
 /*
- * Take an RFC2822 email address (<foo@bar.com>) and validates it, returning
- * the canonical address or NULL if invalid.
+ * domain_exists(domain)
+ *
+ * Checks if <domain> exists in the mailstore. 
+ *
+ * Returns: 0 if the domain exists, -1 if it does not.
+ *
  */
-struct mail_addr *
-address_parse(const char *src) 
+int
+domain_exists(const char *domain)
 {
-    char   local_part[64],
-           domain[64];
-    struct mail_addr *dst;
-    char   *p;
-    int     i;
+	char *path = NULL;
+	int result;
 
-    /* Initialize variables */
-    if ((dst = calloc(1, sizeof(*dst))) == NULL) {
-        log_errno("calloc(3)");
-        return (NULL);
-    }
+	if ( valid_domain(domain) < 0)
+		return -EINVAL;
 
-    /* Remove leading whitespace and angle-bracket */
-    while ((src[0] == ' ' ) || (src[0] == '<')) {
-        src++;
-    }
+	if (asprintf(&path, "store/%s", domain) < 0)
+		return -ENOMEM;
 
-    /* KLUDGE: remove trailing angle-bracket */
-    if ((p = strchr(src, '>')) != NULL) 
-            *p = ' ';
-
-    /* Split the string into two parts */
-    /* XXX-FIXME - need to accept backslash-escaped and quoted strings */
-    i = sscanf(src, " %63[a-zA-Z0-9_.+=%#?~^-]@%63[a-zA-Z0-9_.-] ", 
-            local_part, domain);
-    if (i < 2 || i == EOF) {
-        log_debug("unable to parse address");
-        goto errout;
-    }
-    //log_debug("parsed %s as [%s], [%s]", src, dest->user, dest->domain);
-
-    /* Validate the address */
-    if (local_part[0] == '\0' || domain[0] == '\0') {
-        log_debug("invalid address: empty part not allowed");
-        goto errout;
-    }
-    if (local_part[0] == '.' || domain[0] == '.') {
-        log_debug("invalid address: leading dot not allowed");
-        goto errout;
-    }
-
-    /* Copy the buffers to persistent storage */
-    if ((dst->local_part = strdup(local_part)) == NULL) {
-        log_errno("strdup(3)");
-        goto errout;
-    }
-    if ((dst->domain = strdup(domain)) == NULL) {
-        log_errno("strdup(3)");
-        goto errout;
-    }
-
-    return (dst);
-
-errout:
-    address_free(dst);
-    return (NULL);
+	result = file_exists(domain);
+	free(path);
+	return result;
 }
+
+
+/*
+ * valid_domain(domain)
+ *
+ * Checks <domain> for validity.
+ *
+ * Returns: 0 if domain is valid, -1 if invalid
+ *
+ */
+int valid_domain(const char *domain)
+{
+	int i;
+	size_t len;
+	static const char *dtext = "abcdefghijklmnopqrstuvwxyz.ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
+
+	/* Check the length */
+	len = strlen(domain);
+	if (len == 0 || len > DOMAIN_MAX)
+		return -EINVAL;
+
+	/* Disallow leading dots */
+	if (domain[0] == '.')
+		return -EINVAL;
+
+	/* Check for illegal characters */
+	for (i = 0; i < len; i++) {
+		if ( strchr(dtext, domain[i]) == NULL ) {
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+
+/*
+ * valid_address(address)
+ *
+ * Check if <address> is a syntactically valid RFC-2821 e-mail address
+ *
+ * Returns: 0 if address is valid, -1 if it is invalid
+ *
+ */
+int valid_address(const struct rfc2822_addr *addr)
+{
+	static const char *atext = "abcdefghijklmnopqrstuvwxyz.ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&*+-=?^_~";
+	int 	i;
+	size_t	len;
+
+	assert(addr);
+
+	/* Sanitize variables */
+	if (valid_domain(addr->domain) < 0)
+		return -EINVAL;
+	len = strlen(addr->user);
+	if (len == 0 || len > USERNAME_MAX || addr->user[0] == '.')
+		return -EINVAL;
+
+	/* Check for illegal characters */
+	for (i = 0; i < len; i++) {
+		if ( !strchr(atext, addr->user[i]) ) 
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
+
+struct rfc2822_addr * 
+rfc2822_addr_new()
+{
+	return calloc(1, sizeof(struct rfc2822_addr));
+}
+
+/**
+ * Parse an Internet mail address.
+ *
+ * Takes an RFC2822 email address (<foo@bar.com>) and validates it, returning
+ * the canonical address or NULL if invalid.
+ *
+ * Returns: 0 if success, -1 if error
+ *
+ */
+int
+rfc2822_addr_parse(struct rfc2822_addr * dest, const char *src) 
+{
+	char user[64];
+	char domain[64];
+	char	*p;
+	int 	i;
+	size_t	len;
+
+	/* Initialize variables */
+	len = strlen(src);
+
+	/* Ignore the SIZE parameter*/
+	if ((p = strstr(src, " SIZE=")))
+		memset(p, 0, 1);
+
+	/* Replace '<' and '>' with whitespace */
+	if ((p = strchr(src, '<')) != NULL)
+		memset(p, ' ', 1);
+	if ((p = strchr(src, '>')) != NULL)
+		memset(p, ' ', 1);
+
+	/* Split the string into two parts */
+	i = sscanf(src, " %63[a-zA-Z0-9_.+=%#?~^-]@%63[a-zA-Z0-9_.-] ", 
+				(char *) &user, (char *) &domain);
+	if (i < 2 || i == EOF) {
+		log_warning("%s", "unable to parse address");
+		return -EINVAL;
+	}
+	//log_debug("parsed %s as [%s], [%s]", src, dest->user, dest->domain);
+
+	/* Copy the buffers to the caller */
+	if ((dest->user = strdup((char *) &user)) == NULL)
+		return -ENOMEM;
+	if ((dest->domain = strdup((char *) &domain)) == NULL) {
+		free(dest->user);
+		return -ENOMEM;
+	}
+
+	/* Compute the path to the mailbox */
+	if (asprintf(&dest->path, "store/%s/%s", dest->domain, dest->user) < 0) {
+		free(dest->user);
+		free(dest->domain);
+		return -ENOMEM;
+	}
+
+	/* Test if the mailbox exists */
+	dest->exists = (file_exists(dest->path) == 1);
+
+	return 0;
+}
+
 
 void
-address_free(struct mail_addr *ma)
+rfc2822_addr_free(struct rfc2822_addr * addr)
 {
-    if (ma != NULL) {
-        free(ma->local_part);
-        free(ma->domain);
-        free(ma);
-    }
-}
-
-/* dst should be sized MAIL_ADDRSTRLEN or more */
-char *
-address_get(char *dst, size_t len, struct mail_addr *src)
-{
-    int i;
-
-    i = snprintf(dst, len, "%s@%s", src->local_part, src->domain);
-    if (i < 0 || i >= len) {
-        log_errno("snprintf(3)");
-        return (NULL);
-    }
-
-    return (dst);
+	free(addr->user);
+	free(addr->domain);
+	free(addr->path);
+	free(addr);
 }
