@@ -19,11 +19,17 @@
 #ifndef _SERVER_H
 #define _SERVER_H
 
+#include <event.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include "queue.h"
 
 struct session;
+
+struct work {
+    struct session *session;
+STAILQ_ENTRY(work) entries;
+};
 
 struct server {
     int             port;	/* The port number to bind(2) to */
@@ -35,6 +41,14 @@ struct server {
     char           *uid;        /* The symbolic user-ID to setuid(2) to */
     char           *gid;        /* The symbolic group-ID to setgid(2) to */
 
+    struct event    ev_accept;  /* libevent accept() equivalent */
+LIST_HEAD(,session) client;
+     
+    /* Work queue containing sessions to be serviced. */
+STAILQ_HEAD(,work)  workq;
+    pthread_cond_t  workq_not_empty;
+    pthread_mutex_t workq_lock;
+
     /* Threads to service each connection */
     struct worker  *worker;
     size_t          num_workers;
@@ -45,11 +59,14 @@ struct server {
     /* The number of seconds to wait to send data to the client */
     int             timeout_write;
 
+    /* Called once during server_init() */
+    int            (*init_hook)(void);
+
     /* Called after accept(2) */
     void           (*accept_hook) (struct session *);
 
     /* Called when data is available to read(2) */
-    int            (*read_hook) (struct session *);
+    int            (*read_hook) (struct session *, char *);
 
     /* Called prior to close(2) for a session */
     void           (*close_hook) (struct session *);
@@ -83,7 +100,6 @@ extern struct server srv;
 } while (0)
 
 int  protocol_close(struct session *);
-int  server_disconnect(int);
 int  server_dispatch(void);
 int  server_init(struct server *);
 void state_transition(struct session *, int);

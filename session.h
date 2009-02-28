@@ -23,20 +23,20 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
+#include <event.h>
 #include "queue.h"
 #include "log.h"
 
 /* A client session */
 struct session {
     int             fd;		        /* The client socket descriptor */
-    FILE *in;
-    FILE *out;
-    char  buf[1025];    /* Can hold a SMTP line or a DNS name (see: MAXDNAME) */
     int flags;          // see SFL_*
     int closed; //TODO: deprecate this
     struct in_addr  remote_addr;	/* IP address of the client */
     char           *remote_name;    /* FQDN of the client */
     struct worker  *worker;
+
+    struct bufferevent *buf_ev;
 
     /* ---------- protocol specific members ------------ */
 
@@ -54,16 +54,14 @@ struct session {
     unsigned int    errors;	/* The number of protocol errors */
 
     /* ---------- end protocol specific members ---------- */
+    LIST_ENTRY(session) entries;
 };
 
-void session_printf(struct session *, const char *, ...);
-void session_println(struct session *, const char *);
-void            session_close(struct session *s);
 struct session * session_new(int fd);
-void            session_free(struct session *s);
-char *          remote_addr(char *dest, size_t len, const struct session *s);
-//struct session * session_lookup(int fd);
-int session_readln(struct session *s);
-int session_fsync(struct session *, int (*)(struct session *));
+
+void   session_close(struct session *s);
+void   session_free(struct session *s);
+int    session_puts(struct session *, const char *);
+char * remote_addr(char *dest, size_t len, const struct session *s);
 
 #endif /* _SESSION_H */

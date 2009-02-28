@@ -21,30 +21,27 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include <sys/types.h>  
+#include <event.h>  
+
 #include "atomic.h"
 #include "options.h"
 #include "poll.h"
 #include "server.h"
 #include "session.h"
 
+/* Globals */
 struct server srv;
 
 static void drop_privileges(void);
 static int  server_bind(void);
+static void server_accept(int fd, short event, void *unused);
 
 // wierd place for this..
 int
 protocol_close(struct session *s)
 {
     srv.close_hook(s);
-    return (0);
-}
-
-int
-server_disconnect(int fd)
-{
-    (void) atomic_close(fd);
-
     return (0);
 }
 
@@ -127,6 +124,14 @@ server_init(struct server *_srv)
 
     memcpy(&srv, _srv, sizeof(srv));
 
+    /* Initialize the work queue */
+    STAILQ_INIT(&srv.workq);
+    pthread_mutex_init(&srv.workq_lock, NULL);
+    pthread_cond_init(&srv.workq_not_empty, NULL);
+
+    /* Initialize the session table */
+    LIST_INIT(&srv.client);
+
     /* FIXME - kludge */
     srv.uid = OPT.uid;
 
@@ -178,6 +183,12 @@ server_init(struct server *_srv)
     /* Register the standard signal handling functions */
     register_signal_handlers();
 
+    /* Call the protocol-specific initialization function */
+    if (srv.init_hook() < 0) {
+        log_error("init_hook() failed");
+        goto errout;
+    }
+
     if (server_bind() != 0) 
         return (-1);
 
@@ -188,72 +199,119 @@ errout:
 }
 
 
+static void 
+server_accept(int srv_fd, short event, void *unused)
+{
+    socklen_t cli_len = sizeof(srv.sa);
+    int fd;
+    struct session *s;
+
+    /* Accept the incoming connection */
+    do { 
+        fd = accept(srv.fd, &srv.sa, &cli_len);
+    } while (fd < 0 && errno == EINTR);
+    if (fd < 0) {
+        log_errno("accept(2)");
+        return;
+    }
+    log_debug("incoming connection on fd %d", srv.fd);
+
+    /* Create a new session */
+    if ((s = session_new(fd)) == NULL) {
+        // TODO: send 421 SMTP error
+        close(fd);
+        return;
+    }
+
+    s->worker = srv.worker;                  // FIXME hardcoded for 1 worker
+    log_debug("accepted session on fd %d", fd);
+    srv.accept_hook(s);
+
+    /* TODO - enable polling for events */
+}
+
+#ifdef DEADWOOD
+static int
+workq_add(struct session *s)
+{
+    struct work *w;
+
+    if ((w = malloc(sizeof(*w))) == NULL) {
+        log_errno("malloc");
+        return (-1);
+    }
+
+    w->session = s;
+
+    pthread_mutex_lock(&srv.workq_lock);
+    STAILQ_INSERT_TAIL(&srv.workq, w, entries);  // TODO: want to put at the end of the list
+    pthread_cond_signal(&srv.workq_not_empty);
+    pthread_mutex_unlock(&srv.workq_lock);
+
+    return (0);
+}
+#endif
+
+#if TODO
+static void
+worker_dispatch(struct session *s)
+{
+    log_debug("reading input");
+    if (fgets((char *) &s->buf, sizeof(s->buf), s->in) == NULL) {
+        log_errno("fgets(3)");
+        goto errout;
+    }
+    if (srv.read_hook(s) < 0)
+        goto errout;
+    if (s->smtp_state == SMTP_STATE_QUIT)
+        goto errout;
+
+    return;
+
+errout:
+            session_close(s);
+            free(s);
+}
+#endif
+
+#if DEADWOOD
 static void *
 worker_main(struct worker *self)
 {
-	socklen_t cli_len;
-    int fd;
-	struct session *s;
-    cli_len = sizeof(srv.sa);
+    struct work *w;
+
+    pthread_mutex_lock(&srv.workq_lock);
 
     for (;;) {
-        /* Accept the incoming connection */
-        do { 
-            fd = accept(srv.fd, &srv.sa, &cli_len);
-        } while (fd < 0 && errno == EINTR);
-        if (fd < 0) {
-            log_errno("accept(2)");
-            return (NULL);
+
+        /* Wait until there is work to be done. */
+        if (STAILQ_EMPTY(&srv.workq) &&
+                pthread_cond_wait(&srv.workq_not_empty, &srv.workq_lock) != 0) {
+            log_error("pthread_cond_wait() failed");
+            break;
         }
-        log_debug("incoming connection on fd %d", srv.fd);
 
-        /* Create a new session */
-        if ((s = session_new(fd)) == NULL) 
-            return (NULL);
+        /* Remove the first unit of work from the head of the queue */
+        if ((w = STAILQ_FIRST(&srv.workq)) == NULL)
+            continue;
+        STAILQ_REMOVE_HEAD(&srv.workq, entries);
+        pthread_mutex_unlock(&srv.workq_lock);
 
-        s->worker = self;
-        log_debug("accepted session on fd %d", fd);
-        srv.accept_hook(s);
-
-        /* Wait for input from the client */
-        for (;;) {
-#if FIXME
-            fd_set fds;
-            struct timeval tv;
-            int rv;
-
-            // might not work with fgets()
-            FD_ZERO(&fds);
-            FD_SET(s->fd, &fds);
-            tv.tv_sec = srv.timeout_read;
-            tv.tv_usec = 0;
-
-            log_debug("waiting for input");
-            rv = select(1, &fds, NULL, NULL, &tv);
-            if (rv < 0) {
-                log_errno("select(2)");
-                //XXX-fail?
-                abort();
-            }
-            if (rv == 0) {
-                //XXX - timeout
-            }
-#endif
-
-            log_debug("reading input");
-            if (fgets((char *) &s->buf, sizeof(s->buf), s->in) == NULL) {
-                log_errno("fgets(3)");
-                break;
-            }
-            if (srv.read_hook(s) < 0)
-                break;
-            if (s->smtp_state == SMTP_STATE_QUIT)
-                break;
+        /* Process the session */
+        if (w != NULL) {
+            w->session->worker = self; 
+            worker_dispatch(w->session);
+            free(w);
         }
-        session_close(s);
-        free(s);
+
+        pthread_mutex_lock(&srv.workq_lock);
     }
+
+    pthread_mutex_unlock(&srv.workq_lock);
+    return (0);
 }
+
+#endif
 
 static int
 server_bind(void)
@@ -261,7 +319,6 @@ server_bind(void)
     struct sockaddr_in srv_addr;
     int             one = 1;
     int             fd = -1;
-    int             i;
 
 	/* Adjust the port number for non-privileged processes */
 	if (getuid() > 0 && srv.port < 1024)
@@ -300,15 +357,15 @@ server_bind(void)
 
     drop_privileges();
 
-    /* Create a thread-per-client */
-    srv.num_workers = OPT.max_clients;
-    srv.worker = calloc(srv.num_workers, sizeof(struct worker));
-    for (i = 0; i < srv.num_workers; i++) {
-        srv.worker[i].id = i;
-        if (pthread_create(&srv.worker[i].tid, NULL, (void *) worker_main, &srv.worker[i]) != 0)
-            err(1, "pthread_create(3)");
-    }
-    log_debug("created %zu workers", srv.num_workers);
+    /* Create a per-thread 'worker' object (TODO - more workers) */
+    srv.num_workers = 1;
+    srv.worker = calloc(1, sizeof(struct worker));
+    srv.worker[0].id = 0;
+    srv.worker[0].delivery_counter = 0;
+
+    /* Monitor the socket and call accept(2) when a connection is waiting */
+    event_set(&srv.ev_accept, fd, EV_READ | EV_PERSIST, server_accept, NULL);
+    event_add(&srv.ev_accept, NULL);
 
     return (0);
 

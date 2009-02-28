@@ -28,9 +28,63 @@
 #include "server.h"
 #include "session.h"
 
-/** vasprintf(3) is a GNU extension and not universally visible */
-extern int      vasprintf(char **, const char *, va_list);
+static inline int
+readline(struct bufferevent *bev, struct session *s)
+{
+    char *p;
 
+    p = evbuffer_readline(bev->input);
+    if (p == NULL)
+        return (0);
+    log_info("got `%s'", p);
+
+    if (srv.read_hook(s, p) < 0)
+        return (-1);
+
+    //free(p); // FIXME ? needed ?
+    return (0);
+}
+
+static void
+readcb(struct bufferevent *bev, void *arg)
+{
+    struct session *s = (struct session *) arg;
+
+    if (readline(bev, s) == 0)
+        return;
+
+    /* Error handler */
+    session_close(s);
+    free(s);
+}
+
+static void
+writecb(struct bufferevent *bev, void *arg)
+{
+    struct session *s = (struct session *) arg;
+
+    if (s->smtp_state == SMTP_STATE_QUIT) {
+        session_close(s);
+        free(s);
+    }
+    return;
+}
+
+static void
+errorcb(struct bufferevent *bev, short event, void *arg)
+{
+	struct session *s = (struct session *) arg;
+
+	if (event & EVBUFFER_EOF) {
+        log_info("client sent EOF");
+        /* FIXME: infinite loop: Process any remaining input in the buffer */
+        //do {} while (readline(bev, s) == 0);
+	} else {
+        log_warning("unknown socket error");
+	}
+    session_close(s);
+    free(s); //TODO - audit for use-after-free
+}
 
 /*
  *
@@ -51,47 +105,6 @@ remote_addr(char *dest, size_t len, const struct session *s)
     return (dest);
 }
 
-void
-session_vprintf(struct session *s, const char *format, va_list ap)
-{
-        char    *buf = NULL;
-        size_t     len;
-
-        /* Generate the result buffer */
-        if ((len = vasprintf(&buf, format, ap)) < 0) {
-                /* XXX-FIXME error handling */
-                return;
-        }
-
-        /* Write the buffer to the socket */
-        atomic_write(s->fd, (const char *) buf, len);
-        free(buf);
-}
-
-/**
- * Print a formatted string to a socket.
- *
- * Uses printf(3) formatting syntax.
- *
- * @param sock socket object
- * @param format format string
-*/
-void
-session_printf(struct session *s, const char *format, ...)
-{
-        va_list ap;
-
-        va_start(ap, format);
-        session_vprintf(s, format, ap);
-        va_end(ap);
-}
-
-void
-session_println(struct session *s, const char *buf)
-{
-        return session_printf(s, "%s\r\n", buf);
-}
-
 struct session *
 session_new(int fd)
 {
@@ -106,19 +119,11 @@ session_new(int fd)
     }
     s->fd = fd;
 
-    /* Upgrade the socket descriptor to a FILE stream */
-    s->in = fdopen(fd, "r");
-    s->out = fdopen(fd, "w");
-    if (s->in == NULL || s->out == NULL) {
-        log_errno("fdopen(3)");
-        (void) fclose(s->in);
-        (void) fclose(s->out);
-        goto errout;
+    /* Use non-blocking I/O */
+    if (fcntl(s->fd, F_SETFL, O_NONBLOCK) < 0) {
+            log_errno("fcntl(2)");
+            goto errout;
     }
-
-    /* Enable line-buffering */
-    setlinebuf(s->in);
-    setlinebuf(s->out);
 
     /* Determine the IP address of the client */
     if (getpeername(s->fd, (struct sockaddr *) &name, &namelen) < 0) {
@@ -128,6 +133,9 @@ session_new(int fd)
     }
     s->remote_addr = name.sin_addr;
 
+#if FIXME
+    // use evdnns
+    //
     /* TODO: Determine the reverse DNS name for the host */
     if (getnameinfo((struct sockaddr *) &name, namelen, s->buf, sizeof(s->buf),
                 NULL, 0, NI_NUMERICHOST) != 0) {
@@ -138,7 +146,11 @@ session_new(int fd)
         goto errout;
     }
     log_debug("remote_name=%s", s->remote_name);
+#endif
 
+    s->buf_ev = bufferevent_new(s->fd, readcb, writecb, errorcb, s);
+    bufferevent_enable(s->buf_ev, EV_READ);
+    //FIXME error checking
 
     return (s);
 
@@ -161,12 +173,16 @@ session_close(struct session *s)
     /* Run any protocol-specific hooks */
     (void) protocol_close(s);
 
-    (void) fclose(s->in);
-    (void) fclose(s->out);
-    (void) server_disconnect(s->fd); 
-
     free(s->remote_name);
     s->remote_name = NULL;
 
+	bufferevent_free(s->buf_ev);
+	close(s->fd);
     s->closed = 1;
 }
+
+/* See also: PUTS() macro for string literals */ 
+int session_puts(struct session *s, const char *buf)
+{
+    return bufferevent_write(s->buf_ev, (char *) buf, strlen(buf));
+} 

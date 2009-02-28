@@ -21,8 +21,9 @@
 
 struct session;
 
+int             smtpd_init(void);
 void            smtpd_accept(struct session *);
-int             smtpd_parser(struct session *);
+int             smtpd_parser(struct session *, char *);
 void            smtpd_timeout(struct session *);
 void            smtpd_client_error(struct session *);
 void            smtpd_close(struct session *);
