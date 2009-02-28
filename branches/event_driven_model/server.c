@@ -24,13 +24,8 @@
 #include "atomic.h"
 #include "options.h"
 #include "poll.h"
-#include "thread-pool.h"
 #include "server.h"
 #include "session.h"
-
-/* From fsyncer.c */
-int  fsyncer_init(struct server *);
-void fsyncer_wakeup(struct server *);
 
 struct server srv;
 
@@ -200,12 +195,6 @@ server_init(struct server *_srv)
     /* Create the event source */
     if ((srv.evcb = poll_new()) == NULL) {
         log_error("unable to create the event source");
-        return (-1);
-    }
-
-    /* Start the fsync(2) worker thread */
-    if (fsyncer_init(&srv) < 0) {
-        log_error("unable to create the fsyncer thread");
         return (-1);
     }
 
