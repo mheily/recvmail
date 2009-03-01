@@ -21,6 +21,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
+#include "aliases.h"
 #include "options.h"
 #include "log.h"
 #include "server.h"
@@ -156,11 +157,9 @@ main(int argc, char *argv[])
     if (gethostname(OPT.mailname, 256) != 0)
         err(1, "gethostname");
     
-#ifdef FIXME
-    //causes valgrind error
+    /* Read the /etc/aliases file */
     aliases_init();
     aliases_parse("/etc/aliases");
-#endif
 
     if (server_init(&smtpd) < 0)
         errx(1, "server initialization failed");

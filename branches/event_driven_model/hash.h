@@ -49,22 +49,39 @@ HASH_FUNC(const char *key)
 
 #define HASH_HEAD(name, type)                                           \
 struct name {                                                           \
-	LIST_HEAD(, type) hh_table[HASH_SIZE];                              \
+	LIST_HEAD(, type) hh_keys;                                          \
+	LIST_HEAD(, type) hh_values[HASH_SIZE];                             \
 }
 
-#define HASH_ENTRY              LIST_ENTRY 
-#define HASH_REMOVE             LIST_REMOVE
-#define HASH_BUCKET(head, str)  (&(head)->hh_table[HASH_FUNC(str)])
+#define HASH_ENTRY(type)                                                \
+struct {                                                                \
+    LIST_ENTRY(type)  he_keys;                                          \
+    LIST_ENTRY(type)  he_values;                                        \
+}
 
-#define HASH_INIT(head)                                                 \
-    memset(&(head)->hh_table, 0, sizeof((head)->hh_table))
+#define HASH_REMOVE(elm, field) do {                                    \
+    LIST_REMOVE((elm)->field, he_keys);                                 \
+    LIST_REMOVE((elm)->field, he_values);                               \
+} while (/*CONSTCOND*/0)
 
-#define HASH_INSERT(head, elm, cdata, field)                            \
-    LIST_INSERT_HEAD(HASH_BUCKET((head), (elm)->cdata), elm, field)
+#define HASH_BUCKET(head, str)  (&(head)->hh_values[HASH_FUNC(str)])
+
+#define HASH_INIT(head) do {                                            \
+    LIST_INIT(&(head)->hh_keys);                                        \
+    memset(&(head)->hh_values, 0, sizeof((head)->hh_values));           \
+} while (/*CONSTCOND*/0)
+
+#define HASH_INSERT(head, elm, cdata, field) do {                       \
+    LIST_INSERT_HEAD(head.hh_keys, (elm), field.he_keys);               \
+    LIST_INSERT_HEAD(HASH_BUCKET((head), (elm)->cdata), elm, field.he_values);    \
+} while (/*CONSTCOND*/0)
 
 #define HASH_LOOKUP(elm, str, head, cdata, field)                       \
-    for((elm) = HASH_BUCKET((head), str)->lh_first;                     \
+    for((elm) = HASH_BUCKET((head), str)->lh_first;                   \
         (elm) && (strcmp((str), (elm)->cdata) != 0);                    \
-        (elm) = (elm)->field.le_next)
+        (elm) = (elm)->field.he_values.le_next)
+
+#define HASH_FOREACH(var, head, field)                                  \
+    LIST_FOREACH(var, head.hh_keys, field.he_keys)
 
 #endif  /*  hash.h  */

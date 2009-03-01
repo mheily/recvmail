@@ -16,22 +16,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <err.h>
 #include <stdlib.h>
+#include <stdio.h>
 
-#include "hash.h"
-#include "log.h"
+#include "aliases.h"
 
-struct alias_entry {
-    char    *name;
-    size_t   namelen;
-    char    *addr;
-    size_t   addrlen;
-    LIST_ENTRY(alias_entry) entries;
-    HASH_ENTRY(alias_entry) hashent;
-};
-
-LIST_HEAD(,alias_entry) aliases;
-HASH_HEAD(,alias_entry) alias_map;
+static LIST_HEAD(,alias_entry) aliases;
+static HASH_HEAD(,alias_entry) alias_map;
 
 struct alias_entry *
 aliases_lookup(const char *name)
