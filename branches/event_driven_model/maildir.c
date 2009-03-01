@@ -28,7 +28,6 @@
 #include <unistd.h>
 
 #include "address.h"
-#include "atomic.h"
 #include "message.h"
 #include "session.h"
 #include "options.h"
@@ -160,8 +159,8 @@ maildir_msg_open(struct message *msg)
     }
 
     /* Write the buffer to disk */
-    if (atomic_write(msg->fd, buf, len) < len) {
-        log_errno("atomic_write() failed");
+    if (write(msg->fd, buf, len) < len) {
+        log_errno("write(2)");
         goto errout;
     }
     msg->size += len;
@@ -232,8 +231,8 @@ message_close(struct message *msg)
     char *path = NULL;
 
     /* Close the file */
-    if (atomic_close(msg->fd) < 0) {
-        log_errno("atomic_close(3)");
+    if (close(msg->fd) < 0) {
+        log_errno("close(2)");
         goto error;
     }
 

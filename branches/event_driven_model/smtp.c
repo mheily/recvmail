@@ -17,8 +17,8 @@
  */
 
 #include <ctype.h>
+#include <unistd.h>
 
-#include "atomic.h"
 #include "log.h"
 #include "options.h"
 #include "message.h"
@@ -390,8 +390,8 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 
     /* XXX-FIXME use writev(2) to write multiple lines in one syscall. */
     /* Write the line to the file */
-    if (atomic_write(s->msg->fd, src, len) < len) {
-        log_errno("atomic_write(3)");
+    if (write(s->msg->fd, src, len) < len) {
+        log_errno("write(2)");
         goto error;
     }
 

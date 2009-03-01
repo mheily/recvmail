@@ -23,7 +23,6 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
-#include "atomic.h"
 #include "options.h"
 #include "poll.h"
 #include "server.h"
@@ -49,6 +48,7 @@ sync_loop(void *arg)
         }
         pthread_mutex_unlock(&srv.fsync_lock);
         sync();
+	/* XXX-RACE CONDITION HERE FIXME --*/
         write(srv.syncfd[1], &c, 1);
     }
 }
@@ -82,11 +82,11 @@ server_disconnect(int fd)
     /* Unregister the file descriptor */
     if (poll_disable(srv.evcb, fd) != 0) {
         log_error("unable to disable events for fd # %d", fd);
-        (void) atomic_close(fd);
+        (void) close(fd);
         return (-1);
     }
 
-    (void) atomic_close(fd);
+    (void) close(fd);
 
     return (0);
 }
@@ -396,6 +396,8 @@ fsync_complete(void)
 
     pthread_mutex_lock(&srv.fsync_lock);
     LIST_FOREACH(s, &srv.fsync_queue, entries) {
+	if (s->fsync_state == FSYNC_PENDING)
+		continue;
         if (poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ) != 0)
             abort(); //TODO:err
         STATE_TRANSITION(s, runnable);

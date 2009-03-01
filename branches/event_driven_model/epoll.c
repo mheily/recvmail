@@ -18,11 +18,16 @@ epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     struct kevent kev;
 
     kev.ident = fd;
-    kev.filter = (event->events & EPOLLIN) ? EVFILT_READ : EVFILT_WRITE;
+    if (op == EPOLL_CTL_DEL) {
+	kev.filter = EVFILT_READ; //FIXME bad assumption, could be both
+        kev.udata = NULL;
+    } else { // assume add
+        kev.filter = (event->events & EPOLLIN) ? EVFILT_READ : EVFILT_WRITE;
+    kev.udata = event->data.ptr;
+	}
     kev.flags = op;
     kev.fflags = 0;
     kev.data = 0;
-    kev.udata = event->data.ptr;
 
     return kevent(epfd, &kev, 1, NULL, 0, NULL);
 }

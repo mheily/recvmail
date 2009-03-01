@@ -46,6 +46,11 @@ struct session {
 
     struct message *msg;
 
+    enum {
+      FSYNC_PENDING = 0,
+      FSYNC_COMPLETE
+    } fsync_state;
+
     /* The state determines which SMTP commands are valid */
     enum {
         SMTP_STATE_HELO,
