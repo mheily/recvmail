@@ -258,13 +258,13 @@ server_init(struct server *_srv)
     }
 
     /* Create the signal-catching thread */
-    if ((tid = pthread_create(&tid, NULL, signal_handler, &srv)) != 0) {
+    if (pthread_create(&tid, NULL, signal_handler, &srv) != 0) {
         log_errno("pthread_create(3)");
         return (-1);
     }
 
     /* Create the sync(2) thread */
-    if ((tid = pthread_create(&tid, NULL, sync_loop, &srv)) != 0) {
+    if (pthread_create(&tid, NULL, sync_loop, &srv) != 0) {
         log_errno("pthread_create(3)");
         return (-1);
     }

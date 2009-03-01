@@ -16,23 +16,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// XXX-FIXME -- kludge
-#ifdef __linux__
-#define HAVE_SYS_EPOLL_H 1
-#endif
-
 #include <stdlib.h>
 #include <errno.h>
 
+#include "epoll.h"
 #include "poll.h"
 
 /* Maximum number of events to read in a single system call */
 /* XXX-FIXME this should be much larger, but there are issues
  * when using an event cache.. see epoll manpage for details */
 #define MAXEVENTS 1
-
-#if HAVE_SYS_EPOLL_H
-#include <sys/epoll.h>
 
 struct evcb {
     struct epoll_event   evt[MAXEVENTS];
@@ -41,14 +34,11 @@ struct evcb {
     ssize_t              cnt;
 };
 
-#endif
-
 struct evcb * 
 poll_new(void)
 {
     struct evcb *e;
 
-#if HAVE_SYS_EPOLL_H
     if ((e = malloc(sizeof(*e))) == NULL)
         return (NULL);
     e->cur = &e->evt[0];
@@ -58,7 +48,6 @@ poll_new(void)
         return (NULL); 
     }
     return (e);
-#endif
 }
 
 /* ------------------------- pollset handling functions -----------------*/
@@ -69,7 +58,6 @@ poll_new(void)
 void *
 poll_wait(struct evcb *e, int *events)
 {
-#if HAVE_SYS_EPOLL_H
     if (e->cnt <= 0) {
         do {
             e->cnt = epoll_wait(e->pfd, &e->evt[0], MAXEVENTS, -1);
@@ -96,22 +84,17 @@ poll_wait(struct evcb *e, int *events)
     e->cnt--;
 
     return (e->cur->data.ptr);
-#endif
 }
 
 int
 poll_disable(struct evcb *e, int fd)
 {
-#if HAVE_SYS_EPOLL_H
-
     return (epoll_ctl(e->pfd, EPOLL_CTL_DEL, fd, ((void *) -1L)));
-#endif
 }
 
 int
 poll_enable(struct evcb *e, int fd, void *udata, int events)
 {
-#if HAVE_SYS_EPOLL_H
     struct epoll_event ev;
 
     ev.events = 0;                  /* TODO: use EPOLLET */
@@ -121,5 +104,4 @@ poll_enable(struct evcb *e, int fd, void *udata, int events)
         ev.events |= EPOLLOUT;
     ev.data.ptr = udata;
     return (epoll_ctl(e->pfd, EPOLL_CTL_ADD, fd, &ev));
-#endif
 }
