@@ -18,6 +18,8 @@
 
 #include <grp.h>
 #include <pwd.h>
+#include <pthread.h>
+#include <signal.h>
 #include <sys/resource.h>
 #include <unistd.h>
 
@@ -31,6 +33,25 @@ struct server srv;
 
 static void drop_privileges(void);
 static int  server_bind(void);
+
+static void *
+sync_loop(void *arg)
+{
+    char c;
+    arg = NULL;
+
+    for (;;) {
+        sleep(15);
+        pthread_mutex_lock(&srv.fsync_lock);
+        if (LIST_EMPTY(&srv.fsync_queue)) {
+            pthread_mutex_unlock(&srv.fsync_lock);
+            continue;
+        }
+        pthread_mutex_unlock(&srv.fsync_lock);
+        sync();
+        write(srv.syncfd[1], &c, 1);
+    }
+}
 
 // wierd place for this..
 int
@@ -120,19 +141,47 @@ drop_privileges(void)
 }
 
 
-static void
-register_signal_handlers(void)
+/* NOOP signal handler */
+void
+_sig_handler(int num)
 {
-#if XXX_FIXME
-	static struct event ev1, ev2, ev3;
+    num = 0;
+}
 
-	signal_set(&ev1, SIGINT, server_signal_handler, NULL);
-	signal_add(&ev1, NULL);
-	signal_set(&ev2, SIGHUP, server_signal_handler, NULL);
-	signal_add(&ev2, NULL);
-	signal_set(&ev3, SIGTERM, server_signal_handler, NULL);
-	signal_add(&ev3, NULL);
-#endif
+static void
+set_signal_mask(int how)
+{
+    sigset_t set;
+    struct sigaction sa;
+
+    sigemptyset(&set);
+    sigaddset(&set, SIGINT);
+    sigaddset(&set, SIGHUP);
+    sigaddset(&set, SIGTERM);
+    if (pthread_sigmask(how, &set, NULL) != 0)
+        err(1, "pthread_sigmask(3)");
+
+    if (how == SIG_UNBLOCK) {
+        sa.sa_flags = 0;
+        sa.sa_handler = _sig_handler;
+        sigaction (SIGHUP, &sa, NULL);
+        sigaction (SIGINT, &sa, NULL);
+        sigaction (SIGTERM, &sa, NULL);
+    }
+}
+
+static void *
+signal_handler(void *arg)
+{
+    char c;
+    struct server *srv = (struct server *) arg;
+
+    set_signal_mask(SIG_UNBLOCK);
+    for (;;) {
+        pause();
+        puts("gotcha");
+        write(srv->signalfd[1], &c, 1);
+    }
 }
 
 /* ------------------- Public functions ----------------------- */
@@ -144,11 +193,12 @@ int
 server_init(struct server *_srv)
 {
     struct rlimit   limit;
+    pthread_t       tid;
     pid_t           pid,
                     sid;
 
     memcpy(&srv, _srv, sizeof(srv));
-    pthread_mutex_init(&srv.sched_lock, NULL);
+    pthread_mutex_init(&srv.fsync_lock, NULL);
 
     if (OPT.daemon) {
 
@@ -189,12 +239,33 @@ server_init(struct server *_srv)
     if (setrlimit(RLIMIT_CORE, &limit) != 0)
         err(1, "setrlimit failed");
 
-    /* Register the standard signal handling functions */
-    register_signal_handlers();
+    set_signal_mask(SIG_BLOCK);
 
     /* Create the event source */
     if ((srv.evcb = poll_new()) == NULL) {
         log_error("unable to create the event source");
+        return (-1);
+    }
+
+    /* Create pipes for simple inter-thread communication */
+    if (pipe(srv.syncfd) == -1) {
+        log_errno("pipe(2)");
+        return (-1);
+    }
+    if (pipe(srv.signalfd) == -1) {
+        log_errno("pipe(2)");
+        return (-1);
+    }
+
+    /* Create the signal-catching thread */
+    if ((tid = pthread_create(&tid, NULL, signal_handler, &srv)) != 0) {
+        log_errno("pthread_create(3)");
+        return (-1);
+    }
+
+    /* Create the sync(2) thread */
+    if ((tid = pthread_create(&tid, NULL, sync_loop, &srv)) != 0) {
+        log_errno("pthread_create(3)");
         return (-1);
     }
 
@@ -318,11 +389,28 @@ session_read(struct session *s)
     }
 }
 
+static void
+fsync_complete(void)
+{
+    struct session *s;
+
+    pthread_mutex_lock(&srv.fsync_lock);
+    LIST_FOREACH(s, &srv.fsync_queue, entries) {
+        if (poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ) != 0)
+            abort(); //TODO:err
+        STATE_TRANSITION(s, runnable);
+        s->handler(s);
+    }
+    pthread_mutex_lock(&srv.fsync_lock);
+}
+
 int
 server_dispatch(void)
 {
     int events;
-    const void *srv_udata = (void *) -1L;
+    static int srv_udata;
+    static int signal_flag;
+    static int sync_flag;
 	struct session *s;
 
     /* Initialize the session table */
@@ -331,12 +419,24 @@ server_dispatch(void)
     LIST_INIT(&srv.idle);
     LIST_INIT(&srv.fsync_queue);
 
-    /* The first entry in the session table is the server descriptor */
-    if (poll_enable(srv.evcb, srv.fd, (void *) srv_udata, SOCK_CAN_READ) < 0) { 
+    /* Monitor the server descriptor for new connections */
+    if (poll_enable(srv.evcb, srv.fd, &srv_udata, SOCK_CAN_READ) < 0) { 
         log_errno("poll_enable() (srv.fd=%d)", srv.fd);
         return (-1);
     }
    
+    /* Monitor the signal catching thread */
+    if (poll_enable(srv.evcb, srv.signalfd[0], &signal_flag, SOCK_CAN_READ) < 0) { 
+        log_errno("poll_enable() signalfd %d", srv.signalfd[0]);
+        return (-1);
+    }
+
+    /* Monitor the sync(2) thread */
+    if (poll_enable(srv.evcb, srv.syncfd[0], &sync_flag, SOCK_CAN_READ) < 0) { 
+        log_errno("poll_enable() syncfd %d", srv.syncfd[0]);
+        return (-1);
+    }
+
 	/* Dispatch incoming connections */
 	for (;;) {
 
@@ -347,8 +447,20 @@ server_dispatch(void)
             return (-1);
         }
 
+        /* Special case: a signal was received */
+        if (s == (struct session *) &signal_flag) {
+            err(1, "todo - sighandling");
+            continue;
+        }
+
+        /* Special case: sync(2) completed */
+        if (s == (struct session *) &sync_flag) {
+            fsync_complete();
+            continue;
+        }
+
         /* Special case for a pending accept(2) on the listening socket */
-        if (s == srv_udata) {
+        if (s == (struct session *) &srv_udata) {
             if (events & SOCK_ERROR) {
                 log_errno("bad server socket");
                 return (-1);
@@ -357,6 +469,7 @@ server_dispatch(void)
                 log_errno("server_accept()");
                 return (-1);
             }
+            continue;
         }
 
         if (events & SOCK_EOF) {

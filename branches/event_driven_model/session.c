@@ -239,7 +239,7 @@ session_fsync(struct session *s, int (*cb)(struct session *))
     if (poll_disable(srv.evcb, s->fd) != 0)
         return (-1);
     s->handler = cb;
-    SCHEDULE(s, fsync_queue);
+    STATE_TRANSITION(s, fsync_queue);
 
     return (0);
 }

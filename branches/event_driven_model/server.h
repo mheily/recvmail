@@ -35,18 +35,19 @@ struct server {
     char           *uid;        /* The symbolic user-ID to setuid(2) to */
     char           *gid;        /* The symbolic group-ID to setgid(2) to */
 
+    int             signalfd[2];    /* pipe(2) used for signal handling */
+    int             syncfd[2];      /* pipe(2) used for sync(2) notification */
+
     pthread_t        fsyncer_tid;
 
     /**
      * At any given time, a session may be on one of the following lists.
-     * The list is protected by a mutex.
      */
-    pthread_mutex_t     sched_lock;
     LIST_HEAD(,session) runnable;
     LIST_HEAD(,session) idle;
     LIST_HEAD(,session) io_wait;
     LIST_HEAD(,session) fsync_queue;
-    pthread_cond_t      fsync_queue_not_empty;
+    pthread_mutex_t     fsync_lock;
 
     struct evcb * evcb;
 
@@ -76,12 +77,9 @@ struct server {
 
 extern struct server srv;
 
-#define SCHEDULE(s, listname)  do {                             \
-    pthread_mutex_lock(&srv.sched_lock);                        \
+#define STATE_TRANSITION(s, listname)  do {                     \
     LIST_REMOVE((s), entries);                                  \
     LIST_INSERT_HEAD(&srv.listname, (s), entries);              \
-    pthread_cond_signal(&srv.listname##_not_empty);             \
-    pthread_mutex_unlock(&srv.sched_lock);                      \
 } while (0)
 
 int  protocol_close(struct session *);
