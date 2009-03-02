@@ -16,13 +16,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// for strndup
+#define _GNU_SOURCE 
 #include <ctype.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "log.h"
 #include "options.h"
 #include "message.h"
 #include "session.h"
+#include "poll.h"
+#include "socket.h"
 #include "smtp.h"
 
 #define RECIPIENT_MAX		100
@@ -44,22 +49,7 @@ int             maildir_deliver(struct message *);
 static int smtpd_parse_command(struct session *, char *, size_t);
 static int smtpd_parse_data(struct session *, char *, size_t);
 static int smtpd_session_reset(struct session *);
-
-static int
-smtp_fsyncer_callback(struct session *s)
-{
-    s->handler = smtpd_parser;
-
-    /* Reset the session to allow the sender to pipeline another request */
-    if (smtpd_session_reset(s) != 0) {
-        log_error("smtpd_session_reset()");
-        // FIXME - terminate session, what error code?
-        session_println(s, "666 NOT Ok");
-        return (-1);
-    };
-
-    return (smtpd_parser(s));
-}
+static int smtp_fsyncer_callback(struct session *s);
 
 static int
 smtpd_session_reset(struct session *s)
@@ -236,6 +226,25 @@ smtpd_quit(struct session *s)
     return (0);
 }
 
+static int
+smtp_fsyncer_callback(struct session *s)
+{
+    s->handler = smtpd_parser;
+
+    session_println(s, "250 Message delivered");
+
+    if (s->fsync_post_action == QUIT_AFTER_FSYNC) 
+        return smtpd_quit(s);
+
+    if (s->fsync_post_action == RSET_AFTER_FSYNC) 
+        return smtpd_rset(s);
+
+    /* Default: wait for more data */
+    session_poll_enable(s);
+
+    return (0);
+}
+
 int
 smtpd_parser(struct session *s)
 {
@@ -254,7 +263,9 @@ smtpd_parser(struct session *s)
             rv = smtpd_parse_command(s, iov[i].iov_base, iov[i].iov_len - 1);
         } else {
             rv = smtpd_parse_data(s, iov[i].iov_base, iov[i].iov_len);
-//XXX-FIXME after switching to fsyncer, any extra data is lost
+            /* KLUDGE - lame way to empty the socket buffer after '.' is received */
+            if (s->fsync_post_action > 0)
+                break;
         }
 
         if (rv != 0) 
@@ -346,8 +357,23 @@ smtpd_parse_command(struct session *s, char *src, size_t len)
 static int
 smtpd_parse_data(struct session *s, char *src, size_t len)
 {
+   struct iovec *nextline;
+
     /* If the line is '.', end the data stream */
     if ((len == 2) && strncmp(src, ".\n", 2) == 0) {
+
+        /* Determine the next command, if any are pipelined */
+        if ((nextline = socket_peek(&s->in_buf)) != NULL) {
+            if (strncasecmp(nextline->iov_base, "QUIT\n", nextline->iov_len) == 0) {
+                s->fsync_post_action = QUIT_AFTER_FSYNC;
+            }
+            else if (strncasecmp(nextline->iov_base, "RSET\n", nextline->iov_len) == 0) {
+                s->fsync_post_action = RSET_AFTER_FSYNC;
+            } else {
+                log_error("illegal pipelining; end-of-data not followed by QUIT or RSET");
+                goto error;
+            }
+        }
 
         /* Close the tmp/ file and move it to new/ */
         if (message_close(s->msg) < 0) {
@@ -360,24 +386,13 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
             goto error;
         }
 
-        /* If there is no more data in the input buffer, move the session
-           to the fsyncer thread.
-        */
-        if ((s->in_buf.sb_iovpos + 1) == s->in_buf.sb_iovlen) {
-            if (session_fsync(s, smtp_fsyncer_callback) != 0) {
-                log_error("session_fsync()");
-                goto error;
-            };
-        } else {
-            /* If the client send the '.' DATA terminator but doesn't wait for a response,
-               we are not going to fsync(2) their data.
-             */
-            log_debug("skipping fsync(2) because the client doesn't care.");
-
-            //NOTE: tried to run callback but got caught in infinite loop.
-            // this is a lame reimplementation
-            smtpd_session_reset(s); // XXX-FIXME: this is errorhandling
+        
+        if (session_fsync(s, smtp_fsyncer_callback) != 0) {
+            log_error("session_fsync()");
+            goto error;
         }
+
+        smtpd_session_reset(s); // XXX-FIXME: this is errorhandling
 
         return (0);
     }

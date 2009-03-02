@@ -40,13 +40,15 @@ sync_loop(void *arg)
     arg = NULL;
 
     for (;;) {
-        sleep(15);
+        sleep(5);
+        log_debug("wakeup");
         pthread_mutex_lock(&srv.fsync_lock);
         if (LIST_EMPTY(&srv.fsync_queue)) {
             pthread_mutex_unlock(&srv.fsync_lock);
             continue;
         }
         pthread_mutex_unlock(&srv.fsync_lock);
+        log_debug("working");
         sync();
 	/* XXX-RACE CONDITION HERE FIXME --*/
         write(srv.syncfd[1], &c, 1);
@@ -79,6 +81,7 @@ state_transition(struct session *s, int events)
 int
 server_disconnect(int fd)
 {
+    // FIXME: check to see if poll_disable was already called (e.g. before fsync) */
     /* Unregister the file descriptor */
     if (poll_disable(srv.evcb, fd) != 0) {
         log_error("unable to disable events for fd # %d", fd);
@@ -393,17 +396,21 @@ static void
 fsync_complete(void)
 {
     struct session *s;
+    char c;
+
+    (void) read(srv.syncfd[0], &c, 1);
 
     pthread_mutex_lock(&srv.fsync_lock);
     LIST_FOREACH(s, &srv.fsync_queue, entries) {
-	if (s->fsync_state == FSYNC_PENDING)
-		continue;
-        if (poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ) != 0)
-            abort(); //TODO:err
+
+        /* XXX-Fixme race, an item might have been added after the sync(2) call */
+	//if (s->fsync_state == FSYNC_PENDING)
+	//	continue;
+    
         STATE_TRANSITION(s, runnable);
         s->handler(s);
     }
-    pthread_mutex_lock(&srv.fsync_lock);
+    pthread_mutex_unlock(&srv.fsync_lock);
 }
 
 int
@@ -457,6 +464,7 @@ server_dispatch(void)
 
         /* Special case: sync(2) completed */
         if (s == (struct session *) &sync_flag) {
+            log_debug("sync complete");
             fsync_complete();
             continue;
         }
@@ -491,3 +499,10 @@ server_dispatch(void)
 
     return (0);
 }
+
+int
+session_poll_enable(struct session *s)
+{
+    return poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ);
+}
+

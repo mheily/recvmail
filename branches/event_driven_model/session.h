@@ -51,6 +51,12 @@ struct session {
       FSYNC_COMPLETE
     } fsync_state;
 
+    enum {
+      CONTINUE_AFTER_FSYNC = 0,
+      QUIT_AFTER_FSYNC,
+      RSET_AFTER_FSYNC,
+    } fsync_post_action;
+
     /* The state determines which SMTP commands are valid */
     enum {
         SMTP_STATE_HELO,
@@ -77,5 +83,7 @@ char *          remote_addr(char *dest, size_t len, const struct session *s);
 //struct session * session_lookup(int fd);
 int session_readln(struct session *s);
 int session_fsync(struct session *, int (*)(struct session *));
+
+int session_poll_enable(struct session *); //in server.c
 
 #endif /* _SESSION_H */

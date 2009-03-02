@@ -233,20 +233,6 @@ session_close(struct session *s)
 }
 
 
-/**
- * Display the next line in the socket buffer.
- *
- * @return pointer to the next line, or NULL if no more lines
- */
-char *
-session_peek(struct session *s)
-{
-#fixme MOVE
-	// move to socket.c and deal with sock_buf directly
-    iov = s->in_buf.sb_iov;
-    s->in_buf.sb_iovpos = 0; 
-}
-
 int
 session_fsync(struct session *s, int (*cb)(struct session *))
 {

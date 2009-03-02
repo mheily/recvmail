@@ -32,5 +32,6 @@ struct socket_buf {
 
 ssize_t socket_readv(struct socket_buf *, int);
 int socket_write(int, char **, size_t **);
+struct iovec * socket_peek(struct socket_buf *);
 
 #endif /* _SOCKET_H */

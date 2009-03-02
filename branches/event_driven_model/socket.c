@@ -189,3 +189,18 @@ socket_readv(struct socket_buf *sb, int fd)
 
     return (nlines);
 } 
+
+/**
+ * Display the next line in the socket buffer.
+ *
+ * @return pointer to the next line, or NULL if no more lines
+ */
+struct iovec *
+socket_peek(struct socket_buf *sb)
+{
+    log_debug("len=%zu pos=%zu", sb->sb_iovlen , sb->sb_iovpos);
+    if ((sb->sb_iovlen - sb->sb_iovpos) > 1)
+        return (&sb->sb_iov[sb->sb_iovpos + 1]);
+    else
+        return (NULL);
+}
