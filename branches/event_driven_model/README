@@ -3,3 +3,13 @@ TODO
 
  * DNS lookups
  * fsync(2)
+
+
+Architecture
+---
+
+* Throttling
+
+No throttling done by the application. Suggest using kernel-mode firewall
+to drop excessive SYN packets.
+
