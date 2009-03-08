@@ -33,6 +33,7 @@ struct session {
                                           * Callback function when data is ready. 
                                           * This MUST be the first element in the structure.
                                           */ 
+    unsigned long   id;             /* Session ID */
 
     int             fd;		        /* The client socket descriptor */
     int flags;          // see SFL_*

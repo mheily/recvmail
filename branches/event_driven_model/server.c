@@ -367,6 +367,12 @@ server_accept(void)
     if ((s = session_new(fd)) == NULL) 
         return (NULL);
 
+    /* Generate a session ID */
+    if (srv.next_sid == ULONG_MAX)
+        s->id = srv.next_sid = 1;
+    else
+        s->id = ++srv.next_sid;
+
     /* Mark the session as runnable, but do not monitor I/O readiness */
     LIST_INSERT_HEAD(&srv.runnable, s, entries);
     poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ);

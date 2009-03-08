@@ -75,8 +75,8 @@ struct server {
      * closing */
     //DEADWOOD:void            (*reject_hook) (struct session *);
 
-    /* DNSBL */
     struct dnsbl     *dnsbl;
+    unsigned long     next_sid;     /* Next available Session-ID */
 };
 
 extern struct server srv;
