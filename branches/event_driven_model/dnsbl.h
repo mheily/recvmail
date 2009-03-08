@@ -22,5 +22,6 @@ struct dnsbl;
 
 struct dnsbl * dnsbl_new(const char *);
 int dnsbl_cache_query(struct dnsbl *, unsigned int);
+void * dnsbl_dispatch(void *);
 
 #endif  /* _DNSBL_H */

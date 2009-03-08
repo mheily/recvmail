@@ -272,6 +272,17 @@ server_init(struct server *_srv)
         return (-1);
     }
 
+    /* Create the DNSBL thread */
+    srv.dnsbl = dnsbl_new("zen.spamhaus.org");
+    if (srv.dnsbl == NULL) {
+        log_error("dnsbl_new()");
+        return (-1);
+    }
+    if (pthread_create(&tid, NULL, dnsbl_loop, &srv) != 0) {
+        log_errno("pthread_create(3)");
+        return (-1);
+    }
+
     if (server_bind() != 0) 
         return (-1);
 

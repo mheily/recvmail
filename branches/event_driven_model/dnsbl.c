@@ -18,11 +18,18 @@
 
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <pthread.h>
+#include <sys/queue.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "log.h"
+
+struct dnsbl_query {
+    unsigned int addr;
+    LIST_ENTRY(dnsbl_query) entries;
+};
 
 /* Four hour TTL for cached entries. */
 #define DNSBL_CACHE_TTL   (60 * 60 * 4)    
@@ -66,6 +73,10 @@ struct dnsbl {
     unsigned char good[4][256];
     unsigned char bad[4][256];
     time_t        refresh;
+
+    LIST_HEAD(,dnsbl_query) query;
+    pthread_mutex_t   query_lock;
+    pthread_cond_t    not_empty;
 };
 
 struct dnsbl *
@@ -82,6 +93,9 @@ dnsbl_new(const char *service)
         return (NULL);
     }
     d->refresh = time(NULL) + DNSBL_CACHE_TTL;
+    LIST_INIT(&d->query);
+    pthread_mutex_init(&d->query_lock, NULL);
+    pthread_cond_init(&d->not_empty, NULL);
 
     return (d);
 }
@@ -132,13 +146,20 @@ dnsbl_query(struct dnsbl *d, unsigned int addr)
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     rv = getaddrinfo((char *) fqdn, NULL, NULL, &ai);
+    if (rv < 0)
+        return (-1); // TODO: error handling
     if (rv == EAI_NONAME)
         DNSBL_CACHE_SET(d->good, c);
     else if (rv == 0)
         DNSBL_CACHE_SET(d->bad, c);
-    else 
-        return (-1); // TODO: error handling
 
     freeaddrinfo(ai);
     return (-1);
+}
+
+static void *
+dnsbl_dispatch(void *arg)
+{
+    struct dnsbl *d = (struct dnsbl *) arg;
+
 }

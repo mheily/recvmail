@@ -40,6 +40,7 @@ struct server {
 
     pthread_t        fsyncer_tid;
 
+
     /**
      * At any given time, a session may be on one of the following lists.
      */
@@ -73,6 +74,9 @@ struct server {
     /* Sends a 'too many errors' message to a misbehaving client before
      * closing */
     //DEADWOOD:void            (*reject_hook) (struct session *);
+
+    /* DNSBL */
+    struct dnsbl     *dnsbl;
 };
 
 extern struct server srv;
