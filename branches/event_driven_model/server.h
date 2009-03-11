@@ -75,6 +75,7 @@ int  protocol_close(struct session *);
 int  server_disconnect(int);
 int  server_dispatch(void);
 int  server_init(struct server *);
+int  server_bind(void);
 void server_update_pollset(struct server *);
 
 

@@ -168,6 +168,9 @@ main(int argc, char *argv[])
     if (server_init(&smtpd) < 0)
         errx(1, "server initialization failed");
 
+    if (server_bind() < 0)
+        errx(1, "server_bind() failed");
+
     /* Dump some variables to the log */
     log_debug("_SC_NPROCESSORS_ONLN=%ld", sysconf(_SC_NPROCESSORS_ONLN));
     log_debug("mailname=`%s'", OPT.mailname);

@@ -34,7 +34,6 @@
 struct server srv;
 
 static void drop_privileges(void);
-static int  server_bind(void);
 
 // wierd place for this..
 int
@@ -244,14 +243,11 @@ server_init(struct server *_srv)
         return (-1);
     }
 
-    if (server_bind() != 0) 
-        return (-1);
-
     return (0);
 }
 
 
-static int
+int
 server_bind(void)
 {
     struct sockaddr_in srv_addr;
