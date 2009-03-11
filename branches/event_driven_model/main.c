@@ -22,6 +22,7 @@
 #include <unistd.h>
 
 #include "aliases.h"
+#include "dnsbl.h"
 #include "options.h"
 #include "log.h"
 #include "server.h"
@@ -160,6 +161,9 @@ main(int argc, char *argv[])
     /* Read the /etc/aliases file */
     aliases_init();
     aliases_parse("/etc/aliases");
+
+    if (dnsbl_init() < 0)
+        errx(1, "DNSBL initialization failed");
 
     if (server_init(&smtpd) < 0)
         errx(1, "server initialization failed");

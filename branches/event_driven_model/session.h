@@ -37,7 +37,6 @@ struct session {
 
     int             fd;		        /* The client socket descriptor */
     int flags;          // see SFL_*
-    int             events;         //fixme this isnt really used
     int closed; //TODO: deprecate this
     struct in_addr  remote_addr;	/* IP address of the client */
     struct socket_buf in_buf;
@@ -85,6 +84,13 @@ char *          remote_addr(char *dest, size_t len, const struct session *s);
 int session_readln(struct session *s);
 int session_fsync(struct session *, int (*)(struct session *));
 
-int session_poll_enable(struct session *); //in server.c
+void session_table_init(void);
+
+void    sched_enqueue(struct session *);
+void    sched_dequeue(struct session *);
+void *  session_syncer(void *arg);
+
+int     session_poll_enable(struct session *); //in server.c
+void    session_accept(struct session *);
 
 #endif /* _SESSION_H */

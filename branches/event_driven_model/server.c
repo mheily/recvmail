@@ -16,13 +16,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <fcntl.h>
 #include <grp.h>
+#include <limits.h>
 #include <pwd.h>
 #include <pthread.h>
 #include <signal.h>
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include "dnsbl.h"
 #include "options.h"
 #include "poll.h"
 #include "server.h"
@@ -33,28 +36,6 @@ struct server srv;
 static void drop_privileges(void);
 static int  server_bind(void);
 
-static void *
-sync_loop(void *arg)
-{
-    char c;
-    arg = NULL;
-
-    for (;;) {
-        sleep(5);
-        log_debug("wakeup");
-        pthread_mutex_lock(&srv.fsync_lock);
-        if (LIST_EMPTY(&srv.fsync_queue)) {
-            pthread_mutex_unlock(&srv.fsync_lock);
-            continue;
-        }
-        pthread_mutex_unlock(&srv.fsync_lock);
-        log_debug("working");
-        sync();
-	/* XXX-RACE CONDITION HERE FIXME --*/
-        write(srv.syncfd[1], &c, 1);
-    }
-}
-
 // wierd place for this..
 int
 protocol_close(struct session *s)
@@ -62,21 +43,6 @@ protocol_close(struct session *s)
     srv.close_hook(s);
     return (0);
 }
-
-void
-state_transition(struct session *s, int events)
-{
-    LIST_REMOVE(s, entries);
-    if (events) {
-        LIST_INSERT_HEAD(&srv.io_wait, s, entries);
-    } else {
-        LIST_INSERT_HEAD(&srv.runnable, s, entries);
-    }
-    s->events = events;
-    //FIXME:server_update_pollset(srv);
-    log_debug("state transition to %d", events);
-}
-
 
 int
 server_disconnect(int fd)
@@ -200,8 +166,9 @@ server_init(struct server *_srv)
     pid_t           pid,
                     sid;
 
+    session_table_init();
+
     memcpy(&srv, _srv, sizeof(srv));
-    pthread_mutex_init(&srv.fsync_lock, NULL);
 
     if (OPT.daemon) {
 
@@ -250,24 +217,18 @@ server_init(struct server *_srv)
         return (-1);
     }
 
-    /* Create pipes for simple inter-thread communication */
-    if (pipe(srv.syncfd) == -1) {
-        log_errno("pipe(2)");
-        return (-1);
-    }
+    /* Create the signal-catching thread */
     if (pipe(srv.signalfd) == -1) {
         log_errno("pipe(2)");
         return (-1);
     }
-
-    /* Create the signal-catching thread */
     if (pthread_create(&tid, NULL, signal_handler, &srv) != 0) {
         log_errno("pthread_create(3)");
         return (-1);
     }
 
     /* Create the sync(2) thread */
-    if (pthread_create(&tid, NULL, sync_loop, &srv) != 0) {
+    if (pthread_create(&tid, NULL, session_syncer, &srv) != 0) {
         log_errno("pthread_create(3)");
         return (-1);
     }
@@ -278,7 +239,7 @@ server_init(struct server *_srv)
         log_error("dnsbl_new()");
         return (-1);
     }
-    if (pthread_create(&tid, NULL, dnsbl_loop, &srv) != 0) {
+    if (pthread_create(&tid, NULL, dnsbl_dispatch, srv.dnsbl) != 0) {
         log_errno("pthread_create(3)");
         return (-1);
     }
@@ -343,6 +304,7 @@ errout:
     return (-1);
 }
 
+
 static struct session *
 server_accept(void)
 {
@@ -372,13 +334,8 @@ server_accept(void)
         s->id = srv.next_sid = 1;
     else
         s->id = ++srv.next_sid;
+    dnsbl_submit(srv.dnsbl, s);
 
-    /* Mark the session as runnable, but do not monitor I/O readiness */
-    LIST_INSERT_HEAD(&srv.runnable, s, entries);
-    poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ);
-
-    log_debug("accepted session on fd %d", fd);
-    srv.accept_hook(s);
     return (s);
 }
 
@@ -396,7 +353,7 @@ session_read(struct session *s)
     /* Handle EAGAIN if no data was read. */
     if (n == 0) {
             log_debug("got EAGAIN");
-            state_transition(s, SOCK_CAN_READ);
+            sched_dequeue(s);
             return;
     }
 
@@ -409,26 +366,6 @@ session_read(struct session *s)
     }
 }
 
-static void
-fsync_complete(void)
-{
-    struct session *s;
-    char c;
-
-    (void) read(srv.syncfd[0], &c, 1);
-
-    pthread_mutex_lock(&srv.fsync_lock);
-    LIST_FOREACH(s, &srv.fsync_queue, entries) {
-
-        /* XXX-Fixme race, an item might have been added after the sync(2) call */
-	//if (s->fsync_state == FSYNC_PENDING)
-	//	continue;
-    
-        STATE_TRANSITION(s, runnable);
-        s->handler(s);
-    }
-    pthread_mutex_unlock(&srv.fsync_lock);
-}
 
 int
 server_dispatch(void)
@@ -436,14 +373,7 @@ server_dispatch(void)
     int events;
     static int srv_udata;
     static int signal_flag;
-    static int sync_flag;
 	struct session *s;
-
-    /* Initialize the session table */
-    LIST_INIT(&srv.runnable);
-    LIST_INIT(&srv.io_wait);
-    LIST_INIT(&srv.idle);
-    LIST_INIT(&srv.fsync_queue);
 
     /* Monitor the server descriptor for new connections */
     if (poll_enable(srv.evcb, srv.fd, &srv_udata, SOCK_CAN_READ) < 0) { 
@@ -454,12 +384,6 @@ server_dispatch(void)
     /* Monitor the signal catching thread */
     if (poll_enable(srv.evcb, srv.signalfd[0], &signal_flag, SOCK_CAN_READ) < 0) { 
         log_errno("poll_enable() signalfd %d", srv.signalfd[0]);
-        return (-1);
-    }
-
-    /* Monitor the sync(2) thread */
-    if (poll_enable(srv.evcb, srv.syncfd[0], &sync_flag, SOCK_CAN_READ) < 0) { 
-        log_errno("poll_enable() syncfd %d", srv.syncfd[0]);
         return (-1);
     }
 
@@ -476,13 +400,6 @@ server_dispatch(void)
         /* Special case: a signal was received */
         if (s == (struct session *) &signal_flag) {
             err(1, "todo - sighandling");
-            continue;
-        }
-
-        /* Special case: sync(2) completed */
-        if (s == (struct session *) &sync_flag) {
-            log_debug("sync complete");
-            fsync_complete();
             continue;
         }
 
@@ -510,7 +427,7 @@ server_dispatch(void)
         }
         if (events & SOCK_CAN_WRITE) {
             log_debug("fd %d is now writable", s->fd);
-            s->events |= SOCK_CAN_WRITE;
+            //TODO - flush output buffer, or do something
         }
     }
 

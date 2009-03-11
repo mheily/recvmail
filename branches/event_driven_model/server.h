@@ -36,19 +36,9 @@ struct server {
     char           *gid;        /* The symbolic group-ID to setgid(2) to */
 
     int             signalfd[2];    /* pipe(2) used for signal handling */
-    int             syncfd[2];      /* pipe(2) used for sync(2) notification */
 
     pthread_t        fsyncer_tid;
 
-
-    /**
-     * At any given time, a session may be on one of the following lists.
-     */
-    LIST_HEAD(,session) runnable;
-    LIST_HEAD(,session) idle;
-    LIST_HEAD(,session) io_wait;
-    LIST_HEAD(,session) fsync_queue;
-    pthread_mutex_t     fsync_lock;
 
     struct evcb * evcb;
 
@@ -81,16 +71,10 @@ struct server {
 
 extern struct server srv;
 
-#define STATE_TRANSITION(s, listname)  do {                     \
-    LIST_REMOVE((s), entries);                                  \
-    LIST_INSERT_HEAD(&srv.listname, (s), entries);              \
-} while (0)
-
 int  protocol_close(struct session *);
 int  server_disconnect(int);
 int  server_dispatch(void);
 int  server_init(struct server *);
-void state_transition(struct session *, int);
 void server_update_pollset(struct server *);
 
 

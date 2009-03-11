@@ -19,9 +19,13 @@
 #define _DNSBL_H
 
 struct dnsbl;
+struct session;
 
-struct dnsbl * dnsbl_new(const char *);
-int dnsbl_cache_query(struct dnsbl *, unsigned int);
-void * dnsbl_dispatch(void *);
+struct dnsbl * 
+            dnsbl_new(const char *);
+
+void *      dnsbl_dispatch(void *);
+int         dnsbl_submit(struct dnsbl *, struct session *);
+int         dnsbl_init(void);
 
 #endif  /* _DNSBL_H */

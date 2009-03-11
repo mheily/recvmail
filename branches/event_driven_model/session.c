@@ -30,12 +30,39 @@
 extern int      vasprintf(char **, const char *, va_list);
 
 
+/**
+ * At any given time, a session may be on one of the following lists.
+ */
+static LIST_HEAD(,session) runqueue;
+static pthread_cond_t      runq_not_empty;
+static LIST_HEAD(,session) syncqueue;
+static LIST_HEAD(,session) io_wait;
+static pthread_mutex_t     sched_lock;
+
 /*
  *
  * PUBLIC FUNCTIONS
  *
  */
 
+void
+sched_enqueue(struct session *s)
+{
+    pthread_mutex_lock(&sched_lock);
+    LIST_REMOVE(s, entries);
+    LIST_INSERT_HEAD(&runqueue, s, entries);
+    pthread_cond_signal(&runq_not_empty);
+    pthread_mutex_unlock(&sched_lock);
+}
+
+void
+sched_dequeue(struct session *s)
+{
+    pthread_mutex_lock(&sched_lock);
+    LIST_REMOVE(s, entries);
+    LIST_INSERT_HEAD(&io_wait, s, entries);
+    pthread_mutex_unlock(&sched_lock);
+}
 
 /* Convert the IP address to ASCII */
 char *
@@ -47,6 +74,19 @@ remote_addr(char *dest, size_t len, const struct session *s)
     }
 
     return (dest);
+}
+
+void
+session_accept(struct session *s)
+{
+    // FIXME: duplicates sched_enqueue because the session isn't on any list and can't be LIST_REMOVEd
+    pthread_mutex_lock(&sched_lock);
+    LIST_INSERT_HEAD(&runqueue, s, entries);
+    pthread_mutex_unlock(&sched_lock);
+
+    poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ);
+    log_debug("accepted session on fd %d", s->fd);
+    srv.accept_hook(s);
 }
 
 void
@@ -227,7 +267,9 @@ session_close(struct session *s)
     (void) server_disconnect(s->fd); 
 
     /* Remove the descriptor from the session table */
+    pthread_mutex_lock(&sched_lock);
     LIST_REMOVE(s, entries);
+    pthread_mutex_unlock(&sched_lock);
 
     s->closed = 1;
 }
@@ -239,7 +281,60 @@ session_fsync(struct session *s, int (*cb)(struct session *))
     if (poll_disable(srv.evcb, s->fd) != 0)
         return (-1);
     s->handler = cb;
-    STATE_TRANSITION(s, fsync_queue);
+    pthread_mutex_lock(&sched_lock);
+    LIST_REMOVE(s, entries);
+    LIST_INSERT_HEAD(&syncqueue, s, entries);
+    pthread_mutex_unlock(&sched_lock);
 
     return (0);
+}
+
+
+void *
+session_syncer(void *arg)
+{
+    LIST_HEAD(,session) tmp;
+    struct session *s;
+    arg = NULL;
+
+    for (;;) {
+        sleep(5);
+        log_debug("wakeup");
+        pthread_mutex_lock(&sched_lock);
+        if (LIST_EMPTY(&syncqueue)) {
+            pthread_mutex_unlock(&sched_lock);
+            continue;
+        }
+        memcpy(&tmp, &syncqueue, sizeof(syncqueue));
+        LIST_INIT(&syncqueue);
+        pthread_mutex_unlock(&sched_lock);
+
+        log_debug("working");
+        sync();
+
+        /* Send the 250 Message Delivered response */
+        LIST_FOREACH(s, &tmp, entries) {
+            s->handler(s); // FIXME -- do this in worker threads
+        }
+
+        /* Make the sessions runnable */
+        pthread_mutex_lock(&sched_lock);
+        LIST_FOREACH(s, &tmp, entries) {
+            /* Not necessary: LIST_REMOVE(s, entries); */
+            LIST_INSERT_HEAD(&runqueue, s, entries);
+        }
+        pthread_mutex_unlock(&sched_lock);
+    }
+}
+
+void
+session_table_init(void)
+{
+    LIST_INIT(&runqueue);
+    pthread_cond_init(&runq_not_empty, NULL);
+
+    LIST_INIT(&syncqueue);
+    LIST_INIT(&io_wait);
+
+    pthread_mutex_init(&sched_lock, NULL);
 }
