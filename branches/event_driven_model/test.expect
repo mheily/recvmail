@@ -1,0 +1,16 @@
+#!/usr/bin/expect -f
+
+set host "localhost"
+set port 1025
+append lom_address ".lom.es.gwu.edu"
+
+# Connect to the LOM
+#
+spawn telnet $host $port
+expect "220 "
+send "HELO a\n"
+expect "250 "
+send "MAIL FROM:<a@b.com>\n"
+expect "250 "
+send "QUIT\n"
+expect "221 "
