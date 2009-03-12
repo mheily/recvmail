@@ -43,22 +43,6 @@ protocol_close(struct session *s)
     return (0);
 }
 
-int
-server_disconnect(int fd)
-{
-    // FIXME: check to see if poll_disable was already called (e.g. before fsync) */
-    /* Unregister the file descriptor */
-    if (poll_disable(srv.evcb, fd) != 0) {
-        log_error("unable to disable events for fd # %d", fd);
-        (void) close(fd);
-        return (-1);
-    }
-
-    (void) close(fd);
-
-    return (0);
-}
-
 /*
  * Remove root privileges from the running process.
  * 
@@ -209,6 +193,7 @@ server_init(struct server *_srv)
         err(1, "setrlimit failed");
 
     set_signal_mask(SIG_BLOCK);
+    signal(SIGPIPE, SIG_IGN);       /* TODO: put this with the mask */
 
     /* Create the event source */
     if ((srv.evcb = poll_new()) == NULL) {
@@ -336,31 +321,24 @@ server_accept(void)
     return (s);
 }
 
-static void
+static int
 session_read(struct session *s) 
 {
     ssize_t n;
 
     if ((n = socket_readv(&s->in_buf, s->fd)) < 0) {
         log_info("readln failed");
-        session_close(s);
-        return;
+        return (-1);
     } 
     
     /* Handle EAGAIN if no data was read. */
     if (n == 0) {
             log_debug("got EAGAIN");
-            sched_dequeue(s);
-            return;
+            /* FIXME - Set state to io_wait */
+            return (0);
     }
 
-    // TODO: check return value
-    s->handler(s);
-
-    // XXX-Very bad.. probably
-    if (s->closed) {
-        free(s);        //TODO: recycle by putting on the idle list 
-    }
+    return (s->handler(s));
 }
 
 
@@ -415,12 +393,12 @@ server_dispatch(void)
 
         if (events & SOCK_EOF) {
                 session_close(s);
-                free(s);
                 continue;       // FIXME: this will discard anything in the read buffer
         }
         if (events & SOCK_CAN_READ) {
             log_debug("fd %d is now readable", s->fd);
-            session_read(s);
+            if (session_read(s) < 0)
+                session_close(s);
         }
         if (events & SOCK_CAN_WRITE) {
             log_debug("fd %d is now writable", s->fd);

@@ -59,7 +59,7 @@ smtpd_session_reset(struct session *s)
         message_free(s->msg);
         if ((s->msg = message_new()) == NULL) {
             session_println(s, "421 Out of memory error");
-            session_close(s);
+            s->smtp_state = SMTP_STATE_QUIT;
             return (-1);
         }
         s->msg->session = s;
@@ -191,7 +191,7 @@ smtpd_data(struct session *s, const char *arg)
     }
     if (maildir_msg_open(s->msg)) {
         session_println(s, "421 Error creating message");
-        session_close(s);
+        s->smtp_state = SMTP_STATE_QUIT;
         return (-1);
     }
     session_println(s, "354 End data with <CR><LF>.<CR><LF>");
@@ -222,7 +222,7 @@ static int
 smtpd_quit(struct session *s)
 {
     session_println(s, "221 Bye");
-    session_close(s);
+    s->smtp_state = SMTP_STATE_QUIT;
     return (0);
 }
 
@@ -233,13 +233,16 @@ smtp_fsyncer_callback(struct session *s)
 
     session_println(s, "250 Message delivered");
 
-    if (s->fsync_post_action == QUIT_AFTER_FSYNC) 
-        return smtpd_quit(s);
+    if (s->fsync_post_action == QUIT_AFTER_FSYNC) {
+        (void) smtpd_quit(s);
+        session_close(s);
+        return (0);
+    }
 
     if (s->fsync_post_action == RSET_AFTER_FSYNC) 
-        return smtpd_rset(s);
+        (void) smtpd_rset(s);
 
-    /* Default: wait for more data */
+    /* Wait for more data */
     session_poll_enable(s);
 
     return (0);
@@ -268,13 +271,15 @@ smtpd_parser(struct session *s)
                 break;
         }
 
+        if (s->smtp_state == SMTP_STATE_QUIT) 
+            return (-1);
+
         if (rv != 0) 
             s->errors++;
 
         /* TODO: make configurable, max_errors or something */
         if (s->errors > 10) {
             smtpd_client_error(s);
-            session_close(s);
             return (-1);
         }
     }
@@ -303,7 +308,7 @@ smtpd_parse_command(struct session *s, char *src, size_t len)
         if (c < 32 || c > 127) {
             log_debug("illegal character at position %zu", i);
             session_println(s, "502 Illegal request");
-            return -1;
+            return (-1);
         }
     }
 
@@ -414,8 +419,8 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 
   error:
     session_println(s, "452 Error spooling message, try again later");
-    session_close(s);
-    return (0);
+    s->smtp_state = SMTP_STATE_QUIT;
+    return (-1);
 }
 
 

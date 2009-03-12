@@ -115,7 +115,6 @@ dnsbl_response_handler(struct session *s, int res)
         log_debug("rejecting client due to DNSBL");
         session_println(s, "421 ESMTP access denied");
         session_close(s);
-        free(s);
     } else if (res == DNSBL_NOT_FOUND || res == DNSBL_ERROR) {
         log_debug("client is not in a DNSBL");
         session_accept(s);

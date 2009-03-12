@@ -31,38 +31,22 @@ extern int      vasprintf(char **, const char *, va_list);
 
 
 /**
- * At any given time, a session may be on one of the following lists.
+ * Session table.
  */
-static LIST_HEAD(,session) runqueue;
-static pthread_cond_t      runq_not_empty;
-static LIST_HEAD(,session) syncqueue;
+static LIST_HEAD(,session) st;
+static pthread_mutex_t     st_mtx;
+
+static TAILQ_HEAD(,session) syncqueue;
+static pthread_cond_t       syncq_not_empty;
+static pthread_mutex_t      syncq_mtx;
+
 static LIST_HEAD(,session) io_wait;
-static pthread_mutex_t     sched_lock;
 
 /*
  *
  * PUBLIC FUNCTIONS
  *
  */
-
-void
-sched_enqueue(struct session *s)
-{
-    pthread_mutex_lock(&sched_lock);
-    LIST_REMOVE(s, entries);
-    LIST_INSERT_HEAD(&runqueue, s, entries);
-    pthread_cond_signal(&runq_not_empty);
-    pthread_mutex_unlock(&sched_lock);
-}
-
-void
-sched_dequeue(struct session *s)
-{
-    pthread_mutex_lock(&sched_lock);
-    LIST_REMOVE(s, entries);
-    LIST_INSERT_HEAD(&io_wait, s, entries);
-    pthread_mutex_unlock(&sched_lock);
-}
 
 /* Convert the IP address to ASCII */
 char *
@@ -79,17 +63,12 @@ remote_addr(char *dest, size_t len, const struct session *s)
 void
 session_accept(struct session *s)
 {
-    // FIXME: duplicates sched_enqueue because the session isn't on any list and can't be LIST_REMOVEd
-    pthread_mutex_lock(&sched_lock);
-    LIST_INSERT_HEAD(&runqueue, s, entries);
-    pthread_mutex_unlock(&sched_lock);
-
     poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ);
     log_debug("accepted session on fd %d", s->fd);
     srv.accept_hook(s);
 }
 
-void
+int
 session_write(struct session *s, const char *buf, size_t len)
 {
     ssize_t n;
@@ -101,7 +80,7 @@ session_write(struct session *s, const char *buf, size_t len)
         for (;;) {
             n = write(s->fd, buf, len);
             if (n == len)
-                return;
+                return (0);
             if (n >= 0 && n < len) {
                 buf += n;
                 len -= n;
@@ -111,13 +90,12 @@ session_write(struct session *s, const char *buf, size_t len)
                     break;
                 } else {
                     log_errno("unusual short write(2)");
-                    session_close(s);
-                    return;
+                    return (-1);
                 }
             }
             if (n < 0) {
                 log_errno("write(2)");
-                break; /*FIXME - better error handling, should kill the session */
+                return (-1);
             }
         }
     }
@@ -132,31 +110,32 @@ session_write(struct session *s, const char *buf, size_t len)
     }
     NBUF_INIT(nbp, p, strlen(p));
     STAILQ_INSERT_TAIL(&s->out_buf, nbp, entries);
-    return;
+    return (0);
 
 errout:
-        log_errno("calloc(3)");
-        session_close(s);
-        return;
+    log_errno("calloc(3)");
+    return (-1);
 }
 
 
 
-void
+int
 session_vprintf(struct session *s, const char *format, va_list ap)
 {
         char    *buf = NULL;
+        int rv;
         size_t     len;
 
         /* Generate the result buffer */
         if ((len = vasprintf(&buf, format, ap)) < 0) {
                 /* XXX-FIXME error handling */
-                return;
+                return (-1);
         }
 
         /* Write the buffer to the socket */
-        session_write(s, (const char *) buf, len);
+        rv = session_write(s, (const char *) buf, len);
         free(buf);
+        return (rv);
 }
 
 /**
@@ -167,20 +146,23 @@ session_vprintf(struct session *s, const char *format, va_list ap)
  * @param sock socket object
  * @param format format string
 */
-void
+int
 session_printf(struct session *s, const char *format, ...)
 {
-        va_list ap;
+    int rv;
+    va_list ap;
 
-        va_start(ap, format);
-        session_vprintf(s, format, ap);
-        va_end(ap);
+    va_start(ap, format);
+    rv = session_vprintf(s, format, ap);
+    va_end(ap);
+
+    return (rv);
 }
 
-void
+int
 session_println(struct session *s, const char *buf)
 {
-        return session_printf(s, "%s\r\n", buf);
+        return (session_printf(s, "%s\r\n", buf));
 }
 
 struct session *
@@ -219,6 +201,11 @@ session_new(int fd)
 
     /* TODO: Determine the reverse DNS name for the host */
 
+    /* Add to the session table */
+    pthread_mutex_lock(&st_mtx);
+    LIST_INSERT_HEAD(&st, s, st_entries);
+    pthread_mutex_unlock(&st_mtx);
+
     return (s);
 
 errout:
@@ -247,11 +234,6 @@ session_close(struct session *s)
 {
     struct nbuf *nbp;
 
-    if (s->closed) {
-        log_debug("double session_close() detected");
-        return;
-    }
-
     log_debug("closing transmission channel");
 
     /* Run any protocol-specific hooks */
@@ -264,14 +246,14 @@ session_close(struct session *s)
              STAILQ_REMOVE_HEAD(&s->out_buf, entries);
     }
 
-    (void) server_disconnect(s->fd); 
+    (void) close(s->fd); 
 
     /* Remove the descriptor from the session table */
-    pthread_mutex_lock(&sched_lock);
-    LIST_REMOVE(s, entries);
-    pthread_mutex_unlock(&sched_lock);
+    pthread_mutex_lock(&st_mtx);
+    LIST_REMOVE(s, st_entries);
+    pthread_mutex_unlock(&st_mtx);
 
-    s->closed = 1;
+    free(s);
 }
 
 
@@ -281,10 +263,10 @@ session_fsync(struct session *s, int (*cb)(struct session *))
     if (poll_disable(srv.evcb, s->fd) != 0)
         return (-1);
     s->handler = cb;
-    pthread_mutex_lock(&sched_lock);
-    LIST_REMOVE(s, entries);
-    LIST_INSERT_HEAD(&syncqueue, s, entries);
-    pthread_mutex_unlock(&sched_lock);
+    pthread_mutex_lock(&syncq_mtx);
+    TAILQ_INSERT_TAIL(&syncqueue, s, workq_entries);
+    pthread_cond_signal(&syncq_not_empty);
+    pthread_mutex_unlock(&syncq_mtx);
 
     return (0);
 }
@@ -293,48 +275,51 @@ session_fsync(struct session *s, int (*cb)(struct session *))
 void *
 session_syncer(void *arg)
 {
-    LIST_HEAD(,session) tmp;
+    TAILQ_HEAD(,session) tmp;
     struct session *s;
     arg = NULL;
 
     for (;;) {
-        sleep(5);
-        log_debug("wakeup");
-        pthread_mutex_lock(&sched_lock);
-        if (LIST_EMPTY(&syncqueue)) {
-            pthread_mutex_unlock(&sched_lock);
-            continue;
+
+        /* Wait for he queue to become non-empty */
+        pthread_mutex_lock(&syncq_mtx);
+        while (TAILQ_EMPTY(&syncqueue)) {
+            pthread_cond_wait(&syncq_not_empty, &syncq_mtx);
+            if (TAILQ_EMPTY(&syncqueue))
+                continue;
         }
+
+        /* Move all items into a private queue */
         memcpy(&tmp, &syncqueue, sizeof(syncqueue));
-        LIST_INIT(&syncqueue);
-        pthread_mutex_unlock(&sched_lock);
+        TAILQ_INIT(&syncqueue);
+
+        pthread_mutex_unlock(&syncq_mtx);
 
         log_debug("working");
         sync();
 
         /* Send the 250 Message Delivered response */
-        LIST_FOREACH(s, &tmp, entries) {
+        TAILQ_FOREACH(s, &tmp, workq_entries) {
             s->handler(s); // FIXME -- do this in worker threads
+            /* XXX-FIXME update state field */
         }
 
-        /* Make the sessions runnable */
-        pthread_mutex_lock(&sched_lock);
-        LIST_FOREACH(s, &tmp, entries) {
-            /* Not necessary: LIST_REMOVE(s, entries); */
-            LIST_INSERT_HEAD(&runqueue, s, entries);
-        }
-        pthread_mutex_unlock(&sched_lock);
+        /* Wait to allow more requests to queue up */
+        // TODO -- is this a good idea?
+        //sleep(5);
+        //log_debug("wakeup");
     }
 }
 
 void
 session_table_init(void)
 {
-    LIST_INIT(&runqueue);
-    pthread_cond_init(&runq_not_empty, NULL);
+    LIST_INIT(&st);
+    pthread_mutex_init(&st_mtx, NULL);
 
-    LIST_INIT(&syncqueue);
+    TAILQ_INIT(&syncqueue);
+    pthread_mutex_init(&syncq_mtx, NULL);
+    pthread_cond_init(&syncq_not_empty, NULL);
+
     LIST_INIT(&io_wait);
-
-    pthread_mutex_init(&sched_lock, NULL);
 }

@@ -37,7 +37,6 @@ struct session {
 
     int             fd;		        /* The client socket descriptor */
     int flags;          // see SFL_*
-    int closed; //TODO: deprecate this
     struct in_addr  remote_addr;	/* IP address of the client */
     struct socket_buf in_buf;
     STAILQ_HEAD(,nbuf) out_buf;     /* Output buffer */
@@ -70,12 +69,13 @@ struct session {
 
     /* ---------- end protocol specific members ---------- */
 
-    LIST_ENTRY(session) entries;
+    LIST_ENTRY(session)  st_entries;
+    TAILQ_ENTRY(session) workq_entries;
 };
 
-void session_write(struct session *, const char *, size_t size);
-void session_printf(struct session *, const char *, ...);
-void session_println(struct session *, const char *);
+int  session_write(struct session *, const char *, size_t size);
+int  session_printf(struct session *, const char *, ...);
+int  session_println(struct session *, const char *);
 void            session_close(struct session *s);
 struct session * session_new(int fd);
 void            session_free(struct session *s);
