@@ -99,14 +99,11 @@ drop_privileges(void)
     if (srv.chrootdir && (chroot(srv.chrootdir) < 0))
         err(1, "chroot(2)");
 
-#if ! FIXME
-    log_warning("FIXME -- causes signal gotcha why??");
     /* Set the real UID and GID */
     if (setgid(gid) < 0)
         err(1, "setgid(2)");
     if (setuid(uid) < 0)
         err(1, "setuid(2)");
-#endif
     
     log_info("setuid(2) to %s(%d)", srv.uid, uid);
 }
@@ -219,6 +216,9 @@ server_init(struct server *_srv)
         return (-1);
     }
 
+    /* Drop root privilges and call chroot(2) */
+    drop_privileges();
+
     /* Create the signal-catching thread */
     if (pipe(srv.signalfd) == -1) {
         log_errno("pipe(2)");
@@ -291,8 +291,6 @@ server_bind(void)
     log_debug("listening on port %d", srv.port);
 
     srv.fd = fd;
-
-    drop_privileges();
 
     return (0);
 
