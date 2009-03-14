@@ -28,10 +28,6 @@
 #include "session.h"
 #include "log.h"
 
-struct dnsbl_query {
-    struct session *sp;
-    TAILQ_ENTRY(dnsbl_query) entries;
-};
 
 /* Result codes */
 #define DNSBL_NOT_FOUND     (0)
@@ -82,7 +78,7 @@ struct dnsbl {
     time_t        refresh;
 
     /* Query list */
-    TAILQ_HEAD(,dnsbl_query) query;
+    TAILQ_HEAD(,session) query;
     pthread_mutex_t   query_lock;
     pthread_cond_t    query_pending;
 };
@@ -178,7 +174,6 @@ int
 dnsbl_submit(struct dnsbl *d, struct session *s)
 {
     int res;
-    struct dnsbl_query *q;
 
     /* Check the cache */
     res = dnsbl_cache_query(d, s->remote_addr.s_addr);
@@ -190,14 +185,9 @@ dnsbl_submit(struct dnsbl *d, struct session *s)
 
     log_debug("DNSBL cached MISS");
 
-    /* Create a new request */
-    if ((q = malloc(sizeof(*q))) == NULL)
-        return (-1);
-    q->sp = s;
-
     /* Add the request to the queue */
     pthread_mutex_lock(&d->query_lock);
-    TAILQ_INSERT_TAIL(&d->query, q, entries);
+    TAILQ_INSERT_TAIL(&d->query, s, workq_entries);
     pthread_cond_signal(&d->query_pending);
     pthread_mutex_unlock(&d->query_lock);
 
@@ -208,25 +198,26 @@ void *
 dnsbl_dispatch(void *arg)
 {
     struct dnsbl *d = (struct dnsbl *) arg;
-    struct dnsbl_query *q;
+    struct session *s;
     int res;
 
     for (;;) {
 
+        log_debug("waiting for work");
         /* Wait for a work item and remove it from the queue */
         pthread_mutex_lock(&d->query_lock);
         while (TAILQ_EMPTY(&d->query)) {
             pthread_cond_wait(&d->query_pending, &d->query_lock);
-            if ((q = TAILQ_FIRST(&d->query)) == NULL) {
+            if ((s = TAILQ_FIRST(&d->query)) == NULL) {
                 continue;
             }
         }
-        TAILQ_REMOVE(&d->query, q, entries);
+        TAILQ_REMOVE(&d->query, s, workq_entries);
         pthread_mutex_unlock(&d->query_lock);
 
-        res = dnsbl_query(d, q->sp->remote_addr.s_addr);
-        dnsbl_response_handler(q->sp, res);
-        free(q);
+        log_debug("querying DNSBL");
+        res = dnsbl_query(d, s->remote_addr.s_addr);
+        dnsbl_response_handler(s, res);
     }
 
     return (NULL);

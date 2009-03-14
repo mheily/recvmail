@@ -149,9 +149,8 @@ server_init(struct server *_srv)
     pid_t           pid,
                     sid;
 
-    session_table_init();
-
     memcpy(&srv, _srv, sizeof(srv));
+    session_table_init();
 
     if (OPT.daemon) {
 
@@ -316,6 +315,8 @@ server_accept(void)
         s->id = srv.next_sid = 1;
     else
         s->id = ++srv.next_sid;
+
+//FIXME RACE_CONDITION_HERE
     dnsbl_submit(srv.dnsbl, s);
 
     return (s);

@@ -112,7 +112,7 @@ main(int argc, char *argv[])
 	    OPT.daemon = 0;
 	    break;
 	case 'g':
-	    if ((OPT.gid = strdup(optarg)) == NULL)
+	    if ((smtpd.gid = strdup(optarg)) == NULL)
 		err(1, "strdup failed");
 	    break;
 	case 'h':
@@ -133,7 +133,7 @@ main(int argc, char *argv[])
 	    OPT.log_level = LOG_ERR;
 	    break;
 	case 'u':
-	    if ((OPT.uid = strdup(optarg)) == NULL)
+	    if ((smtpd.uid = strdup(optarg)) == NULL)
 		err(1, "strdup failed");
 	    break;
 	case 'v':
