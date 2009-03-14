@@ -74,6 +74,17 @@
 #define TAILQ_FIRST(head)               ((head)->tqh_first)
 #endif
 
+#ifndef TAILQ_EMPTY
+#define TAILQ_EMPTY(head)               ((head)->tqh_first == NULL)
+#endif
+
+#ifndef TAILQ_FOREACH
+#define TAILQ_FOREACH(var, head, field)                                 \
+        for ((var) = ((head)->tqh_first);                               \
+                (var);                                                  \
+                (var) = ((var)->field.tqe_next))
+#endif
+
 /* From FreeBSD. Glibc 2.7 doesnt have this, but does have other STAILQ macros */
 #ifndef STAILQ_LAST
 #define	STAILQ_LAST(head, type, field)					\
