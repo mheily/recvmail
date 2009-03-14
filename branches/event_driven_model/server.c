@@ -176,6 +176,10 @@ server_init(struct server *_srv)
 
     log_open(OPT.log_ident, 0, OPT.log_facility, OPT.log_level);
 
+    /* Bind to the server socket */
+    if (server_bind() < 0)
+        errx(1, "server_bind() failed");
+
     /* Increase the allowable number of file descriptors */
     if (getuid() == 0) {
         limit.rlim_cur = 50000;
