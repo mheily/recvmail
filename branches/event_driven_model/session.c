@@ -80,6 +80,12 @@ session_write(struct session *s, const char *buf, size_t len)
     char *p;
     struct nbuf *nbp;
 
+#error RACE
+    //need to check if an EOF has occurred before trying to write to an FD
+    //otherwise, the output might have occurred 
+    //actually, it might be better to check for HUPs prior to calling accept(2),
+    //and then scan the session table to invalidate previous sessions (or wait for them to finish)
+    
     /* If the output buffer is empty, try writing directly to the client */
     if (STAILQ_FIRST(&s->out_buf) == NULL) {
         for (;;) {
@@ -280,7 +286,7 @@ session_fsync(struct session *s, int (*cb)(struct session *))
 void *
 session_syncer(void *arg)
 {
-    TAILQ_HEAD(,session) tmp;
+//    TAILQ_HEAD(,session) tmp;
     struct session *s;
     arg = NULL;
 
@@ -295,19 +301,18 @@ session_syncer(void *arg)
         }
 
         /* Move all items into a private queue */
-        memcpy(&tmp, &syncqueue, sizeof(syncqueue));
-        TAILQ_INIT(&syncqueue);
+        //memcpy(&tmp, &syncqueue, sizeof(syncqueue));
+        //TAILQ_INIT(&syncqueue);
+        s = TAILQ_FIRST(&syncqueue);
+        TAILQ_REMOVE(&syncqueue, s, workq_entries);
 
         pthread_mutex_unlock(&syncq_mtx);
 
-        /* Send the 250 Message Delivered response */
-        TAILQ_FOREACH(s, &tmp, workq_entries) {
-            message_fsync(&s->msg); // TODO: error handling
-            maildir_deliver(&s->msg);// TODO: error handling
-            message_close(&s->msg); // TODO: error handling
-            s->handler(s); // FIXME -- do this in worker threads
-            /* XXX-FIXME update state field */
-        }
+        message_fsync(&s->msg); // TODO: error handling
+        maildir_deliver(&s->msg);// TODO: error handling
+        message_close(&s->msg); // TODO: error handling
+        s->handler(s); // FIXME -- do this in worker threads
+        /* XXX-FIXME update state field */
 
         /* Wait to allow more requests to queue up */
         // TODO -- is this a good idea?
