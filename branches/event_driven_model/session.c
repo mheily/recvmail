@@ -24,7 +24,11 @@
 #include "poll.h"
 #include "server.h"
 #include "session.h"
+#include "message.h"
+#include "maildir.h"
 #include "nbuf.h"
+
+int             smtpd_parser(struct session *);//smtp.c
 
 /** vasprintf(3) is a GNU extension and not universally visible */
 extern int      vasprintf(char **, const char *, va_list);
@@ -63,6 +67,7 @@ remote_addr(char *dest, size_t len, const struct session *s)
 void
 session_accept(struct session *s)
 {
+    s->handler = smtpd_parser;     // TODO -fix this layering violation
     poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ);
     log_debug("accepted session on fd %d", s->fd);
     srv.accept_hook(s);
@@ -281,7 +286,7 @@ session_syncer(void *arg)
 
     for (;;) {
 
-        /* Wait for he queue to become non-empty */
+        /* Wait for the queue to become non-empty */
         pthread_mutex_lock(&syncq_mtx);
         while (TAILQ_EMPTY(&syncqueue)) {
             pthread_cond_wait(&syncq_not_empty, &syncq_mtx);
@@ -295,11 +300,11 @@ session_syncer(void *arg)
 
         pthread_mutex_unlock(&syncq_mtx);
 
-        log_debug("working");
-        sync();
-
         /* Send the 250 Message Delivered response */
         TAILQ_FOREACH(s, &tmp, workq_entries) {
+            message_fsync(&s->msg); // TODO: error handling
+            maildir_deliver(&s->msg);// TODO: error handling
+            message_close(&s->msg); // TODO: error handling
             s->handler(s); // FIXME -- do this in worker threads
             /* XXX-FIXME update state field */
         }

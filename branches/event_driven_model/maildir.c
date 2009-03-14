@@ -19,6 +19,7 @@
 // FIXME - needed to get asprintf decl in stdio.h
 #define _GNU_SOURCE
 
+#include <assert.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
@@ -115,7 +116,7 @@ maildir_generate_id(void)
  *
  */
 int
-maildir_msg_open(struct message *msg)
+maildir_msg_open(struct message *msg, struct session *s)
 {
     time_t          now;
     struct tm       timeval;
@@ -152,7 +153,7 @@ maildir_msg_open(struct message *msg)
     len = asprintf(&buf,
             "Received: from %s ([%s])\n        by %s (recvmail) on %s",
             address_get(ma_addr, sizeof(ma_addr), msg->sender),
-            remote_addr(in_addr, sizeof(in_addr), msg->session), OPT.mailname, timestr);
+            remote_addr(in_addr, sizeof(in_addr), s), OPT.mailname, timestr);
     if (len < 0) {
         log_errno("asprintf(3)");
         goto errout;
@@ -179,8 +180,9 @@ maildir_deliver(struct message *msg)
 {
     char prefix[PATH_MAX];
     char dest[PATH_MAX];
-
     struct mail_addr *ma;
+
+    assert(msg->path);
 
     LIST_FOREACH(ma, &msg->recipient, entries) {
         if (maildir_get_path((char *) &prefix, sizeof(prefix), ma) != 0) {
@@ -196,6 +198,7 @@ maildir_deliver(struct message *msg)
             log_errno("link(2) of `%s' to `%s'", msg->path, dest);
             goto errout;
         }
+        /* TODO - sync metadata */
     }
 
     /* Delete the spooled message */
@@ -203,12 +206,8 @@ maildir_deliver(struct message *msg)
             log_errno("unlink(2) of `%s'", msg->path);
             goto errout;
     }
-#if FIXME
-    //this seems dangerous
-    message_free(msg);
     free(msg->path);
     msg->path = NULL;
-#endif
 
     return (0);
 
@@ -228,36 +227,12 @@ errout:
 int
 message_close(struct message *msg)
 {
-    char *path = NULL;
-
     /* Close the file */
     if (close(msg->fd) < 0) {
         log_errno("close(2)");
-        goto error;
+        return (-1);
     }
-
-    /* Generate the new/ pathname */
-    if (asprintf(&path, "spool/new/%s", msg->filename) < 0) {
-        log_errno("asprintf(3)");
-        goto error;
-    }
-
-    /* Move the message into the 'new/' directory */
-    if (rename(msg->path, path) < 0) {
-        log_errno("rename(2) of `%s' to `%s'", msg->path, path);
-        goto error;
-    }
-
-    /* Update msg->path to point at the new location */
-    free(msg->path);
-    msg->path = path;
-
-    log_debug("message delivered to %s", msg->path);
+    msg->fd = -1;
 
     return (0);
-
-  error:
-    free(path);
-    (void) unlink(msg->path);
-    return (-1);
 }

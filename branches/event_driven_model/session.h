@@ -23,6 +23,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
+#include "message.h"
 #include "socket.h"
 #include "queue.h"
 #include "log.h"
@@ -43,7 +44,7 @@ struct session {
 
     /* ---------- protocol specific members ------------ */
 
-    struct message *msg;
+    struct message msg;
 
     enum {
       FSYNC_PENDING = 0,

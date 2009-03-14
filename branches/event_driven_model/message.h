@@ -28,7 +28,7 @@ struct message {
     int             fd;		/* A file descriptor opened for writing the message */
     char           *path;	/* The path to the message */
     struct mail_addr *sender;	/* The email address of the sender */
-    struct session *session;
+//    struct session *session;
     LIST_HEAD(,mail_addr) 
                     recipient;
     size_t          recipient_count;
@@ -36,12 +36,12 @@ struct message {
     char           *filename;	/* The Maildir message-ID */
 };
 
-int     init_message(struct message *);
 int     rset_message(struct message *);
 int     valid_message(struct message *);
 
-struct message *message_new();
-int             message_close(struct message *);
-void            message_free(struct message *);
+void    message_init(struct message *);
+int     message_close(struct message *);
+int     message_fsync(struct message *);
+void    message_free(struct message *);
 
 #endif /* _MESSAGE_H */

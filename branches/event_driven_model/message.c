@@ -17,34 +17,36 @@
  */
 
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "message.h"
 #include "log.h"
 
-struct message *
-message_new()
+void
+message_init(struct message *msg)
 {
-    struct message *msg;
-
-    if ((msg = calloc(1, sizeof(struct message))) == NULL) {
-        /* TODO: log_err() */
-        return (NULL);
-    }
-
+    memset(msg, 0, sizeof(*msg));
     LIST_INIT(&msg->recipient);
-    return (msg);
 }
 
+int
+message_fsync(struct message *msg)
+{
+    if (fsync(msg->fd) < 0) {
+        log_errno("fsync(2) of fd %d", msg->fd);
+        return (-1);
+    }
+
+    return (0);
+}
+
+/* Free the storage used by the message */
 void
 message_free(struct message *msg)
 {
     struct mail_addr *var, *nxt;
 
-    if (msg == NULL) {
-        log_debug("double message_free() detected");
-        return;
-    }
-
+    log_debug("freeing the message");
     free(msg->path);
     address_free(msg->sender);
     free(msg->filename);
@@ -54,8 +56,6 @@ message_free(struct message *msg)
         nxt = LIST_NEXT(var, entries);
         address_free(var);
     }
-
-    free(msg);
 }
 
 

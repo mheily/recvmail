@@ -24,6 +24,7 @@
 
 #include "log.h"
 #include "options.h"
+#include "maildir.h"
 #include "message.h"
 #include "session.h"
 #include "poll.h"
@@ -32,20 +33,6 @@
 
 #define RECIPIENT_MAX		100
 
-/* FIXME - put this somewhere else */
-/* From aliases.c */
-
-void            aliases_init(void);
-void            aliases_parse(const char *);
-struct alias_entry * aliases_lookup(const char *name);
-
-/* FIXME - put this somewhere else */
-/* From maildir.h */
-
-int             maildir_msg_open(struct message *msg);
-int             open_message(struct message *msg);
-int             maildir_exists(const struct mail_addr *);
-int             maildir_deliver(struct message *);
 static int smtpd_parse_command(struct session *, char *, size_t);
 static int smtpd_parse_data(struct session *, char *, size_t);
 static int smtpd_session_reset(struct session *);
@@ -54,17 +41,8 @@ static int smtp_fsyncer_callback(struct session *s);
 static int
 smtpd_session_reset(struct session *s)
 {
-   if (s->msg != NULL) {
-        s->msg->recipient_count = 0;
-        message_free(s->msg);
-        if ((s->msg = message_new()) == NULL) {
-            session_println(s, "421 Out of memory error");
-            s->smtp_state = SMTP_STATE_QUIT;
-            return (-1);
-        }
-        s->msg->session = s;
-    }
-
+    message_free(&s->msg);
+    message_init(&s->msg);
     s->smtp_state = SMTP_STATE_MAIL;
     return (0);
 }
@@ -93,9 +71,9 @@ smtpd_ehlo(struct session *s, const char *arg)
 static int
 smtpd_mail(struct session *s, const char *arg)
 {
-    if (s->msg->sender != NULL)
-        free(s->msg->sender);
-    if ((s->msg->sender = address_parse(arg)) == NULL) {
+    if (s->msg.sender != NULL)
+        free(s->msg.sender);
+    if ((s->msg.sender = address_parse(arg)) == NULL) {
             session_println(s, "501 Malformed address");
             return (-1);
     }
@@ -112,13 +90,13 @@ smtpd_rcpt(struct session *s, char *line)
     struct mail_addr *ma = NULL;
 
     /* Limit the number of recipients per envelope */
-    if (s->msg->recipient_count > RECIPIENT_MAX) {
+    if (s->msg.recipient_count > RECIPIENT_MAX) {
         session_println(s, "503 Error: Too many recipients");
         goto errout;
     }
 
     /* Require 'MAIL FROM' before 'RCPT TO' */
-    if (s->msg->sender == NULL) {
+    if (s->msg.sender == NULL) {
         session_println(s, "503 Error: need MAIL command first");
         goto errout;
     }
@@ -164,8 +142,8 @@ smtpd_rcpt(struct session *s, char *line)
             goto errout;
             break;
         case 1:
-            LIST_INSERT_HEAD(&s->msg->recipient, ma, entries);
-            s->msg->recipient_count++;
+            LIST_INSERT_HEAD(&s->msg.recipient, ma, entries);
+            s->msg.recipient_count++;
             session_println(s, "250 Ok");
             break;
     }
@@ -185,11 +163,11 @@ smtpd_data(struct session *s, const char *arg)
 {
     log_debug("DATA arg=%s", arg);
 
-    if (s->msg->recipient_count == 0) {
+    if (s->msg.recipient_count == 0) {
         session_println(s, "503 Error: need one or more recipients first");
         return (-1);
     }
-    if (maildir_msg_open(s->msg)) {
+    if (maildir_msg_open(&s->msg, s)) {
         session_println(s, "421 Error creating message");
         s->smtp_state = SMTP_STATE_QUIT;
         return (-1);
@@ -379,25 +357,12 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
                 goto error;
             }
         }
-
-        /* Close the tmp/ file and move it to new/ */
-        if (message_close(s->msg) < 0) {
-            log_error("message_close()");
-            goto error;
-        }
-
-        if (maildir_deliver(s->msg) < 0) {
-            log_error("maildir_deliver()");
-            goto error;
-        }
-
         
+        /* The actual delivery is done in the session_syncer thread */
         if (session_fsync(s, smtp_fsyncer_callback) != 0) {
             log_error("session_fsync()");
             goto error;
         }
-
-        smtpd_session_reset(s); // XXX-FIXME: this is errorhandling
 
         return (0);
     }
@@ -410,7 +375,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 
     /* XXX-FIXME use writev(2) to write multiple lines in one syscall. */
     /* Write the line to the file */
-    if (write(s->msg->fd, src, len) < len) {
+    if (write(s->msg.fd, src, len) < len) {
         log_errno("write(2)");
         goto error;
     }
@@ -428,17 +393,6 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 int
 smtpd_greeting(struct session *s)
 {
-#ifdef XXX_FIXME_DEADWOOD
-    // dont do this until the envelope is accepted [see: spam]
-    //
-    /* Create a message object */
-    if ((s->msg = message_new()) == NULL) {
-        log_error("message_new()");
-        goto err421;
-    } else {
-        s->msg->session = s;
-    }
-#endif
 
     /* Send the initial greeting */
     session_printf(s, "220 %s recvmail/%s\r\n", OPT.mailname, VERSION);
@@ -451,10 +405,7 @@ smtpd_greeting(struct session *s)
 void
 smtpd_accept(struct session *s)
 {
-    if ((s->msg = message_new()) == NULL) {
-        errx(1,"FIXME: error handling (memfree)");
-    }
-    s->msg->session = s;
+    message_init(&s->msg);
     s->handler = smtpd_parser;
     smtpd_greeting(s);
 }
@@ -474,5 +425,5 @@ smtpd_client_error(struct session *s)
 void
 smtpd_close(struct session *s)
 {
-    message_free(s->msg);
+    message_free(&s->msg);
 }
