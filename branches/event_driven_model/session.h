@@ -51,11 +51,15 @@ struct session {
       FSYNC_COMPLETE
     } fsync_state;
 
+
     enum {
       CONTINUE_AFTER_FSYNC = 0,
       QUIT_AFTER_FSYNC,
       RSET_AFTER_FSYNC,
     } fsync_post_action;
+    int dnsbl_res;              /* Result of the DNBSL query */
+    int syncer_res;              /* Result of the syncer call */
+
 
     /* The state determines which SMTP commands are valid */
     enum {
@@ -83,7 +87,6 @@ void            session_free(struct session *s);
 char *          remote_addr(char *dest, size_t len, const struct session *s);
 //struct session * session_lookup(int fd);
 int session_readln(struct session *s);
-int session_fsync(struct session *, int (*)(struct session *));
 
 void session_table_init(void);
 

@@ -1,4 +1,4 @@
-/*		$Id$		*/
+/*		$Id: recvmail.h 115 2009-02-11 02:04:10Z mheily $		*/
 
 /*
  * Copyright (c) 2009 Mark Heily <devel@heily.com>
@@ -15,17 +15,16 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#ifndef _MDA_H
+#define _MDA_H
 
-#ifndef _SMTP_H
-#define _SMTP_H
-
+struct delivery_agent;
 struct session;
 
-void    smtpd_accept(struct session *);
-int     smtpd_parser(struct session *);
-void    smtpd_timeout(struct session *);
-void    smtpd_client_error(struct session *);
-void    smtpd_close(struct session *);
-int     smtp_mda_callback(struct session *);
+struct delivery_agent * mda_new(int);
+void * mda_dispatch(void *);
 
-#endif /* _SMTP_H */
+int    mda_submit(struct delivery_agent *, struct session *);
+int    mda_response(struct session **, struct delivery_agent *);
+
+#endif  /* _DNSBL_H */

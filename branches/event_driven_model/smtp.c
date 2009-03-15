@@ -25,18 +25,21 @@
 #include "log.h"
 #include "options.h"
 #include "maildir.h"
+#include "mda.h"
 #include "message.h"
 #include "session.h"
 #include "poll.h"
 #include "socket.h"
 #include "smtp.h"
 
+#include "server.h"
+extern struct server srv;  //FIXME -- Hide this
+
 #define RECIPIENT_MAX		100
 
 static int smtpd_parse_command(struct session *, char *, size_t);
 static int smtpd_parse_data(struct session *, char *, size_t);
 static int smtpd_session_reset(struct session *);
-static int smtp_fsyncer_callback(struct session *s);
 
 static int
 smtpd_session_reset(struct session *s)
@@ -204,8 +207,8 @@ smtpd_quit(struct session *s)
     return (0);
 }
 
-static int
-smtp_fsyncer_callback(struct session *s)
+int
+smtp_mda_callback(struct session *s)
 {
     s->handler = smtpd_parser;
 
@@ -359,8 +362,14 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
         }
         
         /* The actual delivery is done in the session_syncer thread */
-        if (session_fsync(s, smtp_fsyncer_callback) != 0) {
-            log_error("session_fsync()");
+        /* XXX-FIXME disable READ events but not HUP events */
+        //if (session_poll_disable(s) != 0)
+        //   return (-1);
+        //DEADWOOD - s->handler = cb;
+       
+        //FIXME - hide srv object
+        if (mda_submit(srv.mda, s) < 0) {
+            log_error("mda_submit()");
             goto error;
         }
 

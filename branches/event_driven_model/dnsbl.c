@@ -26,13 +26,10 @@
 
 #include "dnsbl.h"
 #include "session.h"
+#include "workqueue.h"
 #include "log.h"
 
-
-/* Result codes */
-#define DNSBL_NOT_FOUND     (0)
-#define DNSBL_FOUND         (1)
-#define DNSBL_ERROR         (-1)
+static void dnsbl_query(struct session *s, void *udata);
 
 /* Four hour TTL for cached entries. */
 #define DNSBL_CACHE_TTL   (60 * 60 * 4)    
@@ -77,14 +74,11 @@ struct dnsbl {
     unsigned char bad[4][256];
     time_t        refresh;
 
-    /* Query list */
-    TAILQ_HEAD(,session) query;
-    pthread_mutex_t   query_lock;
-    pthread_cond_t    query_pending;
+    struct workqueue *wq;
 };
 
 struct dnsbl *
-dnsbl_new(const char *service)
+dnsbl_new(const char *service, int pfd)
 {
     struct dnsbl *d;
 
@@ -97,26 +91,13 @@ dnsbl_new(const char *service)
         return (NULL);
     }
     d->refresh = time(NULL) + DNSBL_CACHE_TTL;
-    TAILQ_INIT(&d->query);
-    pthread_mutex_init(&d->query_lock, NULL);
-    pthread_cond_init(&d->query_pending, NULL);
+    d->wq = wq_new(pfd, dnsbl_query, d);
 
     return (d);
 }
 
-static void
-dnsbl_response_handler(struct session *s, int res)
-{
-    if (res == DNSBL_FOUND) {
-        log_debug("rejecting client due to DNSBL");
-        session_println(s, "421 ESMTP access denied");
-        session_close(s);
-    } else if (res == DNSBL_NOT_FOUND || res == DNSBL_ERROR) {
-        log_debug("client is not in a DNSBL");
-        session_accept(s);
-    }
-}
-
+#if FIXME
+//broken
 static int
 dnsbl_cache_query(struct dnsbl *d, unsigned int addr)
 {
@@ -134,11 +115,14 @@ dnsbl_cache_query(struct dnsbl *d, unsigned int addr)
     
     return (DNSBL_ERROR);
 }
+#endif
 
 
-int
-dnsbl_query(struct dnsbl *d, unsigned int addr)
+static void
+dnsbl_query(struct session *s, void *udata)
 {
+    struct dnsbl *d = (struct dnsbl *) udata;
+    unsigned int addr;
     char fqdn[256];
     struct addrinfo hints;
     struct addrinfo *ai;
@@ -146,12 +130,17 @@ dnsbl_query(struct dnsbl *d, unsigned int addr)
     int rv;
 
     memcpy(&c, &addr, sizeof(c));  
+    addr = s->remote_addr.s_addr;
 
     /* Generate the FQDN */
     if (snprintf((char *) fqdn, sizeof(fqdn), 
                  "%d.%d.%d.%d.%s",
-                 c[3], c[2], c[1], c[0], d->service) >= sizeof(fqdn))
-        return (DNSBL_ERROR); // TODO: error handling
+                 c[3], c[2], c[1], c[0], d->service) >= sizeof(fqdn)) {
+        s->dnsbl_res = DNSBL_ERROR; // TODO: error handling
+        return;
+    }
+
+    log_debug("query='%s'", (char *) fqdn);
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
@@ -159,13 +148,13 @@ dnsbl_query(struct dnsbl *d, unsigned int addr)
 
     if (rv == EAI_NONAME) {
         DNSBL_CACHE_SET(d->good, c);
-        return (DNSBL_NOT_FOUND);
+        s->dnsbl_res = DNSBL_NOT_FOUND;
     } else if (rv == 0) {
         DNSBL_CACHE_SET(d->bad, c);
         freeaddrinfo(ai);
-        return (DNSBL_FOUND);
+        s->dnsbl_res = DNSBL_FOUND;
     } else {
-        return (DNSBL_ERROR); // TODO: error handling
+        s->dnsbl_res = DNSBL_ERROR;
     }
 }
 
@@ -173,8 +162,11 @@ dnsbl_query(struct dnsbl *d, unsigned int addr)
 int
 dnsbl_submit(struct dnsbl *d, struct session *s)
 {
+#if FIXME
     int res;
 
+    // the cache is broken now
+    
     /* Check the cache */
     res = dnsbl_cache_query(d, s->remote_addr.s_addr);
     if (res != DNSBL_ERROR) {
@@ -185,44 +177,30 @@ dnsbl_submit(struct dnsbl *d, struct session *s)
 
     log_debug("DNSBL cached MISS");
 
-    /* Add the request to the queue */
-    pthread_mutex_lock(&d->query_lock);
-    TAILQ_INSERT_TAIL(&d->query, s, workq_entries);
-    pthread_cond_signal(&d->query_pending);
-    pthread_mutex_unlock(&d->query_lock);
+#endif
 
-    return (0);
+    return wq_submit(d->wq, s);
+}
+
+
+int
+dnsbl_response(struct session **sptr, struct dnsbl *d)
+{
+    return (wq_retrieve(sptr, d->wq));
 }
 
 void *
 dnsbl_dispatch(void *arg)
 {
     struct dnsbl *d = (struct dnsbl *) arg;
-    struct session *s;
-    int res;
-
-    for (;;) {
-
-        log_debug("waiting for work");
-        /* Wait for a work item and remove it from the queue */
-        pthread_mutex_lock(&d->query_lock);
-        while (TAILQ_EMPTY(&d->query)) {
-            pthread_cond_wait(&d->query_pending, &d->query_lock);
-            if ((s = TAILQ_FIRST(&d->query)) == NULL) {
-                continue;
-            }
-        }
-        TAILQ_REMOVE(&d->query, s, workq_entries);
-        pthread_mutex_unlock(&d->query_lock);
-
-        log_debug("querying DNSBL");
-        res = dnsbl_query(d, s->remote_addr.s_addr);
-        dnsbl_response_handler(s, res);
-    }
-
+    wq_dispatch(d->wq);
     return (NULL);
 }
 
+/**
+ * Ensure that the libc stub resolver libraries are dynamically loaded 
+ * prior to chroot(2).
+ */
 int
 dnsbl_init(void)
 {

@@ -26,14 +26,40 @@
 #include <unistd.h>
 
 #include "dnsbl.h"
+#include "mda.h"
 #include "options.h"
 #include "poll.h"
 #include "server.h"
+#include "smtp.h"
 #include "session.h"
 
 struct server srv;
 
 static void drop_privileges(void);
+
+// wierd place for this..
+static void
+dnsbl_response_handler(void)
+{
+    char c;
+    struct session *s;
+
+    (void)read(srv.dnsblfd[0], &c, 1); // FIXME errhandling
+
+    if (dnsbl_response(&s, srv.dnsbl) < 0) {
+        log_error("bad response");
+        return;
+    }
+
+    if (s->dnsbl_res == DNSBL_FOUND) {
+        log_debug("rejecting client due to DNSBL");
+        session_println(s, "421 ESMTP access denied");
+        session_close(s);
+    } else if (s->dnsbl_res == DNSBL_NOT_FOUND || s->dnsbl_res == DNSBL_ERROR) {
+        log_debug("client is not in a DNSBL");
+        session_accept(s);
+    }
+}
 
 // wierd place for this..
 int
@@ -217,14 +243,23 @@ server_init(struct server *_srv)
         return (-1);
     }
 
-    /* Create the sync(2) thread */
-    if (pthread_create(&tid, NULL, session_syncer, &srv) != 0) {
+    /* Create the MDA thread */
+    if (pipe(srv.mdafd) == -1) {
+        log_errno("pipe(2)");
+        return (-1);
+    }
+    srv.mda = mda_new(srv.mdafd[1]);
+    if (pthread_create(&tid, NULL, mda_dispatch, srv.mda) != 0) {
         log_errno("pthread_create(3)");
         return (-1);
     }
 
     /* Create the DNSBL thread */
-    srv.dnsbl = dnsbl_new("zen.spamhaus.org");
+    if (pipe(srv.dnsblfd) == -1) {
+        log_errno("pipe(2)");
+        return (-1);
+    }
+    srv.dnsbl = dnsbl_new("zen.spamhaus.org", srv.dnsblfd[1]);
     if (srv.dnsbl == NULL) {
         log_error("dnsbl_new()");
         return (-1);
@@ -350,9 +385,12 @@ session_read(struct session *s)
 int
 server_dispatch(void)
 {
+    int c;
     int events;
     static int srv_udata;
     static int signal_flag;
+    static int dnsbl_flag;
+    static int mda_flag;
 	struct session *s;
 
     /* Monitor the server descriptor for new connections */
@@ -364,6 +402,23 @@ server_dispatch(void)
     /* Monitor the signal catching thread */
     if (poll_enable(srv.evcb, srv.signalfd[0], &signal_flag, SOCK_CAN_READ) < 0) { 
         log_errno("poll_enable() signalfd %d", srv.signalfd[0]);
+        return (-1);
+    }
+
+    // TODO -- this is hackish having three separate pollfds and the flags
+    // make a generic inter-thread notification system
+    // e.g. server_notify(EVT_SIGNAL | EVT_DNSBL | EVT_MDA)
+    //
+    
+    /* Monitor the DNSBL thread */
+    if (poll_enable(srv.evcb, srv.dnsblfd[0], &dnsbl_flag, SOCK_CAN_READ) < 0) { 
+        log_errno("poll_enable()");
+        return (-1);
+    }
+
+    /* Monitor the syncer thread */
+    if (poll_enable(srv.evcb, srv.mdafd[0], &mda_flag, SOCK_CAN_READ) < 0) { 
+        log_errno("poll_enable()");
         return (-1);
     }
 
@@ -380,6 +435,20 @@ server_dispatch(void)
         /* Special case: a signal was received */
         if (s == (struct session *) &signal_flag) {
             err(1, "todo - sighandling");
+            continue;
+        }
+
+        /* A DNSBL query completed */
+        if (s == (struct session *) &dnsbl_flag) {
+            dnsbl_response_handler();
+            continue;
+        }
+
+        /* A message was delivered */
+        if (s == (struct session *) &mda_flag) {
+            (void)read(srv.mdafd[0], &c, 1); // FIXME errhandling
+            mda_response(&s, srv.mda); // FIXME err handl
+            smtp_mda_callback(s);
             continue;
         }
 
@@ -419,4 +488,3 @@ session_poll_enable(struct session *s)
 {
     return poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ);
 }
-

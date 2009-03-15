@@ -40,12 +40,6 @@ extern int      vasprintf(char **, const char *, va_list);
 static LIST_HEAD(,session) st;
 static pthread_mutex_t     st_mtx;
 
-static TAILQ_HEAD(,session) syncqueue;
-static pthread_cond_t       syncq_not_empty;
-static pthread_mutex_t      syncq_mtx;
-
-static LIST_HEAD(,session) io_wait;
-
 /*
  *
  * PUBLIC FUNCTIONS
@@ -80,12 +74,6 @@ session_write(struct session *s, const char *buf, size_t len)
     char *p;
     struct nbuf *nbp;
 
-#error RACE
-    //need to check if an EOF has occurred before trying to write to an FD
-    //otherwise, the output might have occurred 
-    //actually, it might be better to check for HUPs prior to calling accept(2),
-    //and then scan the session table to invalidate previous sessions (or wait for them to finish)
-    
     /* If the output buffer is empty, try writing directly to the client */
     if (STAILQ_FIRST(&s->out_buf) == NULL) {
         for (;;) {
@@ -268,68 +256,9 @@ session_close(struct session *s)
 }
 
 
-int
-session_fsync(struct session *s, int (*cb)(struct session *))
-{
-    if (poll_disable(srv.evcb, s->fd) != 0)
-        return (-1);
-    s->handler = cb;
-    pthread_mutex_lock(&syncq_mtx);
-    TAILQ_INSERT_TAIL(&syncqueue, s, workq_entries);
-    pthread_cond_signal(&syncq_not_empty);
-    pthread_mutex_unlock(&syncq_mtx);
-
-    return (0);
-}
-
-
-void *
-session_syncer(void *arg)
-{
-//    TAILQ_HEAD(,session) tmp;
-    struct session *s;
-    arg = NULL;
-
-    for (;;) {
-
-        /* Wait for the queue to become non-empty */
-        pthread_mutex_lock(&syncq_mtx);
-        while (TAILQ_EMPTY(&syncqueue)) {
-            pthread_cond_wait(&syncq_not_empty, &syncq_mtx);
-            if (TAILQ_EMPTY(&syncqueue))
-                continue;
-        }
-
-        /* Move all items into a private queue */
-        //memcpy(&tmp, &syncqueue, sizeof(syncqueue));
-        //TAILQ_INIT(&syncqueue);
-        s = TAILQ_FIRST(&syncqueue);
-        TAILQ_REMOVE(&syncqueue, s, workq_entries);
-
-        pthread_mutex_unlock(&syncq_mtx);
-
-        message_fsync(&s->msg); // TODO: error handling
-        maildir_deliver(&s->msg);// TODO: error handling
-        message_close(&s->msg); // TODO: error handling
-        s->handler(s); // FIXME -- do this in worker threads
-        /* XXX-FIXME update state field */
-
-        /* Wait to allow more requests to queue up */
-        // TODO -- is this a good idea?
-        //sleep(5);
-        //log_debug("wakeup");
-    }
-}
-
 void
 session_table_init(void)
 {
     LIST_INIT(&st);
     pthread_mutex_init(&st_mtx, NULL);
-
-    TAILQ_INIT(&syncqueue);
-    pthread_mutex_init(&syncq_mtx, NULL);
-    pthread_cond_init(&syncq_not_empty, NULL);
-
-    LIST_INIT(&io_wait);
 }

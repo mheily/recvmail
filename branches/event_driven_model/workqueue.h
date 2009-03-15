@@ -1,4 +1,4 @@
-/*		$Id$		*/
+/*		$Id: recvmail.h 115 2009-02-11 02:04:10Z mheily $		*/
 
 /*
  * Copyright (c) 2009 Mark Heily <devel@heily.com>
@@ -15,17 +15,16 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-
-#ifndef _SMTP_H
-#define _SMTP_H
+#ifndef _WORKQUEUE_H
+#define _WORKQUEUE_H
 
 struct session;
+struct wq;
 
-void    smtpd_accept(struct session *);
-int     smtpd_parser(struct session *);
-void    smtpd_timeout(struct session *);
-void    smtpd_client_error(struct session *);
-void    smtpd_close(struct session *);
-int     smtp_mda_callback(struct session *);
+struct workqueue * wq_new(int, void (*)(struct session *, void *), void *);
 
-#endif /* _SMTP_H */
+void *      wq_dispatch(struct workqueue *);
+int         wq_submit(struct workqueue *, struct session *);
+int         wq_retrieve(struct session **, struct workqueue *);
+
+#endif  /* _WORKQUEUE_H */
