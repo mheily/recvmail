@@ -16,6 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define NDEBUG
+
 #include <pthread.h>
 #include <stdlib.h>
 #include <unistd.h>

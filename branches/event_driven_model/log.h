@@ -42,8 +42,13 @@ extern int log_level;
 #define log_warning(format,...) _log_all(LOG_WARNING, "WARNING: "format, ## __VA_ARGS__)
 #define log_notice(format,...) _log_all(LOG_NOTICE, format, ## __VA_ARGS__)
 #define log_info(format,...) _log_all(LOG_INFO, format, ## __VA_ARGS__)
-#define log_debug(format,...) _log_all(LOG_DEBUG, format, ## __VA_ARGS__)
 #define log_errno(format,...) _log_all(LOG_ERR, format": %s (errno=%d)", ## __VA_ARGS__, strerror(errno), errno)
+
+#ifndef NDEBUG
+# define log_debug(format,...) _log_all(LOG_DEBUG, format, ## __VA_ARGS__)
+#else
+# define log_debug(format,...) do { ; } while (/*CONSTCOND*/0)
+#endif
 
 /* Emulate macros from <err.h> but use syslog logging instead of stderr */
 /* TODO: make variadic functions instead */
