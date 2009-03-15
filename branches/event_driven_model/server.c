@@ -58,6 +58,8 @@ dnsbl_response_handler(void)
     } else if (s->dnsbl_res == DNSBL_NOT_FOUND || s->dnsbl_res == DNSBL_ERROR) {
         log_debug("client is not in a DNSBL");
         session_accept(s);
+        if (session_read(s) < 0)
+            session_close(s);
     }
 }
 
@@ -337,10 +339,7 @@ server_accept(void)
     log_debug("incoming connection on fd %d", srv.fd);
 
     /* Accept the incoming connection */
-    do { 
-        fd = accept(srv.fd, &srv.sa, &cli_len);
-    } while (fd < 0 && errno == EINTR);
-    if (fd < 0) {
+    if ((fd = accept(srv.fd, &srv.sa, &cli_len)) < 0) {
         log_errno("accept(2)");
         return (NULL);
     }
@@ -355,30 +354,12 @@ server_accept(void)
     else
         s->id = ++srv.next_sid;
 
-//FIXME RACE_CONDITION_HERE
+    /* Monitor the client socket for events */
+    poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ | SOCK_CAN_WRITE);
+
     dnsbl_submit(srv.dnsbl, s);
 
     return (s);
-}
-
-static int
-session_read(struct session *s) 
-{
-    ssize_t n;
-
-    if ((n = socket_readv(&s->in_buf, s->fd)) < 0) {
-        log_info("readln failed");
-        return (-1);
-    } 
-    
-    /* Handle EAGAIN if no data was read. */
-    if (n == 0) {
-            log_debug("got EAGAIN");
-            /* FIXME - Set state to io_wait */
-            return (0);
-    }
-
-    return (s->handler(s));
 }
 
 
@@ -466,15 +447,19 @@ server_dispatch(void)
         }
 
         if (events & SOCK_EOF) {
-                session_close(s);
-                continue;       // FIXME: this will discard anything in the read buffer
+            log_debug("fd %d got EOF", s->fd);
+            s->socket_state = SOCK_EOF;
+            session_close(s);
+            continue;       // FIXME: this will discard anything in the read buffer
         }
         if (events & SOCK_CAN_READ) {
+            s->socket_state |= SOCK_CAN_READ;
             log_debug("fd %d is now readable", s->fd);
             if (session_read(s) < 0)
                 session_close(s);
         }
         if (events & SOCK_CAN_WRITE) {
+            s->socket_state |= SOCK_CAN_WRITE;
             log_debug("fd %d is now writable", s->fd);
             //TODO - flush output buffer, or do something
         }

@@ -62,10 +62,35 @@ void
 session_accept(struct session *s)
 {
     s->handler = smtpd_parser;     // TODO -fix this layering violation
-    poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ);
     log_debug("accepted session on fd %d", s->fd);
     srv.accept_hook(s);
 }
+
+int
+session_read(struct session *s) 
+{
+    ssize_t n = 0;
+
+    if (s->handler == NULL)
+        return (0);
+
+    /* Continue reading data until EAGAIN is returned */
+    do {
+        if ((n = socket_readv(&s->in_buf, s->fd)) < 0) {
+            log_info("readln failed");
+            return (-1);
+        } 
+        if (n > 0) {
+            if (s->handler(s) < 0) 
+                return (-1);
+        } else {
+            s->socket_state &= ~SOCK_CAN_READ; 
+        }
+    } while (n > 0);
+
+    return (0);
+}
+
 
 int
 session_write(struct session *s, const char *buf, size_t len)
@@ -233,6 +258,7 @@ session_close(struct session *s)
 {
     struct nbuf *nbp;
 
+
     log_debug("closing transmission channel");
 
     /* Run any protocol-specific hooks */
@@ -252,7 +278,15 @@ session_close(struct session *s)
     LIST_REMOVE(s, st_entries);
     pthread_mutex_unlock(&st_mtx);
 
-    free(s);
+    /* Don't completely destroy the session if it is still on
+     * a work queue.
+     */
+    if (s->refcount > 0) {
+        s->refcount--;
+        s->fd = -1;
+    } else {
+        free(s);
+    }
 }
 
 

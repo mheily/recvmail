@@ -43,7 +43,7 @@ poll_new(void)
         return (NULL);
     e->cur = &e->evt[0];
     e->cnt = 0;
-    if ((e->pfd = epoll_create(50000)) < 0) {
+    if ((e->pfd = epoll_create(1)) < 0) {
         free(e);
         return (NULL); 
     }
@@ -76,7 +76,7 @@ poll_wait(struct evcb *e, int *events)
         *events |= SOCK_CAN_READ;
     if (e->cur->events & EPOLLOUT) 
         *events |= SOCK_CAN_WRITE;
-    if (e->cur->events & EPOLLHUP) 
+    if (e->cur->events & EPOLLHUP || e->cur->events & EPOLLRDHUP) 
         *events |= SOCK_EOF;
     if (e->cur->events & EPOLLERR) 
         *events |= SOCK_ERROR;
@@ -97,7 +97,7 @@ poll_enable(struct evcb *e, int fd, void *udata, int events)
 {
     struct epoll_event ev;
 
-    ev.events = 0;                  /* TODO: use EPOLLET */
+    ev.events = EPOLLET | EPOLLRDHUP;
     if (events & SOCK_CAN_READ)
         ev.events |= EPOLLIN;
     if (events & SOCK_CAN_WRITE)

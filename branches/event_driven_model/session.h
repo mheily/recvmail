@@ -35,6 +35,7 @@ struct session {
                                           * This MUST be the first element in the structure.
                                           */ 
     unsigned long   id;             /* Session ID */
+    unsigned int    socket_state;   /* SOCK_CAN_READ | SOCK_CAN_WRITE, etc. */
 
     int             fd;		        /* The client socket descriptor */
     int flags;          // see SFL_*
@@ -70,18 +71,20 @@ struct session {
         SMTP_STATE_FSYNC,
         SMTP_STATE_QUIT,
     } smtp_state;
-    unsigned int    errors;	/* The number of protocol errors */
+    unsigned int    errors;	    /* The number of protocol errors */
+    unsigned int    refcount;	/* Reference counter */
 
     /* ---------- end protocol specific members ---------- */
 
     LIST_ENTRY(session)  st_entries;
     TAILQ_ENTRY(session) workq_entries;
 };
-
-int  session_write(struct session *, const char *, size_t size);
-int  session_printf(struct session *, const char *, ...);
-int  session_println(struct session *, const char *);
-void            session_close(struct session *s);
+    
+int     session_read(struct session *);
+int     session_write(struct session *, const char *, size_t size);
+int     session_printf(struct session *, const char *, ...);
+int     session_println(struct session *, const char *);
+void    session_close(struct session *);
 struct session * session_new(int fd);
 void            session_free(struct session *s);
 char *          remote_addr(char *dest, size_t len, const struct session *s);
@@ -89,10 +92,6 @@ char *          remote_addr(char *dest, size_t len, const struct session *s);
 int session_readln(struct session *s);
 
 void session_table_init(void);
-
-void    sched_enqueue(struct session *);
-void    sched_dequeue(struct session *);
-void *  session_syncer(void *arg);
 
 int     session_poll_enable(struct session *); //in server.c
 void    session_accept(struct session *);

@@ -69,16 +69,11 @@ wq_new(int pfd, void (*cb)(struct session *, void *), void *udata)
 int
 wq_submit(struct workqueue *wq, struct session *s)
 {
-    log_debug("submitting item");
-    if (pthread_mutex_lock(&wq->req_mtx) != 0)
-        err(1, "pthread_mutex_lock(3)");
+    s->refcount++;
+    pthread_mutex_lock(&wq->req_mtx);
     TAILQ_INSERT_TAIL(&wq->req, s, workq_entries);
-    if (pthread_cond_signal(&wq->req_pending) != 0)
-        err(1, "pthread_cond_signal(3)");
-    if (pthread_mutex_unlock(&wq->req_mtx) != 0)
-        err(1, "pthread_mutex_lock(3)");
-    log_debug("submitted item");
-
+    pthread_cond_signal(&wq->req_pending);
+    pthread_mutex_unlock(&wq->req_mtx);
     return (0);
 }
 
@@ -88,14 +83,19 @@ wq_retrieve(struct session **sptr, struct workqueue *wq)
 {
     struct session *s;
 
-    if (pthread_mutex_lock(&wq->res_mtx) != 0)
-        err(1, "pthread_mutex_lock(3)");
+    pthread_mutex_lock(&wq->res_mtx);
     s = TAILQ_FIRST(&wq->res);
     if (s != NULL) {
         TAILQ_REMOVE(&wq->res, s, workq_entries);
     }
-    if (pthread_mutex_unlock(&wq->res_mtx) != 0)
-        err(1, "pthread_mutex_unlock(3)");
+    pthread_mutex_unlock(&wq->res_mtx);
+
+    if (s->refcount > 0) {
+        s->refcount--;
+    } else {
+        session_close(s);
+        s = NULL;
+    }
     
     if (s != NULL) {
         *sptr = s;
