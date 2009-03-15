@@ -135,7 +135,11 @@ dnsbl_query(struct session *s, void *udata)
     /* Generate the FQDN */
     if (snprintf((char *) fqdn, sizeof(fqdn), 
                  "%d.%d.%d.%d.%s",
-                 c[3], c[2], c[1], c[0], d->service) >= sizeof(fqdn)) {
+                 (int)((ntohl(addr) >> 0) & 0xff),
+                 (int)((ntohl(addr) >> 8) & 0xff), 
+                 (int)((ntohl(addr) >> 16) & 0xff), 
+                 (int)((ntohl(addr) >> 24) & 0xff), 
+                 d->service) >= sizeof(fqdn)) {
         s->dnsbl_res = DNSBL_ERROR; // TODO: error handling
         return;
     }
