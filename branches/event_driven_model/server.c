@@ -429,7 +429,9 @@ server_dispatch(void)
         if (s == (struct session *) &mda_flag) {
             (void)read(srv.mdafd[0], &c, 1); // FIXME errhandling
             mda_response(&s, srv.mda); // FIXME err handl
-            smtp_mda_callback(s);
+            if (s != NULL) {
+                smtp_mda_callback(s);
+            }
             continue;
         }
 

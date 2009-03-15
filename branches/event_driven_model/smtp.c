@@ -223,10 +223,10 @@ smtp_mda_callback(struct session *s)
     if (s->fsync_post_action == RSET_AFTER_FSYNC) 
         (void) smtpd_rset(s);
 
-    /* Wait for more data */
-    session_poll_enable(s);
-
-    return (0);
+    if (s->socket_state & SOCK_CAN_READ) 
+        return session_read(s);
+    else
+        return (0);
 }
 
 int

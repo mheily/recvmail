@@ -51,7 +51,6 @@ mda_deliver(struct session *s, void *udata)
     message_fsync(&s->msg); // TODO: error handling
     maildir_deliver(&s->msg);// TODO: error handling
     message_close(&s->msg); // TODO: error handling
-    s->handler(s); // FIXME -- do this in worker threads
     /* XXX-FIXME update state field */
 }
 
