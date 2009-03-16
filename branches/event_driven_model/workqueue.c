@@ -97,14 +97,16 @@ wq_retrieve(struct session **sptr, struct workqueue *wq)
     }
     pthread_mutex_unlock(&wq->res_mtx);
 
-    if (s->refcount > 0) {
-        s->refcount--;
-    } else {
-        session_close(s);
-        s = NULL;
-    }
-    
     if (s != NULL) {
+
+        if (s->refcount > 0) {
+            s->refcount--;
+        } else {
+            session_close(s);
+            *sptr = NULL;
+            return (-1);
+        }
+    
         *sptr = s;
         return (0);
     } else {

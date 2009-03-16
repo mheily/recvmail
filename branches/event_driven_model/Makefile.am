@@ -54,6 +54,9 @@ valgrind:
 hammer:
 	while [ 1 -eq 1 ] ; do make loopback ; rm /var/spool/recvmail/new/*; done
 
+hammer2:
+	time /usr/sbin/smtp-source -s 50 -m 100 -t example@example.com localhost:1025
+
 # Use GNU indent to re-indent the entire source tree
 indent:
 	indent -orig -ncdb -nfc1 *.[ch]
