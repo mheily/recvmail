@@ -248,9 +248,7 @@ server_init(struct server *_srv)
     }
 
     /* Enable coredumps */
-    if (getrlimit(RLIMIT_CORE, &limit) != 0)
-        err(1, "getrlimit failed");
-    limit.rlim_cur = RLIM_INFINITY;
+    limit.rlim_cur = limit.rlim_max = RLIM_INFINITY;
     if (setrlimit(RLIMIT_CORE, &limit) != 0)
         err(1, "setrlimit failed");
 
