@@ -26,8 +26,10 @@
 
 struct evcb;
 struct evcb * poll_new(void);
-int poll_disable(struct evcb *, int);
-int poll_enable(struct evcb *, int, void *, int);
-void * poll_wait(struct evcb *, int *);
+
+int     poll_disable(struct evcb *, int);
+int     poll_enable(struct evcb *, int, void *, int);
+void *  poll_wait(struct evcb *, int *);
+void    poll_shutdown(struct evcb *);
 
 #endif /* _POLL_H */

@@ -67,6 +67,11 @@ wq_new(int pfd, void (*cb)(struct session *, void *), void *udata)
     return (wq);
 }
 
+void
+wq_free(struct workqueue *wq)
+{
+    free(wq);
+}
 
 int
 wq_submit(struct workqueue *wq, struct session *s)

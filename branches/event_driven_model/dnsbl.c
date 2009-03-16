@@ -96,6 +96,14 @@ dnsbl_new(const char *service, int pfd)
     return (d);
 }
 
+void
+dnsbl_free(struct dnsbl *d)
+{
+    free(d->service);
+    wq_free(d->wq); 
+    free(d);
+}
+
 #if FIXME
 //broken
 static int
@@ -215,12 +223,11 @@ dnsbl_init(void)
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     rv = getaddrinfo("www.recvmail.org", NULL, NULL, &ai);
+    freeaddrinfo(ai);
     if (rv == EAI_NONAME) {
         log_warning("DNS resolution failed -- check your DNS configuration and network connectivity");
-        freeaddrinfo(ai);
         return (0);
     } else if (rv == 0) {
-        freeaddrinfo(ai);
         return (0);
     } else {
         log_error("DNS resolution failed: internal resolver error");

@@ -18,6 +18,7 @@
 
 #include <stdlib.h>
 #include <errno.h>
+#include <unistd.h>
 
 #include "epoll.h"
 #include "poll.h"
@@ -48,6 +49,12 @@ poll_new(void)
         return (NULL); 
     }
     return (e);
+}
+
+void
+poll_shutdown(struct evcb *e)
+{
+    close(e->pfd);
 }
 
 /* ------------------------- pollset handling functions -----------------*/

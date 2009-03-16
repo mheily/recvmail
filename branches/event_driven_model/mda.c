@@ -44,6 +44,13 @@ mda_new(int pfd)
     return (mda);
 }
 
+void
+mda_free(struct delivery_agent *mda)
+{
+    wq_free(mda->wq);
+    free(mda);
+}
+
 static void
 mda_deliver(struct session *s, void *udata)
 {

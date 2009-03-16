@@ -261,7 +261,6 @@ session_close(struct session *s)
 {
     struct nbuf *nbp;
 
-
     log_debug("closing transmission channel");
 
     /* Run any protocol-specific hooks */

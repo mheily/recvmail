@@ -26,5 +26,6 @@ struct workqueue * wq_new(int, void (*)(struct session *, void *), void *);
 void *      wq_dispatch(struct workqueue *);
 int         wq_submit(struct workqueue *, struct session *);
 int         wq_retrieve(struct session **, struct workqueue *);
+void        wq_free(struct workqueue *);
 
 #endif  /* _WORKQUEUE_H */

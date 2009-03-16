@@ -33,5 +33,6 @@ struct alias_entry {
 struct alias_entry * aliases_lookup(const char *);
 void aliases_parse(const char *);
 void aliases_init(void);
+void aliases_free(void);
 
 #endif  /* _ALIASES_H */

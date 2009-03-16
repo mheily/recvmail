@@ -33,5 +33,6 @@ void *      dnsbl_dispatch(void *);
 int         dnsbl_submit(struct dnsbl *, struct session *);
 int         dnsbl_response(struct session **, struct dnsbl *);
 int         dnsbl_init(void);
+void        dnsbl_free(struct dnsbl *);
 
 #endif  /* _DNSBL_H */

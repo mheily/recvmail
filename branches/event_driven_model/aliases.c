@@ -35,6 +35,14 @@ aliases_lookup(const char *name)
 }
 
 static void
+alias_entry_free(struct alias_entry *ae)
+{
+    free(ae->name);
+    free(ae->addr);
+    free(ae);
+}
+
+static void
 aliases_add(const char *name, const char *addr)
 {
     struct alias_entry *ae;
@@ -104,6 +112,20 @@ aliases_parse(const char *path)
     /*log_debug("loaded %d aliases", count);*/
     if (fclose(f) != 0)
         err(1, "fclose(2) of aliases");
+}
+
+void
+aliases_free(void)
+{
+    struct alias_entry *ae;
+
+    HASH_FOREACH(ae, &alias_map, hashent) {
+        HASH_REMOVE(ae, hashent);
+    }
+    while ((ae = LIST_FIRST(&aliases)) != NULL) {
+        LIST_REMOVE(ae, entries);
+        alias_entry_free(ae);
+    }
 }
 
 void

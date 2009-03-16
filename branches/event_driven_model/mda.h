@@ -22,6 +22,7 @@ struct delivery_agent;
 struct session;
 
 struct delivery_agent * mda_new(int);
+void   mda_free(struct delivery_agent *);
 void * mda_dispatch(void *);
 
 int    mda_submit(struct delivery_agent *, struct session *);

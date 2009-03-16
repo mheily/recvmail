@@ -32,6 +32,7 @@
 #include "server.h"
 #include "smtp.h"
 #include "session.h"
+#include "aliases.h"
 
 struct server srv;
 
@@ -134,6 +135,7 @@ set_signal_mask(int how)
     sigset_t set;
     struct sigaction sa;
 
+    memset(&sa, 0, sizeof(sa));
     sigemptyset(&set);
     sigaddset(&set, SIGINT);
     sigaddset(&set, SIGHUP);
@@ -153,14 +155,43 @@ set_signal_mask(int how)
 static void *
 signal_handler(void *arg)
 {
-    char c;
+    char c = '\0';
     struct server *srv = (struct server *) arg;
 
     set_signal_mask(SIG_UNBLOCK);
     for (;;) {
         pause();
-        puts("gotcha");
         write(srv->signalfd[1], &c, 1);
+    }
+}
+
+static void
+server_shutdown(void)
+{
+    //TODO: wait for MDA to complete
+    //TODO: wait for DNSBL to complete
+    mda_free(srv.mda);
+    dnsbl_free(srv.dnsbl);
+    //TODO: shutdown the MDA and DNSBL threads
+    aliases_free();
+
+    close(srv.fd);
+    close(srv.signalfd[0]);
+    close(srv.signalfd[1]);
+    close(srv.dnsblfd[0]);
+    close(srv.dnsblfd[1]);
+    close(srv.mdafd[0]);
+    close(srv.mdafd[1]);
+
+    poll_shutdown(srv.evcb);
+    free(srv.evcb);
+
+    closelog();
+
+    if (!OPT.daemon) {
+        close(0);
+        close(1);
+        close(2);
     }
 }
 
@@ -415,8 +446,8 @@ server_dispatch(void)
 
         /* Special case: a signal was received */
         if (s == (struct session *) &signal_flag) {
+            server_shutdown();
             err(1, "todo - sighandling");
-            continue;
         }
 
         /* A DNSBL query completed */
@@ -448,23 +479,31 @@ server_dispatch(void)
             continue;
         }
 
+        s->socket_state = events;
+
         if (events & SOCK_EOF) {
             log_debug("fd %d got EOF", s->fd);
             s->socket_state = SOCK_EOF;
+            poll_disable(srv.evcb, s->fd);
             session_close(s);
             continue;       // FIXME: this will discard anything in the read buffer
         }
         if (events & SOCK_CAN_READ) {
             s->socket_state |= SOCK_CAN_READ;
             log_debug("fd %d is now readable", s->fd);
-            if (session_read(s) < 0)
+            if (session_read(s) < 0) 
                 session_close(s);
         }
+#if FIXME
+        // implement output buffreing
         if (events & SOCK_CAN_WRITE) {
-            s->socket_state |= SOCK_CAN_WRITE;
-            log_debug("fd %d is now writable", s->fd);
+            if (s->fd < 0) 
+                log_debug("fd %d is writable (session terminated)", s->fd);
+            else
+                log_debug("fd %d is now writable", s->fd);
             //TODO - flush output buffer, or do something
         }
+#endif
     }
 
     return (0);
