@@ -74,12 +74,15 @@ session_read(struct session *s)
     if (s->handler == NULL)
         return (0);
 
+    log_debug("reading data from client");
+
     /* Continue reading data until EAGAIN is returned */
     do {
         if ((n = socket_readv(&s->in_buf, s->fd)) < 0) {
             log_info("readln failed");
             return (-1);
         } 
+        log_debug("read: %zu bytes", n);
         if (n > 0) {
             if (s->handler(s) < 0) 
                 return (-1);

@@ -211,7 +211,9 @@ int
 smtp_mda_callback(struct session *s)
 {
     s->handler = smtpd_parser;
+    smtpd_session_reset(s);
 
+    log_debug("callback");
     session_println(s, "250 Message delivered");
 
     if (s->fsync_post_action == QUIT_AFTER_FSYNC) {
@@ -223,10 +225,13 @@ smtp_mda_callback(struct session *s)
     if (s->fsync_post_action == RSET_AFTER_FSYNC) 
         (void) smtpd_rset(s);
 
+        return session_read(s);
+#if FIXME
     if (s->socket_state & SOCK_CAN_READ) 
         return session_read(s);
     else
         return (0);
+#endif
 }
 
 int
@@ -365,9 +370,9 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
         /* XXX-FIXME disable READ events but not HUP events */
         //if (session_poll_disable(s) != 0)
         //   return (-1);
-        //DEADWOOD - s->handler = cb;
        
         //FIXME - hide srv object
+        s->handler = NULL;
         if (mda_submit(srv.mda, s) < 0) {
             log_error("mda_submit()");
             goto error;

@@ -37,6 +37,9 @@ check_PROGRAMS   = selftest
 loopback:
 	printf "helo a\nmail from:abc@def.ghi\nrcpt to:example@example.com\ndata\nSubject: hi\n\nHello\n.\nquit\n" | nc localhost 1025
 
+loopback2:
+	/usr/sbin/smtp-source -v -t example@example.com localhost:1025
+
 debug: 
 	ulimit -c 999999; rm core; pkill recvmail; make && ( ./recvmail -fv & ) && sleep 1 && echo -e 'helo\nmail from:abc@def.ghi\nrcpt to:test@test.com\nquit' | nc localhost 1025
 	test -e /var/mail/core && gdb ./recvmail -c /var/mail/core  || true

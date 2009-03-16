@@ -140,14 +140,15 @@ socket_readv(struct socket_buf *sb, int fd)
 
     nbuf += n;
 
-#ifdef DEADWOOD
+#ifndef DEADWOOD
     //for debugging
     //
     bufp = (char *) &buf;       //to un-fragment
     bufp[nbuf] = '\0';          //FIXME: temp for debugging
     log_debug("read %zu bytes: `%s'", nbuf, bufp);
-#endif
+#else
     log_debug("read %zu bytes", nbuf);
+#endif
 
     /* Compute the address of the end of the buffer */
     buf_edge = ((char *) &buf) + nbuf;
