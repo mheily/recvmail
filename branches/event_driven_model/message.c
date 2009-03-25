@@ -22,11 +22,16 @@
 #include "message.h"
 #include "log.h"
 
-void
-message_init(struct message *msg)
+struct message *
+message_new(void)
 {
-    memset(msg, 0, sizeof(*msg));
+    struct message *msg;
+
+    if ((msg = calloc(1, sizeof(*msg))) == NULL)
+        return (NULL);
+
     LIST_INIT(&msg->recipient);
+    return (msg);
 }
 
 int
@@ -46,6 +51,9 @@ message_free(struct message *msg)
 {
     struct mail_addr *var, *nxt;
 
+    if (msg == NULL)
+        return;
+
     log_debug("freeing the message");
     free(msg->path);
     address_free(msg->sender);
@@ -56,6 +64,7 @@ message_free(struct message *msg)
         nxt = LIST_NEXT(var, entries);
         address_free(var);
     }
+    free(msg);
 }
 
 

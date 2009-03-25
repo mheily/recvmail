@@ -18,14 +18,29 @@
 #ifndef _WORKQUEUE_H
 #define _WORKQUEUE_H
 
-struct session;
-struct wq;
+struct work {
+    unsigned long sid;
+    int argc;
+    union {
+        unsigned int u_i;
+        unsigned long u_l;
+        void *ptr;
+    } argv0;
+    int retval;
+};
 
-struct workqueue * wq_new(int, void (*)(struct session *, void *), void *);
+struct wq;
+struct evcb;
+struct session;
+
+struct workqueue *
+wq_new( void (*)(struct work *, void *),
+        void (*)(struct session *, int), 
+        void *);
 
 void *      wq_dispatch(struct workqueue *);
-int         wq_submit(struct workqueue *, struct session *);
-int         wq_retrieve(struct session **, struct workqueue *);
+int         wq_submit(struct workqueue *, struct work);
+int         wq_retrieve(struct work *, struct workqueue *);
 void        wq_free(struct workqueue *);
 
 #endif  /* _WORKQUEUE_H */

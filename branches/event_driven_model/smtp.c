@@ -31,6 +31,7 @@
 #include "poll.h"
 #include "socket.h"
 #include "smtp.h"
+#include "workqueue.h"
 
 #include "server.h"
 extern struct server srv;  //FIXME -- Hide this
@@ -41,11 +42,45 @@ static int smtpd_parse_command(struct session *, char *, size_t);
 static int smtpd_parse_data(struct session *, char *, size_t);
 static int smtpd_session_reset(struct session *);
 
+static int smtpd_quit(struct session *s);
+static int smtpd_rset(struct session *s);
+
+void
+smtp_mda_callback(struct session *s, int retval)
+{
+    s->handler = smtpd_parser;
+    smtpd_session_reset(s);
+
+    //FIXME: check retval, delivery might have failed
+    log_debug("callback");
+    session_println(s, "250 Message delivered");
+
+    if (s->fsync_post_action == QUIT_AFTER_FSYNC) {
+        (void) smtpd_quit(s);
+        session_close(s);
+        return;
+    }
+
+    if (s->fsync_post_action == RSET_AFTER_FSYNC) 
+        (void) smtpd_rset(s);
+
+#if FIXME
+    // this done here?
+    if (s->socket_state & SOCK_CAN_READ) { 
+        session_read(s);
+#endif
+}
+
 static int
 smtpd_session_reset(struct session *s)
 {
-    message_free(&s->msg);
-    message_init(&s->msg);
+    message_free(s->msg);
+    s->msg = message_new();
+    if (s->msg == NULL) {
+        log_errno("calloc(3)");
+        return (-1);
+    }
+
     s->smtp_state = SMTP_STATE_MAIL;
     return (0);
 }
@@ -74,9 +109,9 @@ smtpd_ehlo(struct session *s, const char *arg)
 static int
 smtpd_mail(struct session *s, const char *arg)
 {
-    if (s->msg.sender != NULL)
-        free(s->msg.sender);
-    if ((s->msg.sender = address_parse(arg)) == NULL) {
+    if (s->msg->sender != NULL)
+        free(s->msg->sender);
+    if ((s->msg->sender = address_parse(arg)) == NULL) {
             session_println(s, "501 Malformed address");
             return (-1);
     }
@@ -93,13 +128,13 @@ smtpd_rcpt(struct session *s, char *line)
     struct mail_addr *ma = NULL;
 
     /* Limit the number of recipients per envelope */
-    if (s->msg.recipient_count > RECIPIENT_MAX) {
+    if (s->msg->recipient_count > RECIPIENT_MAX) {
         session_println(s, "503 Error: Too many recipients");
         goto errout;
     }
 
     /* Require 'MAIL FROM' before 'RCPT TO' */
-    if (s->msg.sender == NULL) {
+    if (s->msg->sender == NULL) {
         session_println(s, "503 Error: need MAIL command first");
         goto errout;
     }
@@ -145,8 +180,8 @@ smtpd_rcpt(struct session *s, char *line)
             goto errout;
             break;
         case 1:
-            LIST_INSERT_HEAD(&s->msg.recipient, ma, entries);
-            s->msg.recipient_count++;
+            LIST_INSERT_HEAD(&s->msg->recipient, ma, entries);
+            s->msg->recipient_count++;
             session_println(s, "250 Ok");
             break;
     }
@@ -166,11 +201,11 @@ smtpd_data(struct session *s, const char *arg)
 {
     log_debug("DATA arg=%s", arg);
 
-    if (s->msg.recipient_count == 0) {
+    if (s->msg->recipient_count == 0) {
         session_println(s, "503 Error: need one or more recipients first");
         return (-1);
     }
-    if (maildir_msg_open(&s->msg, s)) {
+    if (maildir_msg_open(s->msg, s)) {
         session_println(s, "421 Error creating message");
         s->smtp_state = SMTP_STATE_QUIT;
         return (-1);
@@ -205,30 +240,6 @@ smtpd_quit(struct session *s)
     session_println(s, "221 Bye");
     s->smtp_state = SMTP_STATE_QUIT;
     return (0);
-}
-
-int
-smtp_mda_callback(struct session *s)
-{
-    s->handler = smtpd_parser;
-    smtpd_session_reset(s);
-
-    log_debug("callback");
-    session_println(s, "250 Message delivered");
-
-    if (s->fsync_post_action == QUIT_AFTER_FSYNC) {
-        (void) smtpd_quit(s);
-        session_close(s);
-        return (0);
-    }
-
-    if (s->fsync_post_action == RSET_AFTER_FSYNC) 
-        (void) smtpd_rset(s);
-
-    if (s->socket_state & SOCK_CAN_READ) 
-        return session_read(s);
-    else
-        return (0);
 }
 
 int
@@ -370,10 +381,14 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
        
         //FIXME - hide srv object
         s->handler = NULL;
-        if (mda_submit(srv.mda, s) < 0) {
+        if (mda_submit(srv.mda, s->id, s->msg) < 0) {
             log_error("mda_submit()");
             goto error;
         }
+
+        /* After submitting the message, the 'msg' object becomes 
+         * property of the MDA thread. */
+        s->msg = NULL;
 
         return (0);
     }
@@ -386,7 +401,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 
     /* XXX-FIXME use writev(2) to write multiple lines in one syscall. */
     /* Write the line to the file */
-    if (write(s->msg.fd, src, len) < len) {
+    if (write(s->msg->fd, src, len) < len) {
         log_errno("write(2)");
         goto error;
     }
@@ -416,7 +431,6 @@ smtpd_greeting(struct session *s)
 void
 smtpd_accept(struct session *s)
 {
-    message_init(&s->msg);
     s->handler = smtpd_parser;
     smtpd_greeting(s);
 }
@@ -436,5 +450,6 @@ smtpd_client_error(struct session *s)
 void
 smtpd_close(struct session *s)
 {
-    message_free(&s->msg);
+    message_free(s->msg);
+    s->msg = NULL;
 }

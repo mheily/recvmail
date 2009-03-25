@@ -25,9 +25,9 @@
 
 struct dnsbl;
 struct session;
+struct evcb;
 
-struct dnsbl * 
-            dnsbl_new(const char *, int);
+struct dnsbl * dnsbl_new(const char *);
 
 void *      dnsbl_dispatch(void *);
 int         dnsbl_submit(struct dnsbl *, struct session *);

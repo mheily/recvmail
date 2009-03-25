@@ -193,18 +193,20 @@ session_println(struct session *s, const char *buf)
 }
 
 struct session *
-session_new(int fd)
+session_new(void)
 {
     struct session *s;
-    struct sockaddr_in name;
-    socklen_t       namelen = sizeof(name);
 
     /* Allocate memory for the structure */
     if ((s = calloc(1, sizeof(*s))) == NULL) {
         log_errno("calloc(3)");
-        return NULL;
+        return (NULL);
     }
-    s->fd = fd;
+    if ((s->msg = message_new()) == NULL) {
+        free(s);
+        log_errno("message_new()");
+        return (NULL);
+    }
 
     /* Initialize the input buffer */
     memset(&s->in_buf, 0, sizeof(s->in_buf));
@@ -212,32 +214,12 @@ session_new(int fd)
     /* Initialize the output buffer */
     STAILQ_INIT(&s->out_buf);
 
-    /* Determine the IP address of the client */
-    if (getpeername(s->fd, (struct sockaddr *) &name, &namelen) < 0) {
-            log_errno("getpeername(2)");
-            goto errout;
-
-    }
-    s->remote_addr = name.sin_addr;
-
-    /* Use non-blocking I/O */
-    if (fcntl(s->fd, F_SETFL, O_NONBLOCK) < 0) {
-            log_errno("fcntl(2)");
-            goto errout;
-    }
-
-    /* TODO: Determine the reverse DNS name for the host */
-
     /* Add to the session table */
     pthread_mutex_lock(&st_mtx);
     LIST_INSERT_HEAD(&st, s, st_entries);
     pthread_mutex_unlock(&st_mtx);
 
     return (s);
-
-errout:
-    free(s);
-    return (NULL);
 }
 
 int
@@ -280,17 +262,58 @@ session_close(struct session *s)
     LIST_REMOVE(s, st_entries);
     pthread_mutex_unlock(&st_mtx);
 
-    /* Don't completely destroy the session if it is still on
-     * a work queue.
-     */
-    if (s->refcount > 0) {
-        s->refcount--;
-        s->fd = -1;
-    } else {
-        free(s);
-    }
+    free(s);
 }
 
+
+void
+session_handler(void *sptr, int events)
+{
+    struct session *s = (struct session *) sptr;
+    s->socket_state = events;
+
+    if (events & SOCK_EOF) {
+        log_debug("fd %d got EOF", s->fd);
+        s->socket_state = SOCK_EOF;
+        poll_disable(srv.evcb, s->fd);
+        session_close(s);
+        return;       // FIXME: this will discard anything in the read buffer
+    }
+    if (events & SOCK_CAN_READ) {
+        s->socket_state |= SOCK_CAN_READ;
+        log_debug("fd %d is now readable", s->fd);
+        if (session_read(s) < 0) 
+            session_close(s);
+    }
+#if FIXME
+    // implement output buffreing
+    if (events & SOCK_CAN_WRITE) {
+        if (s->fd < 0) 
+            log_debug("fd %d is writable (session terminated)", s->fd);
+        else
+            log_debug("fd %d is now writable", s->fd);
+        //TODO - flush output buffer, or do something
+    }
+#endif
+}
+
+int
+session_table_lookup(struct session **sptr, unsigned long sid)
+{
+    struct session *s;
+   
+    // TODO: use a binary tree
+   
+    LIST_FOREACH(s, &st, st_entries) {
+        if (s->id == sid) {
+            *sptr = s;
+            return (0);
+        }
+    }
+
+    *sptr = NULL;
+    return (-1);
+}
 
 void
 session_table_init(void)

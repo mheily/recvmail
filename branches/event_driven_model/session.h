@@ -45,7 +45,7 @@ struct session {
 
     /* ---------- protocol specific members ------------ */
 
-    struct message msg;
+    struct message *msg;
 
     enum {
       FSYNC_PENDING = 0,
@@ -72,12 +72,10 @@ struct session {
         SMTP_STATE_QUIT,
     } smtp_state;
     unsigned int    errors;	    /* The number of protocol errors */
-    unsigned int    refcount;	/* Reference counter */
 
     /* ---------- end protocol specific members ---------- */
 
     LIST_ENTRY(session)  st_entries;
-    TAILQ_ENTRY(session) workq_entries;
 };
     
 int     session_read(struct session *);
@@ -85,15 +83,16 @@ int     session_write(struct session *, const char *, size_t size);
 int     session_printf(struct session *, const char *, ...);
 int     session_println(struct session *, const char *);
 void    session_close(struct session *);
-struct session * session_new(int fd);
+struct session * session_new(void);
 void            session_free(struct session *s);
 char *          remote_addr(char *dest, size_t len, const struct session *s);
 //struct session * session_lookup(int fd);
 int session_readln(struct session *s);
 
-void session_table_init(void);
+void    session_table_init(void);
+int     session_table_lookup(struct session **, unsigned long);
 
-int     session_poll_enable(struct session *); //in server.c
 void    session_accept(struct session *);
+void    session_handler(void *, int);
 
 #endif /* _SESSION_H */

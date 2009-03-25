@@ -22,24 +22,24 @@
 #include "session.h"
 #include "maildir.h"
 #include "mda.h"
+#include "smtp.h"
 #include "workqueue.h"
 
 struct delivery_agent {
     struct workqueue *wq;
 };
 
-static void mda_deliver(struct session *s, void *udata);
-
+static void mda_deliver(struct work *wqa, void *udata);
 
 struct delivery_agent *
-mda_new(int pfd)
+mda_new(void)
 {
     struct delivery_agent *mda;
 
     if ((mda = calloc(1, sizeof(*mda))) == NULL)
         return (NULL);
 
-    mda->wq = wq_new(pfd, mda_deliver, mda);
+    mda->wq = wq_new(mda_deliver, smtp_mda_callback, mda);
 
     return (mda);
 }
@@ -52,26 +52,30 @@ mda_free(struct delivery_agent *mda)
 }
 
 static void
-mda_deliver(struct session *s, void *udata)
+mda_deliver(struct work *wqa, void *udata)
 {
+    struct message *msg;
     log_debug("delivering");
-    message_fsync(&s->msg); // TODO: error handling
-    maildir_deliver(&s->msg);// TODO: error handling
-    message_close(&s->msg); // TODO: error handling
+    // FIXME:msg object needs to be made wqa->ptr
+    msg = (struct message *) wqa->argv0.ptr;
+    message_fsync(msg); // TODO: error handling
+    maildir_deliver(msg);// TODO: error handling
+    message_close(msg); // TODO: error handling
+    message_free(msg);
     /* XXX-FIXME update state field */
 }
 
 
 int
-mda_submit(struct delivery_agent *mda, struct session *s)
+mda_submit(struct delivery_agent *mda, unsigned long sid, struct message *msg)
 {
-    return wq_submit(mda->wq, s);
-}
+    struct work w;
 
-int
-mda_response(struct session **sptr, struct delivery_agent *mda)
-{
-    return wq_retrieve(sptr, mda->wq);
+    w.sid = sid;
+    w.argc = 1;
+    w.argv0.ptr = msg;
+    
+    return wq_submit(mda->wq, w);
 }
 
 void *
@@ -80,9 +84,4 @@ mda_dispatch(void *arg)
     struct delivery_agent *mda = (struct delivery_agent *) arg;
     wq_dispatch(mda->wq);
     return (NULL);
-}
-
-void
-mda_init(void)
-{
 }

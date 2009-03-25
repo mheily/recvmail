@@ -16,53 +16,80 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#define NDEBUG
+//#define NDEBUG
 
+#include <assert.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
+#include "log.h"
 #include "queue.h"
+#include "poll.h"
 #include "session.h"
 #include "workqueue.h"
 
+static void
+wq_retrieve_all(void *, int events);
+
+
+struct wq_entry {
+    unsigned long sid;                      /* Session ID */
+    struct work w;
+    TAILQ_ENTRY(wq_entry) entries;
+};
+
 struct workqueue {
-    void (*cb)(struct session *, void *);
+    void (*bottom)(struct work *, void *);
+    void (*top)(struct session *, int);
     void *udata;
 
     /* Request list */
-    TAILQ_HEAD(,session) req;
+    TAILQ_HEAD(,wq_entry) req;
     pthread_mutex_t      req_mtx;
     pthread_cond_t       req_pending;
 
     /* Response list */
-    TAILQ_HEAD(,session) res;
+    TAILQ_HEAD(,wq_entry) res;
     pthread_mutex_t      res_mtx;
 
     /* poll(2) notification fd */
-    int pfd;
+    int pfd[2];
 };
 
 
 struct workqueue *
-wq_new(int pfd, void (*cb)(struct session *, void *), void *udata)
+wq_new( void (*bottom)(struct work *, void *),
+        void (*top)(struct session *, int), 
+        void *udata)
 {
     struct workqueue *wq;
 
     if ((wq = calloc(1, sizeof(*wq))) == NULL)
         return (NULL);
 
-    wq->cb = cb;
+    if (pipe(wq->pfd) == -1) {
+        free(wq);
+        log_errno("pipe(2)");
+        return (NULL);
+    }
+
+    wq->bottom = bottom;
+    wq->top = top;
     wq->udata = udata;
     TAILQ_INIT(&wq->req);
-    if (pthread_mutex_init(&wq->req_mtx, NULL) != 0)
-        err(1, "pthread_mutex_init(3)");
-    if (pthread_cond_init(&wq->req_pending, NULL) != 0)
-        err(1, "pthread_cond_init(3)");
+    pthread_mutex_init(&wq->req_mtx, NULL);
+    pthread_mutex_init(&wq->res_mtx, NULL);
+    pthread_cond_init(&wq->req_pending, NULL);
     TAILQ_INIT(&wq->res);
-    if (pthread_mutex_init(&wq->res_mtx, NULL) != 0)
-        err(1, "pthread_mutex_init(3)");
-    wq->pfd = pfd;
+
+    if (poll_enable(wq->pfd[0], SOCK_CAN_READ, 
+                wq_retrieve_all, wq) < 0) { 
+        log_errno("poll_enable()");
+        free(wq);
+        return (NULL);
+    }
 
     return (wq);
 }
@@ -70,85 +97,119 @@ wq_new(int pfd, void (*cb)(struct session *, void *), void *udata)
 void
 wq_free(struct workqueue *wq)
 {
+    //FIXME: free all wq_entries
+    close(wq->pfd[0]);
+    close(wq->pfd[1]);
     free(wq);
 }
 
 int
-wq_submit(struct workqueue *wq, struct session *s)
+wq_submit(struct workqueue *wq, struct work w)
 {
-    s->refcount++;
+    struct wq_entry *wqe;
+
+    if ((wqe = calloc(1, sizeof(*wqe))) == NULL)
+        return (-1);
+    memcpy(&wqe->w, &w, sizeof(w));
+
     pthread_mutex_lock(&wq->req_mtx);
-    TAILQ_INSERT_TAIL(&wq->req, s, workq_entries);
+    TAILQ_INSERT_TAIL(&wq->req, wqe, entries);
     pthread_cond_signal(&wq->req_pending);
     pthread_mutex_unlock(&wq->req_mtx);
+
     return (0);
 }
 
 
 int         
-wq_retrieve(struct session **sptr, struct workqueue *wq)
+wq_retrieve(struct work *wptr, struct workqueue *wq)
 {
-    struct session *s;
+    struct wq_entry *wqe;
 
     pthread_mutex_lock(&wq->res_mtx);
-    s = TAILQ_FIRST(&wq->res);
-    if (s != NULL) {
-        TAILQ_REMOVE(&wq->res, s, workq_entries);
-    }
+    if ((wqe = TAILQ_FIRST(&wq->res)) != NULL)
+        TAILQ_REMOVE(&wq->res, wqe, entries);
     pthread_mutex_unlock(&wq->res_mtx);
 
-    if (s != NULL) {
-
-        if (s->refcount > 0) {
-            s->refcount--;
-        } else {
-            session_close(s);
-            *sptr = NULL;
-            return (-1);
-        }
-    
-        *sptr = s;
-        return (0);
-    } else {
-        *sptr = NULL;
+    /* Test for spurious wakeup */
+    if (wqe == NULL) {
+        memset(wptr, 0, sizeof(*wptr));
         return (-1);
     }
+
+    memcpy(wptr, &wqe->w, sizeof(*wptr));
+    free(wqe);
+    return (0);
 }
 
+static void
+wq_retrieve_all(void *arg, int events)
+{
+    struct workqueue *wq = (struct workqueue *) arg;
+    struct session *s = NULL;
+    struct work w;
+    int c;
+    ssize_t n;
+
+    log_debug("reading pfd");
+    n = read(wq->pfd[0], &c, 1);
+    if (n < 0) {
+        log_errno("read(2)");
+        abort();//FIXME:extreme
+    }
+    log_debug("n=%zu", n);
+
+    if (wq_retrieve(&w, wq) < 0)
+        return;
+
+    /* The session might not exist anymore. */
+    if (session_table_lookup(&s, w.sid) < 0)
+        return;
+
+    log_debug("running top s->fd = %d", s->fd);
+    wq->top(s, w.retval); 
+}
 
 void *
 wq_dispatch(struct workqueue *wq)
 {
-    struct session *s;
+    struct wq_entry *wqe;
     
-    log_debug("dispatcher started");
-
     for (;;) {
 
         /* Wait for a work item and remove it from the queue */
         pthread_mutex_lock(&wq->req_mtx);
+#if TESTING
         while (TAILQ_EMPTY(&wq->req)) {
             log_debug("waiting");
-            if (pthread_cond_wait(&wq->req_pending, &wq->req_mtx) != 0)  
+            if (pthread_cond_wait(&wq->req_pending, &wq->mtx) != 0)  
                 log_errno("pthread_cond_wait(3)");
             log_debug("wakeup");
-            if ((s = TAILQ_FIRST(&wq->req)) == NULL) {
+            if ((wqe = TAILQ_FIRST(&wq->req)) == NULL) {
                 continue;
             }
         }
-        TAILQ_REMOVE(&wq->req, s, workq_entries);
+#endif
+        pthread_cond_wait(&wq->req_pending, &wq->req_mtx);
+        if (TAILQ_EMPTY(&wq->req)) {
+            log_debug("spurious wakeup");
+            pthread_mutex_unlock(&wq->req_mtx);
+            continue;
+        }
+        wqe = TAILQ_FIRST(&wq->req);
+        TAILQ_REMOVE(&wq->req, wqe, entries);
         pthread_mutex_unlock(&wq->req_mtx);
         log_debug("got an item");
 
         /* Invoke the callback function */
-        wq->cb(s, wq->udata);
+        wq->bottom(&wqe->w, wq->udata);
 
         /* Add the session to the response queue */
         pthread_mutex_lock(&wq->res_mtx);
-        TAILQ_INSERT_TAIL(&wq->res, s, workq_entries);
+        TAILQ_INSERT_TAIL(&wq->res, wqe, entries);
         pthread_mutex_unlock(&wq->res_mtx);
 
-        (void)write(wq->pfd, "!", 1); // FIXME: err handling
+        (void)write(wq->pfd[1], "!", 1); // FIXME: err handling
     }
 
     return (NULL);

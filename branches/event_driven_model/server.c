@@ -21,7 +21,6 @@
 #include <limits.h>
 #include <pwd.h>
 #include <pthread.h>
-#include <signal.h>
 #include <sys/resource.h>
 #include <unistd.h>
 
@@ -33,36 +32,11 @@
 #include "smtp.h"
 #include "session.h"
 #include "aliases.h"
+#include "workqueue.h"
 
 struct server srv;
 
 static void drop_privileges(void);
-
-// wierd place for this..
-static void
-dnsbl_response_handler(void)
-{
-    char c;
-    struct session *s;
-
-    (void)read(srv.dnsblfd[0], &c, 1); // FIXME errhandling
-
-    if (dnsbl_response(&s, srv.dnsbl) < 0) {
-        log_error("bad response");
-        return;
-    }
-
-    if (s->dnsbl_res == DNSBL_FOUND) {
-        log_debug("rejecting client due to DNSBL");
-        session_println(s, "421 ESMTP access denied");
-        session_close(s);
-    } else if (s->dnsbl_res == DNSBL_NOT_FOUND || s->dnsbl_res == DNSBL_ERROR) {
-        log_debug("client is not in a DNSBL");
-        session_accept(s);
-        if (session_read(s) < 0)
-            session_close(s);
-    }
-}
 
 // wierd place for this..
 int
@@ -122,51 +96,8 @@ drop_privileges(void)
 }
 
 
-/* NOOP signal handler */
-void
-_sig_handler(int num)
-{
-    num = 0;
-}
-
 static void
-set_signal_mask(int how)
-{
-    sigset_t set;
-    struct sigaction sa;
-
-    memset(&sa, 0, sizeof(sa));
-    sigemptyset(&set);
-    sigaddset(&set, SIGINT);
-    sigaddset(&set, SIGHUP);
-    sigaddset(&set, SIGTERM);
-    if (pthread_sigmask(how, &set, NULL) != 0)
-        err(1, "pthread_sigmask(3)");
-
-    if (how == SIG_UNBLOCK) {
-        sa.sa_flags = 0;
-        sa.sa_handler = _sig_handler;
-        sigaction (SIGHUP, &sa, NULL);
-        sigaction (SIGINT, &sa, NULL);
-        sigaction (SIGTERM, &sa, NULL);
-    }
-}
-
-static void *
-signal_handler(void *arg)
-{
-    char c = '\0';
-    struct server *srv = (struct server *) arg;
-
-    set_signal_mask(SIG_UNBLOCK);
-    for (;;) {
-        pause();
-        write(srv->signalfd[1], &c, 1);
-    }
-}
-
-static void
-server_shutdown(void)
+server_shutdown(void *unused, int events)
 {
     //TODO: wait for MDA to complete
     //TODO: wait for DNSBL to complete
@@ -178,13 +109,8 @@ server_shutdown(void)
     close(srv.fd);
     close(srv.signalfd[0]);
     close(srv.signalfd[1]);
-    close(srv.dnsblfd[0]);
-    close(srv.dnsblfd[1]);
-    close(srv.mdafd[0]);
-    close(srv.mdafd[1]);
 
-    poll_shutdown(srv.evcb);
-    free(srv.evcb);
+    poll_free(srv.evcb);
 
     closelog();
 
@@ -252,9 +178,6 @@ server_init(struct server *_srv)
     if (setrlimit(RLIMIT_CORE, &limit) != 0)
         err(1, "setrlimit failed");
 
-    set_signal_mask(SIG_BLOCK);
-    signal(SIGPIPE, SIG_IGN);       /* TODO: put this with the mask */
-
     /* Create the event source */
     if ((srv.evcb = poll_new()) == NULL) {
         log_error("unable to create the event source");
@@ -264,33 +187,15 @@ server_init(struct server *_srv)
     /* Drop root privilges and call chroot(2) */
     drop_privileges();
 
-    /* Create the signal-catching thread */
-    if (pipe(srv.signalfd) == -1) {
-        log_errno("pipe(2)");
-        return (-1);
-    }
-    if (pthread_create(&tid, NULL, signal_handler, &srv) != 0) {
-        log_errno("pthread_create(3)");
-        return (-1);
-    }
-
     /* Create the MDA thread */
-    if (pipe(srv.mdafd) == -1) {
-        log_errno("pipe(2)");
-        return (-1);
-    }
-    srv.mda = mda_new(srv.mdafd[1]);
+    srv.mda = mda_new();
     if (pthread_create(&tid, NULL, mda_dispatch, srv.mda) != 0) {
         log_errno("pthread_create(3)");
         return (-1);
     }
 
     /* Create the DNSBL thread */
-    if (pipe(srv.dnsblfd) == -1) {
-        log_errno("pipe(2)");
-        return (-1);
-    }
-    srv.dnsbl = dnsbl_new("zen.spamhaus.org", srv.dnsblfd[1]);
+    srv.dnsbl = dnsbl_new("zen.spamhaus.org");
     if (srv.dnsbl == NULL) {
         log_error("dnsbl_new()");
         return (-1);
@@ -342,7 +247,7 @@ server_bind(void)
         goto errout;
     }
 
-    log_debug("listening on port %d", srv.port);
+    log_debug("listening on fd %d port %d", fd, srv.port);
 
     srv.fd = fd;
 
@@ -356,26 +261,34 @@ errout:
 }
 
 
-static struct session *
-server_accept(void)
+static void
+server_accept(void *unused, int events)
 {
-	socklen_t cli_len;
+    struct sockaddr_in cli;
+	socklen_t cli_len = sizeof(cli);
     int fd;
 	struct session *s;
 
-    cli_len = sizeof(srv.sa);
+    if (events & SOCK_ERROR) {
+        log_errno("bad server socket");
+        return; //FIXME - Should abort
+    }
+    
+    /* Assume: (events & SOCK_CAN_READ) */
 
     log_debug("incoming connection on fd %d", srv.fd);
 
     /* Accept the incoming connection */
     if ((fd = accept(srv.fd, &srv.sa, &cli_len)) < 0) {
         log_errno("accept(2)");
-        return (NULL);
+        return;
     }
+    log_debug("accept(2) created fd %d", fd);
 
     /* Create a new session */
-    if ((s = session_new(fd)) == NULL) 
-        return (NULL);
+    if ((s = session_new()) == NULL) 
+        return;
+    s->fd = fd;
 
     /* Generate a session ID */
     if (srv.next_sid == ULONG_MAX)
@@ -383,132 +296,43 @@ server_accept(void)
     else
         s->id = ++srv.next_sid;
 
+    /* Determine the IP address of the client */
+    if (getpeername(fd, (struct sockaddr *) &cli, &cli_len) < 0) {
+            log_errno("getpeername(2) of fd %d", fd);
+            //FIXME: fatal? goto errout;
+    }
+    s->remote_addr = cli.sin_addr;
+
+    /* Use non-blocking I/O */
+    if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0) {
+            log_errno("fcntl(2)");
+            //FIXME: fatal? goto errout;
+    }
+
+    /* TODO: Determine the reverse DNS name for the host */
+
     /* Monitor the client socket for events */
-    poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ | SOCK_CAN_WRITE);
+    //FIXME:Was poll_enable(s->fd, SOCK_CAN_READ | SOCK_CAN_WRITE, session_handler, s);
+    poll_enable(s->fd, SOCK_CAN_READ, session_handler, s);
 
     dnsbl_submit(srv.dnsbl, s);
-
-    return (s);
 }
 
 
 int
 server_dispatch(void)
 {
-    int c;
-    int events;
-    static int srv_udata;
-    static int signal_flag;
-    static int dnsbl_flag;
-    static int mda_flag;
-	struct session *s;
-
-    /* Monitor the server descriptor for new connections */
-    if (poll_enable(srv.evcb, srv.fd, &srv_udata, SOCK_CAN_READ) < 0) { 
-        log_errno("poll_enable() (srv.fd=%d)", srv.fd);
-        return (-1);
-    }
-   
     /* Monitor the signal catching thread */
-    if (poll_enable(srv.evcb, srv.signalfd[0], &signal_flag, SOCK_CAN_READ) < 0) { 
+    if (poll_enable(srv.signalfd[0], SOCK_CAN_READ, server_shutdown, &srv) < 0) { 
         log_errno("poll_enable() signalfd %d", srv.signalfd[0]);
         return (-1);
     }
 
-    // TODO -- this is hackish having three separate pollfds and the flags
-    // make a generic inter-thread notification system
-    // e.g. server_notify(EVT_SIGNAL | EVT_DNSBL | EVT_MDA)
-    //
-    
-    /* Monitor the DNSBL thread */
-    if (poll_enable(srv.evcb, srv.dnsblfd[0], &dnsbl_flag, SOCK_CAN_READ) < 0) { 
-        log_errno("poll_enable()");
+    /* Monitor the server descriptor for new connections */
+    if (poll_enable(srv.fd, SOCK_CAN_READ, server_accept, &srv) < 0) { 
+        log_errno("poll_enable() (srv.fd=%d)", srv.fd);
         return (-1);
     }
-
-    /* Monitor the syncer thread */
-    if (poll_enable(srv.evcb, srv.mdafd[0], &mda_flag, SOCK_CAN_READ) < 0) { 
-        log_errno("poll_enable()");
-        return (-1);
-    }
-
-	/* Dispatch incoming connections */
-	for (;;) {
-
-        /* Get one event */
-        log_debug("waiting for event");
-        if ((s = poll_wait(srv.evcb, &events)) == NULL) {
-            log_errno("poll_wait()");
-            return (-1);
-        }
-
-        /* Special case: a signal was received */
-        if (s == (struct session *) &signal_flag) {
-            server_shutdown();
-            err(1, "todo - sighandling");
-        }
-
-        /* A DNSBL query completed */
-        if (s == (struct session *) &dnsbl_flag) {
-            dnsbl_response_handler();
-            continue;
-        }
-
-        /* A message was delivered */
-        if (s == (struct session *) &mda_flag) {
-            (void)read(srv.mdafd[0], &c, 1); // FIXME errhandling
-            mda_response(&s, srv.mda); // FIXME err handl
-            if (s != NULL) {
-                smtp_mda_callback(s);
-            }
-            continue;
-        }
-
-        /* Special case for a pending accept(2) on the listening socket */
-        if (s == (struct session *) &srv_udata) {
-            if (events & SOCK_ERROR) {
-                log_errno("bad server socket");
-                return (-1);
-            }
-            if ((events & SOCK_CAN_READ) && (s = server_accept()) == NULL) {
-                log_errno("server_accept()");
-                return (-1);
-            }
-            continue;
-        }
-
-        s->socket_state = events;
-
-        if (events & SOCK_EOF) {
-            log_debug("fd %d got EOF", s->fd);
-            s->socket_state = SOCK_EOF;
-            poll_disable(srv.evcb, s->fd);
-            session_close(s);
-            continue;       // FIXME: this will discard anything in the read buffer
-        }
-        if (events & SOCK_CAN_READ) {
-            s->socket_state |= SOCK_CAN_READ;
-            log_debug("fd %d is now readable", s->fd);
-            if (session_read(s) < 0) 
-                session_close(s);
-        }
-#if FIXME
-        // implement output buffreing
-        if (events & SOCK_CAN_WRITE) {
-            if (s->fd < 0) 
-                log_debug("fd %d is writable (session terminated)", s->fd);
-            else
-                log_debug("fd %d is now writable", s->fd);
-            //TODO - flush output buffer, or do something
-        }
-#endif
-    }
-
-    return (0);
-}
-
-int
-session_poll_enable(struct session *s)
-{
-    return poll_enable(srv.evcb, s->fd, s, SOCK_CAN_READ);
+   
+    return poll_dispatch(srv.evcb);
 }

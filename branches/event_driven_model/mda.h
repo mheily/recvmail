@@ -19,13 +19,12 @@
 #define _MDA_H
 
 struct delivery_agent;
-struct session;
+struct message;
+struct evcb;
 
-struct delivery_agent * mda_new(int);
+struct delivery_agent * mda_new(void);
 void   mda_free(struct delivery_agent *);
 void * mda_dispatch(void *);
-
-int    mda_submit(struct delivery_agent *, struct session *);
-int    mda_response(struct session **, struct delivery_agent *);
+int    mda_submit(struct delivery_agent *, unsigned long, struct message *);
 
 #endif  /* _DNSBL_H */

@@ -24,12 +24,14 @@
 #define SOCK_EOF        0x0004
 #define SOCK_ERROR      0x0008
 
+extern struct evcb * GLOBAL_EVENT;
+
 struct evcb;
 struct evcb * poll_new(void);
 
 int     poll_disable(struct evcb *, int);
-int     poll_enable(struct evcb *, int, void *, int);
-void *  poll_wait(struct evcb *, int *);
-void    poll_shutdown(struct evcb *);
+int     poll_enable(int, int, void (*)(void *, int), void *);
+int     poll_dispatch(struct evcb *);
+void    poll_free(struct evcb *);
 
 #endif /* _POLL_H */

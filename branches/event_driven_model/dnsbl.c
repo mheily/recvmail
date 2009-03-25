@@ -26,10 +26,12 @@
 
 #include "dnsbl.h"
 #include "session.h"
+#include "poll.h"
 #include "workqueue.h"
 #include "log.h"
 
-static void dnsbl_query(struct session *s, void *udata);
+static void dnsbl_query(struct work *wqa, void *udata);
+static void dnsbl_response_handler(struct session *, int);
 
 /* Four hour TTL for cached entries. */
 #define DNSBL_CACHE_TTL   (60 * 60 * 4)    
@@ -78,7 +80,7 @@ struct dnsbl {
 };
 
 struct dnsbl *
-dnsbl_new(const char *service, int pfd)
+dnsbl_new(const char *service)
 {
     struct dnsbl *d;
 
@@ -91,7 +93,7 @@ dnsbl_new(const char *service, int pfd)
         return (NULL);
     }
     d->refresh = time(NULL) + DNSBL_CACHE_TTL;
-    d->wq = wq_new(pfd, dnsbl_query, d);
+    d->wq = wq_new(dnsbl_query, dnsbl_response_handler, d);
 
     return (d);
 }
@@ -127,7 +129,7 @@ dnsbl_cache_query(struct dnsbl *d, unsigned int addr)
 
 
 static void
-dnsbl_query(struct session *s, void *udata)
+dnsbl_query(struct work *wqa, void *udata)
 {
     struct dnsbl *d = (struct dnsbl *) udata;
     unsigned int addr;
@@ -138,7 +140,8 @@ dnsbl_query(struct session *s, void *udata)
     int rv;
 
     memcpy(&c, &addr, sizeof(c));  
-    addr = s->remote_addr.s_addr;
+    //FIXME: Was addr = s->remote_addr.s_addr;
+    addr = wqa->argv0.u_i;
 
     /* Generate the FQDN */
     if (snprintf((char *) fqdn, sizeof(fqdn), 
@@ -148,7 +151,7 @@ dnsbl_query(struct session *s, void *udata)
                  (int)((ntohl(addr) >> 16) & 0xff), 
                  (int)((ntohl(addr) >> 24) & 0xff), 
                  d->service) >= sizeof(fqdn)) {
-        s->dnsbl_res = DNSBL_ERROR; // TODO: error handling
+        wqa->retval = DNSBL_ERROR; // TODO: error handling
         return;
     }
 
@@ -160,13 +163,13 @@ dnsbl_query(struct session *s, void *udata)
 
     if (rv == EAI_NONAME) {
         DNSBL_CACHE_SET(d->good, c);
-        s->dnsbl_res = DNSBL_NOT_FOUND;
+        wqa->retval = DNSBL_NOT_FOUND;
     } else if (rv == 0) {
         DNSBL_CACHE_SET(d->bad, c);
         freeaddrinfo(ai);
-        s->dnsbl_res = DNSBL_FOUND;
+        wqa->retval = DNSBL_FOUND;
     } else {
-        s->dnsbl_res = DNSBL_ERROR;
+        wqa->retval = DNSBL_ERROR;
     }
 }
 
@@ -174,6 +177,12 @@ dnsbl_query(struct session *s, void *udata)
 int
 dnsbl_submit(struct dnsbl *d, struct session *s)
 {
+    struct work w;
+
+    w.sid = s->id;
+    w.argc = 1;
+    w.argv0.u_i = s->remote_addr.s_addr;
+
 #if FIXME
     int res;
 
@@ -191,14 +200,23 @@ dnsbl_submit(struct dnsbl *d, struct session *s)
 
 #endif
 
-    return wq_submit(d->wq, s);
+    return wq_submit(d->wq, w);
 }
 
-
-int
-dnsbl_response(struct session **sptr, struct dnsbl *d)
+static void
+dnsbl_response_handler(struct session *s, int retval)
 {
-    return (wq_retrieve(sptr, d->wq));
+    log_debug("s->fd=%d", s->fd);
+    if (retval == DNSBL_FOUND) {
+        log_debug("rejecting client due to DNSBL");
+        session_println(s, "421 ESMTP access denied");
+        session_close(s);
+    } else if (retval == DNSBL_NOT_FOUND || retval == DNSBL_ERROR) {
+        log_debug("client is not in a DNSBL");
+        session_accept(s);
+        if (session_read(s) < 0)
+            session_close(s);
+    }
 }
 
 void *

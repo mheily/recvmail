@@ -39,7 +39,7 @@ struct message {
 int     rset_message(struct message *);
 int     valid_message(struct message *);
 
-void    message_init(struct message *);
+struct message * message_new(void);
 int     message_close(struct message *);
 int     message_fsync(struct message *);
 void    message_free(struct message *);
