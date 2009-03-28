@@ -19,6 +19,8 @@
 #ifndef _POLL_H
 #define _POLL_H
 
+#include <signal.h>
+
 #define SOCK_CAN_READ   0x0001
 #define SOCK_CAN_WRITE  0x0002
 #define SOCK_EOF        0x0004
@@ -33,5 +35,6 @@ int     poll_disable(struct evcb *, int);
 int     poll_enable(int, int, void (*)(void *, int), void *);
 int     poll_dispatch(struct evcb *);
 void    poll_free(struct evcb *);
+int     poll_signal(int, void(*)(void *, int), void *);
 
 #endif /* _POLL_H */

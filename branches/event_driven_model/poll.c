@@ -235,13 +235,35 @@ poll_wait(struct evcb *e, int *events_ptr)
 
     w = (struct watch *) evt.data.ptr;
     log_debug("got event %d on fd %d", events, w->fd);
+    *events_ptr = events; //TODO: this is duplicate effort
     return (w);
 }
 
 int
 poll_disable(struct evcb *e, int fd)
 {
-    return (epoll_ctl(e->pfd, EPOLL_CTL_DEL, fd, ((void *) -1L)));
+    struct watch *w;
+
+    /* FIXME: slow linear search */
+    LIST_FOREACH(w, &e->watchlist, entries) {
+        if (w->fd != fd)
+            continue;
+        
+        LIST_REMOVE(w, entries);
+        free(w);
+        return (epoll_ctl(e->pfd, EPOLL_CTL_DEL, fd, ((void *) -1L)));
+    }
+
+    log_error("fd %d not found", w->fd);
+    return (-1);
+}
+
+int
+poll_signal(int signum, void(*cb)(void *, int), void *udata)
+{
+    /* XXX-FIXME Todo */
+    log_warning("TODO");
+    return (0);
 }
 
 int
@@ -250,6 +272,11 @@ poll_enable(int fd, int events, void (*cb)(void *, int), void *udata)
     struct evcb *e = GLOBAL_EVENT;
     struct watch *w;
 
+    if (fd == 0) {
+        log_debug("tried to watch fd 0");
+        abort();
+    }
+    
     if ((w = watch_new(fd, events, cb, udata)) == NULL) 
         return (-1);
 

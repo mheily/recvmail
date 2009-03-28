@@ -242,6 +242,15 @@ smtpd_quit(struct session *s)
     return (0);
 }
 
+static int
+smtpd_fatal_error(struct session *s)
+{
+    session_println(s, "421 Fatal error, closing connection");
+    s->smtp_state = SMTP_STATE_QUIT;
+    return (0);
+}
+
+
 int
 smtpd_parser(struct session *s)
 {
@@ -380,7 +389,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
         //   return (-1);
        
         //FIXME - hide srv object
-        s->handler = NULL;
+        s->handler = smtpd_fatal_error;
         if (mda_submit(srv.mda, s->id, s->msg) < 0) {
             log_error("mda_submit()");
             goto error;

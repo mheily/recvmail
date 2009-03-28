@@ -32,6 +32,7 @@
 
 static void dnsbl_query(struct work *wqa, void *udata);
 static void dnsbl_response_handler(struct session *, int);
+static int dnsbl_reject_early_talker(struct session *s);
 
 /* Four hour TTL for cached entries. */
 #define DNSBL_CACHE_TTL   (60 * 60 * 4)    
@@ -127,6 +128,12 @@ dnsbl_cache_query(struct dnsbl *d, unsigned int addr)
 }
 #endif
 
+static int
+dnsbl_reject_early_talker(struct session *s)
+{
+	session_println(s, "421 Protocol error -- SMTP early talkers not allowed");
+	return (-1);
+}
 
 static void
 dnsbl_query(struct work *wqa, void *udata)
@@ -139,7 +146,7 @@ dnsbl_query(struct work *wqa, void *udata)
     unsigned char c[4];
     int rv;
 
-    memcpy(&c, &addr, sizeof(c));  
+	memcpy(&c, &addr, sizeof(c));  
     //FIXME: Was addr = s->remote_addr.s_addr;
     addr = wqa->argv0.u_i;
 
@@ -155,7 +162,7 @@ dnsbl_query(struct work *wqa, void *udata)
         return;
     }
 
-    log_debug("query='%s'", (char *) fqdn);
+    log_debug("query='%s' host=%d", (char *) fqdn, addr);
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
@@ -179,6 +186,12 @@ dnsbl_submit(struct dnsbl *d, struct session *s)
 {
     struct work w;
 
+    /* Special case: loopback (127.0.0.1) */
+    if (s->remote_addr.s_addr == 16777343) {
+        dnsbl_response_handler(s, DNSBL_NOT_FOUND);
+        return (0);
+    }
+
     w.sid = s->id;
     w.argc = 1;
     w.argv0.u_i = s->remote_addr.s_addr;
@@ -200,6 +213,9 @@ dnsbl_submit(struct dnsbl *d, struct session *s)
 
 #endif
 
+	/* Don't allow "early talkers" to send data prior to the greeting */
+	s->handler = dnsbl_reject_early_talker;
+	
     return wq_submit(d->wq, w);
 }
 

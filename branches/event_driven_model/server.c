@@ -105,11 +105,7 @@ server_shutdown(void *unused, int events)
     dnsbl_free(srv.dnsbl);
     //TODO: shutdown the MDA and DNSBL threads
     aliases_free();
-
     close(srv.fd);
-    close(srv.signalfd[0]);
-    close(srv.signalfd[1]);
-
     poll_free(srv.evcb);
 
     closelog();
@@ -322,12 +318,12 @@ server_accept(void *unused, int events)
 int
 server_dispatch(void)
 {
-    /* Monitor the signal catching thread */
-    if (poll_enable(srv.signalfd[0], SOCK_CAN_READ, server_shutdown, &srv) < 0) { 
-        log_errno("poll_enable() signalfd %d", srv.signalfd[0]);
+    /* Respond to signals */
+    if (poll_signal(SIGINT, server_shutdown, NULL) < 0) 
         return (-1);
-    }
-
+    if (poll_signal(SIGTERM, server_shutdown, NULL) < 0) 
+        return (-1);
+    
     /* Monitor the server descriptor for new connections */
     if (poll_enable(srv.fd, SOCK_CAN_READ, server_accept, &srv) < 0) { 
         log_errno("poll_enable() (srv.fd=%d)", srv.fd);

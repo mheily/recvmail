@@ -272,6 +272,8 @@ session_handler(void *sptr, int events)
     struct session *s = (struct session *) sptr;
     s->socket_state = events;
 
+    log_debug("in session_handler()");
+    
     if (events & SOCK_EOF) {
         log_debug("fd %d got EOF", s->fd);
         s->socket_state = SOCK_EOF;

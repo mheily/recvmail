@@ -35,8 +35,6 @@ struct server {
     char           *uid;        /* The symbolic user-ID to setuid(2) to */
     char           *gid;        /* The symbolic group-ID to setgid(2) to */
 
-    int             signalfd[2];    /* pipe(2) used for signal handling */
-
     pthread_t        fsyncer_tid;
 
 
