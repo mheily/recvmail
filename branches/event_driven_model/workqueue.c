@@ -16,7 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-//#define NDEBUG
+#define NDEBUG
 
 #include <assert.h>
 #include <pthread.h>
@@ -97,7 +97,7 @@ wq_new( void (*bottom)(struct work *, void *),
 void
 wq_free(struct workqueue *wq)
 {
-    //FIXME: free all wq_entries
+    /* TODO: wait for all response items to be retrieved */
     close(wq->pfd[0]);
     close(wq->pfd[1]);
     free(wq);
@@ -177,25 +177,19 @@ wq_dispatch(struct workqueue *wq)
     
     for (;;) {
 
-        /* Wait for a work item and remove it from the queue */
+        /* Wait for an item on the request queue. */
         pthread_mutex_lock(&wq->req_mtx);
-#if TESTING
-        while (TAILQ_EMPTY(&wq->req)) {
-            log_debug("waiting");
-            if (pthread_cond_wait(&wq->req_pending, &wq->mtx) != 0)  
-                log_errno("pthread_cond_wait(3)");
-            log_debug("wakeup");
-            if ((wqe = TAILQ_FIRST(&wq->req)) == NULL) {
-                continue;
-            }
-        }
-#endif
+        if (!TAILQ_EMPTY(&wq->req)) 
+            goto queue_not_empty;
         pthread_cond_wait(&wq->req_pending, &wq->req_mtx);
         if (TAILQ_EMPTY(&wq->req)) {
             log_debug("spurious wakeup");
             pthread_mutex_unlock(&wq->req_mtx);
             continue;
         }
+
+        /* Remove the first request */
+queue_not_empty:
         wqe = TAILQ_FIRST(&wq->req);
         TAILQ_REMOVE(&wq->req, wqe, entries);
         pthread_mutex_unlock(&wq->req_mtx);
@@ -209,6 +203,7 @@ wq_dispatch(struct workqueue *wq)
         TAILQ_INSERT_TAIL(&wq->res, wqe, entries);
         pthread_mutex_unlock(&wq->res_mtx);
 
+        /* Notify the main event loop */
         (void)write(wq->pfd[1], "!", 1); // FIXME: err handling
     }
 

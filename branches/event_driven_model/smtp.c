@@ -63,12 +63,6 @@ smtp_mda_callback(struct session *s, int retval)
 
     if (s->fsync_post_action == RSET_AFTER_FSYNC) 
         (void) smtpd_rset(s);
-
-#if FIXME
-    // this done here?
-    if (s->socket_state & SOCK_CAN_READ) { 
-        session_read(s);
-#endif
 }
 
 static int
