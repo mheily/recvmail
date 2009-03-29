@@ -108,7 +108,7 @@ server_shutdown(void *unused, int events)
     close(srv.fd);
     poll_free(srv.evcb);
 
-    closelog();
+    log_close();
 
     if (!OPT.daemon) {
         close(0);
@@ -299,6 +299,8 @@ server_accept(void *unused, int events)
     }
     s->remote_addr = cli.sin_addr;
 
+    log_info("accepted connection from %s", inet_ntoa(cli.sin_addr)); 
+    
     /* Use non-blocking I/O */
     if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0) {
             log_errno("fcntl(2)");

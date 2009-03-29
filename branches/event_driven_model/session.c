@@ -243,7 +243,7 @@ session_close(struct session *s)
 {
     struct nbuf *nbp;
 
-    log_debug("closing transmission channel");
+    log_info("closing session with %s", inet_ntoa(s->remote_addr));
 
     /* Run any protocol-specific hooks */
     (void) protocol_close(s);

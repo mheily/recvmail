@@ -18,15 +18,30 @@
 
 #include "log.h"
 
+static char *_ident;
+
 int detached = 0;
 int log_level = LOG_INFO;
+int log_is_open = 0;
 
 void
 log_open(const char *ident, int option, int facility, int level)
 {
-    openlog(ident, LOG_NDELAY | option, facility);
-    setlogmask(level);
+    /* Make a permanent copy of the "ident" string */
+    if ((_ident = strdup(ident)) == NULL)
+        abort();
 
+    openlog(_ident, LOG_NDELAY | LOG_PID | option, facility);
+    setlogmask(LOG_UPTO(level));
+    
     log_level = level;
+    log_is_open = 1;
 }
 
+void
+log_close(void)
+{
+    closelog();
+    free(_ident);
+    _ident = NULL;
+}

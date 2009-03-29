@@ -26,16 +26,15 @@
 
 extern int detached;
 extern int log_level;
-
+extern int log_is_open;
 // XXX-fixme - convert OPT.log_level to log_level
 
 #define _log_all(level, format,...) do {                            \
-    if (detached)                                                   \
-        syslog(level, "%s(%s:%d): "format"\n", 						\
-               __func__, __FILE__, __LINE__, ## __VA_ARGS__);       \
-    else if (log_level >= level)                                \
-        fprintf(stderr, "%s(%s:%d): " format "\n",                  \
-                __func__, __FILE__, __LINE__, ## __VA_ARGS__);      \
+    if (log_is_open)                                                \
+        syslog(level, format, ## __VA_ARGS__);                      \
+    if (!detached && log_level >= level)                            \
+        fprintf(stderr, "%10s:%-5d %-18s" format "\n",                  \
+                 __FILE__, __LINE__, __func__, ## __VA_ARGS__);      \
 } while (/*CONSTCOND*/0)
 
 #define log_error(format,...) _log_all(LOG_ERR, "**ERROR** "format, ## __VA_ARGS__)
@@ -70,5 +69,6 @@ extern int log_level;
 } while (0)
 
 void log_open(const char *, int, int, int);
+void log_close(void);
 
 #endif  /* _LOG_H */
