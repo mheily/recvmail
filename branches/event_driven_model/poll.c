@@ -240,8 +240,9 @@ poll_wait(struct evcb *e, int *events_ptr)
 }
 
 int
-poll_disable(struct evcb *e, int fd)
+poll_disable(int fd)
 {
+    struct evcb *e = GLOBAL_EVENT;
     struct watch *w;
 
     /* FIXME: slow linear search */

@@ -255,6 +255,7 @@ session_close(struct session *s)
              STAILQ_REMOVE_HEAD(&s->out_buf, entries);
     }
 
+    poll_disable(s->fd);
     (void) close(s->fd); 
 
     /* Remove the descriptor from the session table */
@@ -277,7 +278,7 @@ session_handler(void *sptr, int events)
     if (events & SOCK_EOF) {
         log_debug("fd %d got EOF", s->fd);
         s->socket_state = SOCK_EOF;
-        poll_disable(srv.evcb, s->fd);
+        poll_disable(s->fd);
         session_close(s);
         return;       // FIXME: this will discard anything in the read buffer
     }

@@ -31,7 +31,7 @@ extern struct evcb * GLOBAL_EVENT;
 struct evcb;
 struct evcb * poll_new(void);
 
-int     poll_disable(struct evcb *, int);
+int     poll_disable(int);
 int     poll_enable(int, int, void (*)(void *, int), void *);
 int     poll_dispatch(struct evcb *);
 void    poll_free(struct evcb *);
