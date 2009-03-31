@@ -255,6 +255,7 @@ session_close(struct session *s)
              STAILQ_REMOVE_HEAD(&s->out_buf, entries);
     }
 
+    poll_timer_free(s->timeout);
     poll_disable(s->fd);
     (void) close(s->fd); 
 

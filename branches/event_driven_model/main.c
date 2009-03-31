@@ -43,7 +43,6 @@ struct server   smtpd = {
 
     /* vtable */
     .accept_hook = smtpd_accept,
-    .timeout_hook = smtpd_timeout,
     .abort_hook = NULL,		// fixme
     .close_hook = smtpd_close,
 };

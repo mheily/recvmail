@@ -43,6 +43,8 @@ struct session {
     struct socket_buf in_buf;
     STAILQ_HEAD(,nbuf) out_buf;     /* Output buffer */
 
+    struct timer *timeout;
+
     /* ---------- protocol specific members ------------ */
 
     struct message *msg;

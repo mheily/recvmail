@@ -254,6 +254,8 @@ smtpd_parser(struct session *s)
     iov = s->in_buf.sb_iov;
     s->in_buf.sb_iovpos = 0; 
 
+    poll_timer_disable(s->timeout);
+
     /* Pass control to the 'command' or 'data' subparser */
     for (i = 0; i < s->in_buf.sb_iovlen; i++, s->in_buf.sb_iovpos++) {
         if (s->smtp_state != SMTP_STATE_DATA) {
@@ -280,6 +282,8 @@ smtpd_parser(struct session *s)
             return (-1);
         }
     }
+
+    poll_timer_enable(s->timeout);
 
     return (0);
 }
@@ -435,13 +439,18 @@ void
 smtpd_accept(struct session *s)
 {
     s->handler = smtpd_parser;
+    s->timeout = poll_timer_new(6, 0, smtpd_timeout, s);
     smtpd_greeting(s);
 }
 
 void
-smtpd_timeout(struct session *s)
+smtpd_timeout(void *arg)
 {
+    struct session *s = (struct session *) arg;
+
+    log_info("session timed out due to inactivity");
     session_println(s, "421 Idle time limit exceeded, goodbye");
+    session_close(s); //FIXME: is this a bad place for this? check dispatch()
 }
 
 void

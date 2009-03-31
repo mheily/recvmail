@@ -33,26 +33,37 @@ struct evcb * GLOBAL_EVENT;
 static struct watch *
 poll_wait(struct evcb *e, int *events_ptr);
 
+static void * timekeeper(void *arg);
+
 struct watch {
     struct epoll_event ev;
-    int    fd;
+    int   fd;
     int    mask;
     void  *udata;
-    void (*cb)(void *, int);
+    void (*callback)(void *, int);
     LIST_ENTRY(watch) entries;
 };
 
-struct signal_handler {
-    void (*callback)(void *, int);
-    void *udata;
+struct timer {
+    time_t   next_time;
+    uint32_t interval;
+    int      active;      
+    void    *udata;
+    void (*callback)(void *);
+    LIST_ENTRY(timer) entries;
 };
 
 struct evcb {
     pthread_t            sig_catcher;
+    int                  sc_pipefd[2];
+
+    pthread_t            timekeeper;
+    int                  tk_pipefd[2];
+
     int                  pfd;
-    int        pipefd[2];
+    struct watch         sig[NSIG + 1];
     LIST_HEAD(,watch)    watchlist;
-    struct signal_handler sig[NSIG + 1];
+    LIST_HEAD(,timer)    timer_list;
 };
 
 /*
@@ -93,12 +104,12 @@ static void
 signal_handler(void *unused, int signum)
 {
     struct evcb *e = GLOBAL_EVENT;
-    void (*callback)(void *, int);
+    struct watch *w;
 
-    callback = e->sig[signum].callback;
-    if (callback != NULL) {
+    w = &e->sig[signum];
+    if (w != NULL) {
         log_debug("calling signal handler for signum %d", signum);
-        callback(e->sig[signum].udata, signum);
+        w->callback(w->udata, signum);
     } else {
         log_error("Caught unhandled signal %d -- exiting", signum);
         exit(0);
@@ -118,10 +129,111 @@ signal_dispatch(void *arg)
     }
 }
 
+static void
+timer_handler(void *unused, int unused2)
+{
+    struct evcb *e = GLOBAL_EVENT;
+    struct timer *te, *te_next;
+    time_t now;
+    char c;
+
+    log_debug("tick tock");
+    (void) read(e->tk_pipefd[0], &c, 1);
+
+    /* Check each timed event to see if it should occur */
+    now = time(NULL);
+    for (te = LIST_FIRST(&e->timer_list); te != LIST_END(&e->timer_list);
+            te = te_next) {
+        te_next = LIST_NEXT(te, entries);
+
+        log_debug("now=%lu next_time=%lu", now, te->next_time);
+        if (te->active < 0) {
+            LIST_REMOVE(te, entries);
+            free(te);
+            continue;
+        }
+
+        if ((te->active == 0) || (now < te->next_time)) 
+            continue;
+
+        te->callback(te->udata);
+        if (te->interval == 0) {
+            log_debug("deleting timer");
+            LIST_REMOVE(te, entries);
+            free(te);
+        } else {
+            log_debug("re-arming timer");
+            te->next_time = now + te->interval;
+        }
+    }
+}
+
+struct timer *
+poll_timer_new(uint32_t next_time, uint32_t interval, 
+        void (*callback)(void *),
+        void  *udata)
+{
+    struct timer *te;
+
+    te = calloc(1, sizeof(*te));
+    if (te == NULL) {
+        log_errno("calloc(3)");
+        return (NULL);
+    }
+    te->next_time = time(NULL) + next_time;
+    te->interval = interval;
+    te->callback = callback;
+    te->udata = udata;
+    te->active = 1;
+
+    LIST_INSERT_HEAD(&GLOBAL_EVENT->timer_list, te, entries);
+
+    return (te);
+}
+
+void
+poll_timer_free(struct timer *te) 
+{
+    /* This will cause timer_handler() to free the object
+     * the next time it is called. It is normal for users
+     * to call poll_timer_free() from inside a timer callback,
+     * so if we free'd the object directly it would cause
+     * memory corruption inside of timer_handler() when it
+     * goes to re-arm the timer after the callback.
+     */
+    te->active = -1;
+}
+
+void
+poll_timer_disable(struct timer *te)
+{
+    te->active = 0;
+}
+
+void
+poll_timer_enable(struct timer *te)
+{
+    te->next_time = time(NULL) + te->interval;
+    te->active = 1;
+}
+
+static void *
+timekeeper(void *arg)
+{
+    int pipefd = *((int *) arg);
+    char c = '\0';
+
+    for (;;) {
+        //sleep(30);
+        sleep(3);
+        write(pipefd, &c, 1);
+    }
+}
+
 static struct watch *
 watch_new(int fd, 
         int mask, 
-        void (*cb)(void *, int),
+        void (*callback)(void *, int),
         void *udata)
 {
     struct watch *w;
@@ -132,7 +244,7 @@ watch_new(int fd,
     }
     w->fd = fd;
     w->mask = mask;
-    w->cb = cb;
+    w->callback = callback;
     w->udata = udata;
 
     return (w);
@@ -151,31 +263,49 @@ poll_new(void)
         return (NULL); 
     }
     LIST_INIT(&e->watchlist); 
+    LIST_INIT(&e->timer_list); 
 
+    /* KLUDGE: Someday this could be multi-threadsafe.. */
     if (GLOBAL_EVENT != NULL)
         err(1, "cannot have multiple event sinks");
     else
         GLOBAL_EVENT = e;
 
-    /* Create a pipe for inter-thread notification */
-    if (pipe(e->pipefd) == -1) {
-        log_errno("pipe(2)");
-        goto errout;
-    }
-
     set_signal_mask(SIG_BLOCK);
     signal(SIGPIPE, SIG_IGN);       /* TODO: put this with the mask */
 
     /* Create the signal-catching thread */
-    if (pthread_create(&e->sig_catcher, NULL, signal_dispatch, &e->pipefd[1]) != 0) {
+    if (pipe(e->sc_pipefd) == -1) {
+        log_errno("pipe(2)");
+        goto errout;
+    }
+    if (pthread_create(&e->sig_catcher, NULL, 
+                signal_dispatch, &e->sc_pipefd[1]) != 0) {
         log_errno("pthread_create(3)");
         goto errout;
     }
-
-    if (poll_enable(e->pipefd[0], SOCK_CAN_READ, signal_handler, NULL) < 0) { 
+    if (poll_enable(e->sc_pipefd[0], SOCK_CAN_READ, 
+                signal_handler, NULL) < 0) { 
         log_errno("poll_enable()");
         goto errout;
     }
+
+    /* Create the timekeeper thread */
+    if (pipe(e->tk_pipefd) == -1) {
+        log_errno("pipe(2)");
+        goto errout;
+    }
+    if (pthread_create(&e->timekeeper, NULL, 
+                timekeeper, &e->tk_pipefd[1]) != 0) {
+        log_errno("pthread_create(3)");
+        goto errout;
+    }
+    if (poll_enable(e->tk_pipefd[0], SOCK_CAN_READ, 
+                timer_handler, NULL) < 0) { 
+        log_errno("poll_enable()");
+        goto errout;
+    }
+
 
     return (e);
 
@@ -188,12 +318,21 @@ void
 poll_free(struct evcb *e)
 {
     struct watch *w;
+    struct timer *te;
 
     while ((w = LIST_FIRST(&e->watchlist)) != NULL) {
         LIST_REMOVE(w, entries);
         free(w);
     }
+    while ((te = LIST_FIRST(&e->timer_list)) != NULL) {
+        LIST_REMOVE(te, entries);
+        free(te);
+    }
     close(e->pfd);
+    close(e->tk_pipefd[0]);
+    close(e->tk_pipefd[1]);
+    close(e->sc_pipefd[0]);
+    close(e->sc_pipefd[1]);
     free(e);
 }
 
@@ -212,9 +351,8 @@ poll_dispatch(struct evcb *e)
             return (-1);
         }
 
-        //FIXME-todo
         log_debug("got an event");
-        w->cb(w->udata, events);
+        w->callback(w->udata, events);
     }
 }
 

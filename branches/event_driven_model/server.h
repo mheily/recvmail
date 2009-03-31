@@ -56,9 +56,6 @@ struct server {
      */
     void           (*abort_hook) (struct session *);
 
-    /* Sends a 'timeout' message to a client that is idle too long */
-    void            (*timeout_hook) (struct session *);
-
     /* Sends a 'too many errors' message to a misbehaving client before
      * closing */
     //DEADWOOD:void            (*reject_hook) (struct session *);

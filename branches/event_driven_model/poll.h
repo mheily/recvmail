@@ -20,6 +20,7 @@
 #define _POLL_H
 
 #include <signal.h>
+#include <inttypes.h>
 
 #define SOCK_CAN_READ   0x0001
 #define SOCK_CAN_WRITE  0x0002
@@ -28,6 +29,7 @@
 
 extern struct evcb * GLOBAL_EVENT;
 
+struct timer;
 struct evcb;
 struct evcb * poll_new(void);
 
@@ -36,5 +38,10 @@ int     poll_enable(int, int, void (*)(void *, int), void *);
 int     poll_dispatch(struct evcb *);
 void    poll_free(struct evcb *);
 int     poll_signal(int, void(*)(void *, int), void *);
+struct timer *
+        poll_timer_new(uint32_t, uint32_t, void (*)(void *), void *);
+void    poll_timer_free(struct timer *);
+void    poll_timer_disable(struct timer *);
+void    poll_timer_enable(struct timer *);
 
 #endif /* _POLL_H */
