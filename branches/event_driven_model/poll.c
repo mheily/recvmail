@@ -42,11 +42,17 @@ struct watch {
     LIST_ENTRY(watch) entries;
 };
 
+struct signal_handler {
+    void (*callback)(void *, int);
+    void *udata;
+};
+
 struct evcb {
     pthread_t            sig_catcher;
     int                  pfd;
     int        pipefd[2];
     LIST_HEAD(,watch)    watchlist;
+    struct signal_handler sig[NSIG + 1];
 };
 
 /*
@@ -84,10 +90,19 @@ set_signal_mask(int how)
 }
 
 static void
-default_signal_handler(void *unused, int events)
+signal_handler(void *unused, int signum)
 {
-    log_error("Caught signal -- exiting");
-    exit(0);
+    struct evcb *e = GLOBAL_EVENT;
+    void (*callback)(void *, int);
+
+    callback = e->sig[signum].callback;
+    if (callback != NULL) {
+        log_debug("calling signal handler for signum %d", signum);
+        callback(e->sig[signum].udata, signum);
+    } else {
+        log_error("Caught unhandled signal %d -- exiting", signum);
+        exit(0);
+    }
 }
 
 static void *
@@ -128,7 +143,7 @@ poll_new(void)
 {
     struct evcb *e;
 
-    if ((e = malloc(sizeof(*e))) == NULL)
+    if ((e = calloc(1, sizeof(*e))) == NULL)
         return (NULL);
     if ((e->pfd = epoll_create(1)) < 0) {
         log_errno("epoll_create(2)");
@@ -157,8 +172,7 @@ poll_new(void)
         goto errout;
     }
 
-    if (poll_enable(e->pipefd[0], SOCK_CAN_READ, 
-                default_signal_handler, NULL) < 0) { 
+    if (poll_enable(e->pipefd[0], SOCK_CAN_READ, signal_handler, NULL) < 0) { 
         log_errno("poll_enable()");
         goto errout;
     }
@@ -262,8 +276,16 @@ poll_disable(int fd)
 int
 poll_signal(int signum, void(*cb)(void *, int), void *udata)
 {
-    /* XXX-FIXME Todo */
-    log_warning("TODO");
+    struct evcb *e = GLOBAL_EVENT;
+
+    if (signum > NSIG) {
+        log_error("invalid signal number");
+        return (-1);
+    }
+
+    e->sig[signum].callback = cb;
+    e->sig[signum].udata = udata;
+
     return (0);
 }
 

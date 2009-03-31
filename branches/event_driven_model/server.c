@@ -99,6 +99,7 @@ drop_privileges(void)
 static void
 server_shutdown(void *unused, int events)
 {
+    log_debug("shutting down");
     //TODO: wait for MDA to complete
     //TODO: wait for DNSBL to complete
     mda_free(srv.mda);
@@ -325,6 +326,17 @@ server_dispatch(void)
         return (-1);
     if (poll_signal(SIGTERM, server_shutdown, NULL) < 0) 
         return (-1);
+
+    /* Workaround: running in foreground causes SIGHUP when 
+     * /dev/stdout goes away after pressing Ctrl-C. */
+    if (!OPT.daemon) {
+    if (poll_signal(SIGHUP, server_shutdown, NULL) < 0) 
+        return (-1);
+    } else {
+        /* TODO - reload config file */
+        //if (poll_signal(SIGHUP, server_restart, NULL) < 0) 
+        //    return (-1);
+    }
     
     /* Monitor the server descriptor for new connections */
     if (poll_enable(srv.fd, SOCK_CAN_READ, server_accept, &srv) < 0) { 

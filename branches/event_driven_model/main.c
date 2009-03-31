@@ -179,10 +179,8 @@ main(int argc, char *argv[])
 #endif
 
     if (server_dispatch() < 0) {
-        log_warning("server_dispatch() failed");
         exit(EXIT_FAILURE);
     } else {
-        log_info("exiting normally");
         exit(EXIT_SUCCESS);
     }
 }
