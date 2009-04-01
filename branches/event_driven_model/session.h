@@ -43,7 +43,8 @@ struct session {
     struct socket_buf in_buf;
     STAILQ_HEAD(,nbuf) out_buf;     /* Output buffer */
 
-    struct timer *timeout;
+    struct timer *timeout;  //TODO: replace with 'time_t ttl' and a single
+                            //      global timer that updates all sessions
 
     /* ---------- protocol specific members ------------ */
 
