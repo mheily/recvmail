@@ -178,8 +178,12 @@ main(int argc, char *argv[])
 #endif
 
     if (server_dispatch() < 0) {
+        if (!detached) 
+            fprintf(stderr, "Fatal error: program bought the farm.");
         exit(EXIT_FAILURE);
     } else {
+        if (!detached) 
+            fprintf(stderr, "Exiting normally");
         exit(EXIT_SUCCESS);
     }
 }
