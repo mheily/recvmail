@@ -26,7 +26,6 @@
 #include "session.h"
 #include "message.h"
 #include "maildir.h"
-#include "nbuf.h"
 
 int             smtpd_parser(struct session *);//smtp.c
 
@@ -99,51 +98,15 @@ int
 session_write(struct session *s, const char *buf, size_t len)
 {
     ssize_t n;
-    char *p;
-    struct nbuf *nbp;
 
-    /* If the output buffer is empty, try writing directly to the client */
-    if (STAILQ_FIRST(&s->out_buf) == NULL) {
-        for (;;) {
-            n = write(s->fd, buf, len);
-            if (n == len)
-                return (0);
-            if (n >= 0 && n < len) {
-                buf += n;
-                len -= n;
-                if (errno == EINTR) {
-                    continue; 
-                } else if (errno == EAGAIN) {
-                    break;
-                } else {
-                    log_errno("unusual short write(2)");
-                    return (-1);
-                }
-            }
-            if (n < 0) {
-                log_errno("write(2)");
-                return (-1);
-            }
-        }
+    /* TODO: check for EAGAIN and enable polling for write readiness */
+    if ((n = write(s->fd, buf, len)) != len) {
+        log_errno("write(2) (%zu of %zu)", n, len);
+        return (-1);
     }
 
-    /* Copy the unwritten portion to a new buffer*/
-    /* FIXME -- This will fail in low-memory situations. */
-    if ((nbp = calloc(1, sizeof(*nbp))) == NULL) 
-        goto errout;
-    if ((p = strdup(buf)) == NULL) {
-        free(nbp);
-        goto errout;
-    }
-    NBUF_INIT(nbp, p, strlen(p));
-    STAILQ_INSERT_TAIL(&s->out_buf, nbp, entries);
     return (0);
-
-errout:
-    log_errno("calloc(3)");
-    return (-1);
 }
-
 
 
 int
@@ -211,9 +174,6 @@ session_new(void)
     /* Initialize the input buffer */
     memset(&s->in_buf, 0, sizeof(s->in_buf));
 
-    /* Initialize the output buffer */
-    STAILQ_INIT(&s->out_buf);
-
     /* Add to the session table */
     pthread_mutex_lock(&st_mtx);
     LIST_INSERT_HEAD(&st, s, st_entries);
@@ -241,19 +201,10 @@ session_flush(struct session *s)
 void
 session_close(struct session *s)
 {
-    struct nbuf *nbp;
-
     log_info("closing session with %s", inet_ntoa(s->remote_addr));
 
     /* Run any protocol-specific hooks */
     (void) protocol_close(s);
-
-    /* Clear the output buffer. Any unwritten data will be discarded. */
-    /* FIXME: shouldn't this be in an abort()-type function? */
-    while ((nbp = STAILQ_FIRST(&s->out_buf))) {
-             free(nbp->nb_data);
-             STAILQ_REMOVE_HEAD(&s->out_buf, entries);
-    }
 
     poll_timer_free(s->timeout);
     poll_disable(s->fd);
