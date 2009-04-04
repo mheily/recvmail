@@ -24,9 +24,9 @@ struct work;
 
 void    smtpd_accept(struct session *);
 int     smtpd_parser(struct session *);
-void    smtpd_timeout(void *);
 void    smtpd_client_error(struct session *);
 void    smtpd_close(struct session *);
 void    smtp_mda_callback(struct session *, int);
+void    smtpd_timeout(struct session *s);
 
 #endif /* _SMTP_H */

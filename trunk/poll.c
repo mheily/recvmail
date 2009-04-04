@@ -61,6 +61,7 @@ struct evcb {
     int                  tk_pipefd[2];
 
     int                  pfd;
+    int                  shutdown;
     int                  sig_status[NSIG + 1];
     struct watch         sig_watch[NSIG + 1];
     LIST_HEAD(,watch)    watchlist;
@@ -160,7 +161,7 @@ timer_handler(void *unused, int unused2)
 }
 
 struct timer *
-poll_timer_new(uint32_t next_time, uint32_t interval, 
+poll_timer_new(unsigned int interval, 
         void (*callback)(void *),
         void  *udata)
 {
@@ -171,7 +172,7 @@ poll_timer_new(uint32_t next_time, uint32_t interval,
         log_errno("calloc(3)");
         return (NULL);
     }
-    te->next_time = time(NULL) + next_time;
+    te->next_time = time(NULL) + interval;
     te->interval = interval;
     te->callback = callback;
     te->udata = udata;
@@ -244,6 +245,7 @@ struct evcb *
 poll_new(void)
 {
     struct evcb *e;
+    sigset_t set;
 
     if ((e = calloc(1, sizeof(*e))) == NULL)
         return (NULL);
@@ -260,6 +262,11 @@ poll_new(void)
         err(1, "cannot have multiple event sinks");
     else
         GLOBAL_EVENT = e;
+
+    /* Block all signals */
+    sigfillset(&set);
+    if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0)
+        err(1, "pthread_sigmask(3)");
 
     /* Create the signal-catching thread */
     if (pipe(e->sc_pipefd) == -1) {
@@ -323,6 +330,12 @@ poll_free(struct evcb *e)
     free(e);
 }
 
+void
+poll_shutdown(struct evcb *e)
+{
+    e->shutdown = 1;
+}
+
 int
 poll_dispatch(struct evcb *e)
 {
@@ -330,6 +343,11 @@ poll_dispatch(struct evcb *e)
     int events;
 
     for (;;) {
+        /* TODO: reap pending events before shutting down.. ? */
+        if (e->shutdown) {
+            log_debug("shutting down");
+            break;
+        }
 
         /* Wait for an event */
         log_debug("waiting for event");
@@ -341,6 +359,8 @@ poll_dispatch(struct evcb *e)
         log_debug("got an event");
         w->callback(w->udata, events);
     }
+
+    return (0);
 }
 
 /* ------------------------- pollset handling functions -----------------*/

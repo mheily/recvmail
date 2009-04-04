@@ -38,6 +38,9 @@ extern struct server srv;  //FIXME -- Hide this
 
 #define RECIPIENT_MAX		100
 
+/* The timeout (in seconds) while in the command state */
+#define SMTP_COMMAND_TIMEOUT    (60 * 5)
+
 static int smtpd_parse_command(struct session *, char *, size_t);
 static int smtpd_parse_data(struct session *, char *, size_t);
 static int smtpd_session_reset(struct session *);
@@ -254,7 +257,7 @@ smtpd_parser(struct session *s)
     iov = s->in_buf.sb_iov;
     s->in_buf.sb_iovpos = 0; 
 
-    poll_timer_disable(s->timeout);
+    s->timeout = time(NULL) + SMTP_COMMAND_TIMEOUT;
 
     /* Pass control to the 'command' or 'data' subparser */
     for (i = 0; i < s->in_buf.sb_iovlen; i++, s->in_buf.sb_iovpos++) {
@@ -282,8 +285,6 @@ smtpd_parser(struct session *s)
             return (-1);
         }
     }
-
-    poll_timer_enable(s->timeout);
 
     return (0);
 }
@@ -439,15 +440,13 @@ void
 smtpd_accept(struct session *s)
 {
     s->handler = smtpd_parser;
-    s->timeout = poll_timer_new(6, 0, smtpd_timeout, s);
+    s->timeout = time(NULL) + SMTP_COMMAND_TIMEOUT;
     smtpd_greeting(s);
 }
 
 void
-smtpd_timeout(void *arg)
+smtpd_timeout(struct session *s)
 {
-    struct session *s = (struct session *) arg;
-
     log_info("session timed out due to inactivity");
     session_println(s, "421 Idle time limit exceeded, goodbye");
     session_close(s); //FIXME: is this a bad place for this? check dispatch()

@@ -26,6 +26,7 @@
 #include "dnsbl.h"
 #include "options.h"
 #include "log.h"
+#include "poll.h"
 #include "server.h"
 #include "smtp.h"
 
@@ -44,6 +45,7 @@ struct server   smtpd = {
 
     /* vtable */
     .accept_hook = smtpd_accept,
+    .timeout_hook = smtpd_timeout,
     .abort_hook = NULL,		// fixme
     .close_hook = smtpd_close,
 };
@@ -99,21 +101,13 @@ option_parse(const char *arg)
 	free(buf);
 }
 
-static void
-block_all_signals(void)
-{
-    sigset_t set;
-
-    sigfillset(&set);
-    if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0)
-        err(1, "pthread_sigmask(3)");
-}
 
 int
 main(int argc, char *argv[])
 {
     char mailname[256];
-    int             c;
+    struct evcb *e;
+    int  c, rv;
 
     /* Get arguments from ARGV */
     while ((c = getopt(argc, argv, "fg:hi:o:p:qu:v")) != -1) {
@@ -168,12 +162,13 @@ main(int argc, char *argv[])
     if (gethostname(OPT.mailname, 256) != 0)
         err(1, "gethostname");
     
+    /* Create the event source */
+    if ((e = poll_new()) == NULL) 
+        err(1, "unable to create the event source");
+
     /* Read the /etc/aliases file */
     aliases_init();
     aliases_parse("/etc/aliases");
-
-    block_all_signals();
-    //TODO:want to run poll_init() here so signal handling can take place
 
     if (dnsbl_init() < 0)
         errx(1, "DNSBL initialization failed");
@@ -191,13 +186,17 @@ main(int argc, char *argv[])
     exit(EXIT_SUCCESS);
 #endif
 
-    if (server_dispatch() < 0) {
-        if (!detached) 
-            fprintf(stderr, "Fatal error: program bought the farm.");
-        exit(EXIT_FAILURE);
-    } else {
-        if (!detached) 
-            fprintf(stderr, "Exiting normally");
-        exit(EXIT_SUCCESS);
+    rv = server_dispatch(e);
+
+    poll_free(e);
+
+    /* Print the final log message */
+    if (!detached) {
+        fprintf(stderr, ((rv == 0) ? "Exiting normally\n" : "Fatal error\n"));
+        close(0);
+        close(1);
+        close(2);
     }
+
+    exit ((rv == 0) ? EXIT_SUCCESS : EXIT_FAILURE);
 }
