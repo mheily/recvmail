@@ -38,13 +38,16 @@ struct server {
     pthread_t        fsyncer_tid;
 
 
-    struct evcb * evcb;
+    //struct evcb * evcb;
 
     /* The number of seconds to wait for incoming data from the client */
     int             timeout_read;
 
     /* The number of seconds to wait to send data to the client */
     int             timeout_write;
+
+    /* Called prior to close(2) for a session due to timeout */
+    void           (*timeout_hook) (struct session *);
 
     /* Called after accept(2) */
     void           (*accept_hook) (struct session *);
@@ -69,7 +72,7 @@ extern struct server srv;
 
 int  protocol_close(struct session *);
 int  server_disconnect(int);
-int  server_dispatch(void);
+int  server_dispatch(struct evcb *);
 int  server_init(struct server *_srv);
 int  server_bind(void);
 void server_update_pollset(struct server *);

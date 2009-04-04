@@ -38,6 +38,7 @@ extern int      vasprintf(char **, const char *, va_list);
  */
 static LIST_HEAD(,session) st;
 static pthread_mutex_t     st_mtx;
+static struct timer       *st_expiration_timer;
 
 /*
  *
@@ -206,7 +207,6 @@ session_close(struct session *s)
     /* Run any protocol-specific hooks */
     (void) protocol_close(s);
 
-    poll_timer_free(s->timeout);
     poll_disable(s->fd);
     (void) close(s->fd); 
 
@@ -270,9 +270,27 @@ session_table_lookup(struct session **sptr, unsigned long sid)
     return (-1);
 }
 
+static void
+session_table_expire(void *unused)
+{
+    struct session *s, *s_next;
+    time_t now;
+
+    log_debug("expiring idle sessions");
+    now = time(NULL);
+    for (s = LIST_FIRST(&st); s != LIST_END(&st); s = s_next) {
+        s_next = LIST_NEXT(s, st_entries);
+        if (s->timeout < now) {
+            srv.timeout_hook(s);
+            session_close(s);
+        }
+    }
+}
+
 void
 session_table_init(void)
 {
     LIST_INIT(&st);
+    st_expiration_timer = poll_timer_new(60, session_table_expire, NULL);
     pthread_mutex_init(&st_mtx, NULL);
 }

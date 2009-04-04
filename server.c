@@ -103,7 +103,7 @@ server_restart(void *unused, int events)
 }
 
 static void
-server_shutdown(void *unused, int events)
+server_shutdown(void *arg, int events)
 {
     log_debug("shutting down");
     //TODO: wait for MDA to complete
@@ -113,15 +113,10 @@ server_shutdown(void *unused, int events)
     //TODO: shutdown the MDA and DNSBL threads
     aliases_free();
     close(srv.fd);
-    poll_free(srv.evcb);
 
     log_close();
 
-    if (!OPT.daemon) {
-        close(0);
-        close(1);
-        close(2);
-    }
+    poll_shutdown((struct evcb *) arg);
 }
 
 /* ------------------- Public functions ----------------------- */
@@ -180,12 +175,6 @@ server_init(struct server *_srv)
     limit.rlim_cur = limit.rlim_max = RLIM_INFINITY;
     if (setrlimit(RLIMIT_CORE, &limit) != 0)
         err(1, "setrlimit failed");
-
-    /* Create the event source */
-    if ((srv.evcb = poll_new()) == NULL) {
-        log_error("unable to create the event source");
-        return (-1);
-    }
 
     /* Drop root privilges and call chroot(2) */
     drop_privileges();
@@ -325,14 +314,14 @@ server_accept(void *unused, int events)
 
 
 int
-server_dispatch(void)
+server_dispatch(struct evcb *e)
 {
     /* Respond to signals */
-    if (poll_signal(SIGINT, server_shutdown, NULL) < 0) 
+    if (poll_signal(SIGINT, server_shutdown, e) < 0) 
         return (-1);
-    if (poll_signal(SIGTERM, server_shutdown, NULL) < 0) 
+    if (poll_signal(SIGTERM, server_shutdown, e) < 0) 
         return (-1);
-    if (poll_signal(SIGHUP, server_restart, NULL) < 0) 
+    if (poll_signal(SIGHUP, server_restart, e) < 0) 
         return (-1);
 
     /* Monitor the server descriptor for new connections */
@@ -341,5 +330,5 @@ server_dispatch(void)
         return (-1);
     }
    
-    return poll_dispatch(srv.evcb);
+    return poll_dispatch(e);
 }

@@ -42,8 +42,7 @@ struct session {
     struct in_addr  remote_addr;	/* IP address of the client */
     struct socket_buf in_buf;
 
-    struct timer *timeout;  //TODO: replace with 'time_t ttl' and a single
-                            //      global timer that updates all sessions
+    time_t          timeout;  
 
     /* ---------- protocol specific members ------------ */
 
