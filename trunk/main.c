@@ -19,6 +19,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <signal.h>
 #include <unistd.h>
 
 #include "aliases.h"
@@ -98,6 +99,16 @@ option_parse(const char *arg)
 	free(buf);
 }
 
+static void
+block_all_signals(void)
+{
+    sigset_t set;
+
+    sigfillset(&set);
+    if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0)
+        err(1, "pthread_sigmask(3)");
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -160,6 +171,9 @@ main(int argc, char *argv[])
     /* Read the /etc/aliases file */
     aliases_init();
     aliases_parse("/etc/aliases");
+
+    block_all_signals();
+    //TODO:want to run poll_init() here so signal handling can take place
 
     if (dnsbl_init() < 0)
         errx(1, "DNSBL initialization failed");
