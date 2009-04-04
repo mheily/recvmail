@@ -103,8 +103,11 @@ set_signal_mask(int how)
 static void
 signal_handler(void *unused, int signum)
 {
+    char c;
     struct evcb *e = GLOBAL_EVENT;
     struct watch *w;
+
+    (void) read(e->sc_pipefd[0], &c, 1);
 
     w = &e->sig[signum];
     if (w != NULL) {
