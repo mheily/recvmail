@@ -95,9 +95,8 @@ drop_privileges(void)
     log_info("setuid(2) to %s(%d)", srv.uid, uid);
 }
 
-
 static void
-server_shutdown(void *unused, int events)
+server_restart(void *unused, int events)
 {
     log_error("STUB");
     sleep(1);
