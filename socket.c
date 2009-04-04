@@ -40,52 +40,6 @@ static size_t  nbuf;
 static struct iovec lines[__BUFSIZE + 2];  //TODO: this is absurdly large, make it dynamic
 static size_t       nlines;
 
-#if DEADWOOD
-/* Write from a buffer to a socket descriptor.
- * If a partial write occurs, <bufp> will be advanced to the next 
- * unwritten character, and <lenp> will be set to the remaining
- * number of bytes to be written.
- * TODO -- test me
- */
-int
-socket_write(int fd, char **bufp, size_t **lenp)
-{
-    char *buf = *bufp; 
-    size_t len = *lenp; 
-
-    for (;;) {
-        n = write(fd, buf, len);
-
-        /* Success: all bytes were written */
-        if (n == len) {
-            *lenp = 0;
-            *bufp = NULL;
-            return (0);
-        }
-
-        /* Partial write */
-        if (n >= 0 && n < len) {
-            buf += n;
-            len -= n;
-            if (errno == EINTR) {
-                continue; 
-            } else if (errno == EAGAIN) {
-                *lenp = len;
-                *bufp = buf;
-                return (0);
-            } else {
-                return (-1);
-            }
-        }
-
-        /* Error condition */
-        if (n < 0) {
-            return (-1);
-        }
-    }
-}
-#endif /*DEADWOOD*/
-
 ssize_t
 socket_readv(struct socket_buf *sb, int fd)
 {
@@ -112,43 +66,38 @@ socket_readv(struct socket_buf *sb, int fd)
     }
 
     /* Read as much as possible from the kernel socket buffer. */
-    do {
+    if ((n = read(fd, bufp, bufsz - 1)) < 0) { 
+        sb->sb_iov = NULL;
+        sb->sb_iovlen = 0;
 
-        if ((n = read(fd, bufp, bufsz - 1)) < 0) { 
-            sb->sb_iov = NULL;
-            sb->sb_iovlen = 0;
-
-            /* If no data is available, go to sleep */
-            if (errno == EAGAIN) {
-                return (0);
-            } else {
-                log_errno("read(2)");
-                return (-1);
-            }
-        }
-
-        /* Check for EOF */
-        /* XXX- is n==0 actually EOF? */
-        if (n == 0) {
-            log_debug("zero-length read(2)");
-            //FIXME -- how to indicate to session object that no more reads are possible?
-            //sb->sb_status = 1; //FIXME: magic constant, not checked anywhere else.
+        /* If no data is available, go to sleep */
+        if (errno == EAGAIN) {
+            return (0);
+        } else {
+            log_errno("read(2)");
             return (-1);
         }
+    }
 
-    } while (n == -1 && errno == EINTR);
+    /* Check for EOF */
+    /* XXX- is n==0 actually EOF? */
+    if (n == 0) {
+        log_debug("zero-length read(2)");
+        //FIXME -- how to indicate to session object that no more reads are possible?
+        //sb->sb_status = 1; //FIXME: magic constant, not checked anywhere else.
+        return (-1);
+    }
 
     nbuf += n;
 
-#ifndef DEADWOOD
-    //for debugging
+    /*
+    //uncomment for extra debugging
     //
     bufp = (char *) &buf;       //to un-fragment
     bufp[nbuf] = '\0';          //FIXME: temp for debugging
     log_debug("read %zu bytes: `%s'", nbuf, bufp);
-#else
+    */
     log_debug("read %zu bytes", nbuf);
-#endif
 
     /* Compute the address of the end of the buffer */
     buf_edge = ((char *) &buf) + nbuf;
