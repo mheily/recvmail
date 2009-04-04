@@ -1,4 +1,4 @@
-/*		$Id: recvmail.h 115 2009-02-11 02:04:10Z mheily $		*/
+/*		$Id$		*/
 
 /*
  * Copyright (c) 2009 Mark Heily <devel@heily.com>

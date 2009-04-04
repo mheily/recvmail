@@ -1,4 +1,4 @@
-/*		$Id: server.c 151 2009-03-14 01:32:02Z mheily $		*/
+/*		$Id$		*/
 
 /*
  * Copyright (c) 2009 Mark Heily <devel@heily.com>

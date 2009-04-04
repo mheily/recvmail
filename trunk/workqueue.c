@@ -1,4 +1,4 @@
-/*		$Id: address.c 119 2009-02-11 03:25:20Z mheily $		*/
+/*		$Id$		*/
 
 /*
  * Copyright (c) 2009 Mark Heily <devel@heily.com>
