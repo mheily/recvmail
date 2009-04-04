@@ -414,7 +414,7 @@ poll_disable(int fd)
         return (epoll_ctl(e->pfd, EPOLL_CTL_DEL, fd, ((void *) -1L)));
     }
 
-    log_error("fd %d not found", w->fd);
+    log_error("fd %d not found", fd);
     return (-1);
 }
 
