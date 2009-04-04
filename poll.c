@@ -61,7 +61,8 @@ struct evcb {
     int                  tk_pipefd[2];
 
     int                  pfd;
-    struct watch         sig[NSIG + 1];
+    int                  sig_status[NSIG + 1];
+    struct watch         sig_watch[NSIG + 1];
     LIST_HEAD(,watch)    watchlist;
     LIST_HEAD(,timer)    timer_list;
 };
@@ -70,52 +71,30 @@ struct evcb {
  * Signal handling
  */
 
-/* NOOP signal handler */
-void
-_sig_handler(int num)
-{
-    num = 0;
-}
-
 static void
-set_signal_mask(int how)
+signal_handler(void *unused, int unused2)
 {
-    sigset_t set;
-    struct sigaction sa;
-
-    memset(&sa, 0, sizeof(sa));
-    sigemptyset(&set);
-    sigaddset(&set, SIGINT);
-    sigaddset(&set, SIGHUP);
-    sigaddset(&set, SIGTERM);
-    if (pthread_sigmask(how, &set, NULL) != 0)
-        err(1, "pthread_sigmask(3)");
-
-    if (how == SIG_UNBLOCK) {
-        sa.sa_flags = 0;
-        sa.sa_handler = _sig_handler;
-        sigaction (SIGHUP, &sa, NULL);
-        sigaction (SIGINT, &sa, NULL);
-        sigaction (SIGTERM, &sa, NULL);
-    }
-}
-
-static void
-signal_handler(void *unused, int signum)
-{
+    int signum;
     char c;
     struct evcb *e = GLOBAL_EVENT;
     struct watch *w;
 
     (void) read(e->sc_pipefd[0], &c, 1);
 
-    w = &e->sig[signum];
-    if (w != NULL) {
-        log_debug("calling signal handler for signum %d", signum);
-        w->callback(w->udata, signum);
-    } else {
-        log_error("Caught unhandled signal %d -- exiting", signum);
-        exit(0);
+    /* Handle all signals */
+    for (signum = 0; signum < NSIG; signum++) {
+        if (e->sig_status[signum] == 0)
+            continue;
+
+        w = &e->sig_watch[signum];
+        if (w != NULL) {
+            log_debug("calling signal handler for signum %d", signum);
+            w->callback(w->udata, signum);
+            e->sig_status[signum] = 0;
+        } else {
+            log_error("Caught unhandled signal %d -- exiting", signum);
+            exit(0);
+        }
     }
 }
 
@@ -124,10 +103,19 @@ signal_dispatch(void *arg)
 {
     int pipefd = *((int *) arg);
     char c = '\0';
+    sigset_t set;
+    int      signum;
 
-    set_signal_mask(SIG_UNBLOCK);
+    /* Build the list of signals we are interested in. */
+    sigemptyset(&set);
+    sigaddset(&set, SIGINT);
+    sigaddset(&set, SIGHUP);
+    sigaddset(&set, SIGTERM);
+    
     for (;;) {
-        pause();
+        sigwait(&set, &signum);
+        log_debug("caught signal %d", signum);
+        GLOBAL_EVENT->sig_status[signum] = 1;
         write(pipefd, &c, 1);
     }
 }
@@ -272,9 +260,6 @@ poll_new(void)
         err(1, "cannot have multiple event sinks");
     else
         GLOBAL_EVENT = e;
-
-    set_signal_mask(SIG_BLOCK);
-    signal(SIGPIPE, SIG_IGN);       /* TODO: put this with the mask */
 
     /* Create the signal-catching thread */
     if (pipe(e->sc_pipefd) == -1) {
@@ -423,8 +408,8 @@ poll_signal(int signum, void(*cb)(void *, int), void *udata)
         return (-1);
     }
 
-    e->sig[signum].callback = cb;
-    e->sig[signum].udata = udata;
+    e->sig_watch[signum].callback = cb;
+    e->sig_watch[signum].udata = udata;
 
     return (0);
 }
