@@ -227,8 +227,7 @@ timekeeper(void *arg)
     char c = '\0';
 
     for (;;) {
-        //sleep(30);
-        sleep(3);
+        sleep(30);
         write(pipefd, &c, 1);
     }
 }
