@@ -19,6 +19,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <sys/socket.h>
 #include <sys/queue.h>
 #include <sys/types.h>
 #include <time.h>

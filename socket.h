@@ -19,6 +19,7 @@
 #define _SOCKET_H
 
 #include <sys/types.h>
+#include <sys/uio.h>
 
 /* A socket buffer */
 struct socket_buf {

@@ -18,8 +18,10 @@
 
 // for strndup
 #define _GNU_SOURCE 
+
 #include <ctype.h>
 #include <string.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include "log.h"

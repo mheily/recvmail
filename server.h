@@ -20,6 +20,7 @@
 #define _SERVER_H
 
 #include <netinet/in.h>
+#include <sys/socket.h>
 #include <pthread.h>
 #include "queue.h"
 

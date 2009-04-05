@@ -17,6 +17,7 @@ enum {
     EPOLLERR = 0x008,
     EPOLLHUP = 0x010,
 };
+#define EPOLLRDHUP    EPOLLHUP
 /* TODO: EPOLLET */
 
 struct epoll_event {

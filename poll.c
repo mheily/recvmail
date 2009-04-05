@@ -129,7 +129,6 @@ timer_handler(void *unused, int unused2)
     time_t now;
     char c;
 
-    log_debug("tick tock");
     (void) read(e->tk_pipefd[0], &c, 1);
 
     /* Check each timed event to see if it should occur */
@@ -138,7 +137,6 @@ timer_handler(void *unused, int unused2)
             te = te_next) {
         te_next = LIST_NEXT(te, entries);
 
-        log_debug("now=%lu next_time=%lu", now, te->next_time);
         if (te->active < 0) {
             LIST_REMOVE(te, entries);
             free(te);
@@ -150,11 +148,9 @@ timer_handler(void *unused, int unused2)
 
         te->callback(te->udata);
         if (te->interval == 0) {
-            log_debug("deleting timer");
             LIST_REMOVE(te, entries);
             free(te);
         } else {
-            log_debug("re-arming timer");
             te->next_time = now + te->interval;
         }
     }
