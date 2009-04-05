@@ -45,3 +45,4 @@ log_close(void)
     free(_ident);
     _ident = NULL;
 }
+

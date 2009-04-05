@@ -16,6 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -40,7 +41,7 @@ struct server   smtpd = {
     .timeout_read = 15,
     .timeout_write = 30,
     .chrootdir = "/srv/mail",
-    .uid = "nobody",
+    .uid = "recvmail",
     .gid = "mail",
 
     /* vtable */
@@ -166,10 +167,6 @@ main(int argc, char *argv[])
     if ((e = poll_new()) == NULL) 
         err(1, "unable to create the event source");
 
-    /* Read the /etc/aliases file */
-    aliases_init();
-    aliases_parse("/etc/aliases");
-
     if (dnsbl_init() < 0)
         errx(1, "DNSBL initialization failed");
 
@@ -177,7 +174,6 @@ main(int argc, char *argv[])
         errx(1, "server initialization failed");
 
     /* Dump some variables to the log */
-    log_debug("_SC_NPROCESSORS_ONLN=%ld", sysconf(_SC_NPROCESSORS_ONLN));
     log_debug("mailname=`%s'", OPT.mailname);
 
 #ifdef UNIT_TESTING

@@ -22,7 +22,7 @@ man_MANS         = recvmail.8
 SOURCES		 = $(recvmail_SOURCES) $(selftest_SOURCES)
 
 recvmail_CFLAGS  = -g -O0 -Wall -Werror -include config.h
-recvmail_SOURCES = address.c aliases.c poll.c dnsbl.c epoll.c \
+recvmail_SOURCES = address.c poll.c dnsbl.c epoll.c \
 		   log.c mda.c socket.c message.c maildir.c session.c \
 		   smtp.c server.c workqueue.c main.c
 recvmail_LDADD   = -lpthread
@@ -33,6 +33,23 @@ selftest_CFLAGS  = $(recvmail_CFLAGS) -DUNIT_TESTING
 selftest_LDADD   = $(recvmail_LDADD)
 TESTS            = selftest
 check_PROGRAMS   = selftest
+
+post-install:
+	if [ "`uname -s`" = "Linux" ] ; then \
+		useradd -c "SMTP daemon" -d /srv/mail -g mail -s /bin/false -N recvmail ;  \
+	fi
+	if [ "`uname -s`" = "OpenBSD" ] ; then \
+		groupadd mail ; \
+		useradd -c "SMTP daemon" -d /srv/mail -g mail -s /bin/false recvmail ;  \
+	fi
+	mkdir -p /srv/mail/spool/{new,cur,tmp}
+	mkdir -p /srv/mail/
+	chown -R recvmail:mail /srv/mail/spool/*
+	chmod -R 770 /srv/mail
+
+post-uninstall:
+	if [ "`uname -s`" = "Linux" ] ; then \
+		userdel recvmail ; fi
 
 loopback:
 	printf "helo a\nmail from:abc@def.ghi\nrcpt to:example@example.com\ndata\nSubject: hi\n\nHello\n.\nquit\n" | nc localhost 1025

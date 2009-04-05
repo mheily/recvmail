@@ -111,7 +111,6 @@ server_shutdown(void *arg, int events)
     mda_free(srv.mda);
     dnsbl_free(srv.dnsbl);
     //TODO: shutdown the MDA and DNSBL threads
-    aliases_free();
     close(srv.fd);
 
     log_close();
