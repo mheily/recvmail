@@ -1,4 +1,4 @@
-/*		$Id: dnsbl.c 187 2009-04-05 05:16:59Z mheily $		*/
+/*		$Id$		*/
 
 /*
  * Copyright (c) 2009 Mark Heily <devel@heily.com>
