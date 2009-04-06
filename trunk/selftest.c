@@ -16,13 +16,50 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "recvmail.h"
+#include <assert.h>
+#include <err.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "resolver.h"
+#include "log.h"
 
 #define test(func,...) if (func(__VA_ARGS__) != 0) errx(1, "%s", "func failed")
 #define testnull(func,...) if (func(__VA_ARGS__) == NULL) errx(1, "%s", "func failed")
+
 void
-run_testsuite()
+test_resolver(void)
 {
+    in_addr_t addr, addr2;
+    char *name;
+
+    log_level = LOG_DEBUG;
+
+    test(resolver_lookup_addr, &addr, "www.recvmail.org");
+    assert(addr == 1001207877);
+
+    /* Test the cache by looking up the same name again. */
+    test(resolver_lookup_addr, &addr, "www.recvmail.org");
+    assert(addr != addr2);
+
+    /* Reverse lookup */
+    test(resolver_lookup_name, &name, addr);
+    assert(strcmp(name, "www.recvmail.org"));
+
+    test(resolver_lookup_addr, &addr, "nonexistant.google.com");
+    assert(addr == 0);
+
+    test(resolver_lookup_addr, &addr, "nonexist.tld");
+    assert(addr == 0);
+}
+
+int
+main(int argc, char *argv[])
+{
+    test_resolver();
+
+#if FIXME
+    // need #includes
     struct mail_addr *addr;
 
     if ((addr = address_parse("hi@bye.com")) == NULL)
@@ -31,6 +68,9 @@ run_testsuite()
     test(strcmp, addr->local_part, "hi");
     test(strcmp, addr->domain, "bye.com");
     address_free(addr);
+#endif
+
 
     printf("+OK\n");
+    exit(0);
 }

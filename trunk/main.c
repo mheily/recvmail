@@ -31,8 +31,6 @@
 #include "server.h"
 #include "smtp.h"
 
-void            run_testsuite();
-
 /* Global variables */
 
 struct server   smtpd = {
@@ -175,12 +173,6 @@ main(int argc, char *argv[])
 
     /* Dump some variables to the log */
     log_debug("mailname=`%s'", OPT.mailname);
-
-#ifdef UNIT_TESTING
-    /* Run the testsuite */
-    run_testsuite();
-    exit(EXIT_SUCCESS);
-#endif
 
     rv = server_dispatch(e);
 
