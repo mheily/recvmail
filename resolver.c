@@ -30,10 +30,11 @@
 #include <string.h>
 
 #include "compat/tree.h"
+#include "poll.h"
 #include "log.h"
 
-/* Cache DNS lookups for 30 minutes by default. */
-#define DEFAULT_TTL     (60 * 30)
+/* Cache DNS lookups for 60 minutes by default. */
+#define DEFAULT_TTL     (60 * 60)
 
 struct node {
     RB_ENTRY(node) entry;
@@ -41,6 +42,8 @@ struct node {
     char     *name;
     time_t    expires;
 };
+
+static struct timer       *update_timer;
 
 static int
 addr_cmp(struct node *e1, struct node *e2)
@@ -90,16 +93,6 @@ cache_lookup_addr(const char *name)
 
     query.name = (char *) name;
     res = RB_FIND(a_tree, &forward, &query);
-    if (res == NULL)
-        return (NULL);
-
-    if (res->expires <= time(NULL)) {
-        log_debug("expiring stale cache entry");
-        RB_REMOVE(a_tree, &forward, res);
-        node_free(res);
-        return (NULL);
-    }
-
     return (res);
 }
 
@@ -111,15 +104,6 @@ cache_lookup_name(in_addr_t addr)
 
     query.addr = addr;
     res = RB_FIND(ptr_tree, &reverse, &query);
-    if (res == NULL)
-        return (NULL);
-
-    if (res->expires <= time(NULL)) {
-        RB_REMOVE(ptr_tree, &reverse, res);
-        node_free(res);
-        return (NULL);
-    }
-
     return (res);
 }
 
@@ -147,6 +131,33 @@ cache_add_name(in_addr_t addr, const char *name)
     RB_INSERT(ptr_tree, &reverse, n);
 
     return (0);
+}
+
+static void
+cache_expire_all(void *unused)
+{
+    struct node *var, *nxt;
+    time_t now;
+
+    now = time(NULL);
+
+    /* Remove stale entries from the A record cache */
+    for (var = RB_MIN(a_tree, &forward); var != NULL; var = nxt) {
+        nxt = RB_NEXT(a_tree, &forward, var);
+        if (now > var->expires) {
+            RB_REMOVE(a_tree, &forward, var);
+            node_free(var);
+        }
+    }
+
+    /* Remove stale entries from the PTR record cache */
+    for (var = RB_MIN(ptr_tree, &reverse); var != NULL; var = nxt) {
+        nxt = RB_NEXT(ptr_tree, &reverse, var);
+        if (now > var->expires) {
+            RB_REMOVE(ptr_tree, &reverse, var);
+            node_free(var);
+        }
+    }
 }
 
 int
@@ -225,4 +236,14 @@ resolver_lookup_name(char **dst, const in_addr_t src)
         log_errno("getnameinfo(3) of %d returned %d", src, rv);
         return (-1);
     }
+}
+
+int
+resolver_init(void)
+{
+    update_timer = poll_timer_new(DEFAULT_TTL, cache_expire_all, NULL);
+    if (update_timer == NULL)
+        return(-1);
+
+    return (0);
 }

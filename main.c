@@ -28,6 +28,7 @@
 #include "options.h"
 #include "log.h"
 #include "poll.h"
+#include "resolver.h"
 #include "server.h"
 #include "smtp.h"
 
@@ -164,6 +165,9 @@ main(int argc, char *argv[])
     /* Create the event source */
     if ((e = poll_new()) == NULL) 
         err(1, "unable to create the event source");
+
+    if (resolver_init() < 0)
+        errx(1, "resolver initialization failed");
 
     if (dnsbl_init() < 0)
         errx(1, "DNSBL initialization failed");

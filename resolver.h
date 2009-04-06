@@ -22,6 +22,7 @@
 
 int     resolver_lookup_addr(in_addr_t *, const char *);
 int     resolver_lookup_name(char **, const in_addr_t);
+int     resolver_init(void);
 //TODO:void    resolver_atexit(void);
 
 #endif  /* _RESOLVER_H */
