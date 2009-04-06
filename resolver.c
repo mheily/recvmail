@@ -57,10 +57,10 @@ name_cmp(struct node *e1, struct node *e2)
     return (strcmp(e1->name, e2->name));
 }
 
-RB_HEAD(a_tree, node) forward = RB_INITIALIZER(&head);
+RB_HEAD(a_tree, node) forward = RB_INITIALIZER(&forward);
 RB_GENERATE(a_tree, node, entry, name_cmp);
 
-RB_HEAD(ptr_tree, node) reverse = RB_INITIALIZER(&head);
+RB_HEAD(ptr_tree, node) reverse = RB_INITIALIZER(&reverse);
 RB_GENERATE(ptr_tree, node, entry, addr_cmp);
 
 static struct node *

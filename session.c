@@ -20,6 +20,8 @@
 #include <stdarg.h>
 #include <unistd.h>
 
+#include "compat/tree.h"
+
 #include "log.h"
 #include "poll.h"
 #include "server.h"
@@ -31,7 +33,6 @@ int             smtpd_parser(struct session *);//smtp.c
 
 /** vasprintf(3) is a GNU extension and not universally visible */
 extern int      vasprintf(char **, const char *, va_list);
-
 
 /**
  * Session table.
