@@ -44,6 +44,8 @@ post-install:
 	fi
 	mkdir -p /srv/mail/spool/{new,cur,tmp}
 	mkdir -p /srv/mail/
+	mkdir /srv/mail/etc
+	cp /etc/resolv.conf /srv/mail/etc
 	chown -R recvmail:mail /srv/mail/spool/*
 	chmod -R 770 /srv/mail
 
