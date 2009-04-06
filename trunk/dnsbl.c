@@ -28,6 +28,7 @@
 #include "dnsbl.h"
 #include "session.h"
 #include "poll.h"
+#include "resolver.h"
 #include "workqueue.h"
 #include "log.h"
 
@@ -35,49 +36,9 @@ static void dnsbl_query(struct work *wqa, void *udata);
 static void dnsbl_response_handler(struct session *, int);
 static int dnsbl_reject_early_talker(struct session *s);
 
-/* Four hour TTL for cached entries. */
-#define DNSBL_CACHE_TTL   (60 * 60 * 4)    
-
-/**
- * Set the value of a cache entry.
- *
- * @param cache either dnsbl->good or dnsbl->bad
- * @param addr the IPv4 address
- */
-#define DNSBL_CACHE_SET(cache, addr) do {                               \
-    cache[0][addr[3]] =                                                 \
-    cache[1][addr[2]] =                                                 \
-    cache[2][addr[1]] =                                                 \
-    cache[3][addr[0]] = 1;                                              \
-} while (0)
-
-/* List of IPv4 addresses. Stored in reverse order (e.g. PTR record).
- * Query by checking each octet against the array. A value of 1 means the
- * address exists, a value of 0 means it does not exist.
- *
- * E.g. to test if IP addr 1.2.3.4 is in the list, evaluate:
- *
- *    iplist[0][4] && iplist[1][3] && iplist[2][2] && iplist[3][1] 
- *
- * E.g. to add IP addr 1.2.3.4 to the list, run:
- *
- *    iplist[0][4] = 1;
- *    iplist[1][3] = 1;
- *    iplist[2][2] = 1;
- *    iplist[3][1] = 1;
- *   
- */
 struct dnsbl {
     /* FQDN of the DNSBL service (e.g. zen.spamhaus.org) */
     char         *service;
-
-    /* Blacklist and whitelisted IPs. These should be flushed every 4 hours
-     * as a crude way of clearing the cache.
-     */
-    unsigned char good[4][256];
-    unsigned char bad[4][256];
-    time_t        refresh;
-
     struct workqueue *wq;
 };
 
@@ -94,7 +55,6 @@ dnsbl_new(const char *service)
         free(d);
         return (NULL);
     }
-    d->refresh = time(NULL) + DNSBL_CACHE_TTL;
     d->wq = wq_new(dnsbl_query, dnsbl_response_handler, d);
 
     return (d);
@@ -142,8 +102,6 @@ dnsbl_query(struct work *wqa, void *udata)
     struct dnsbl *d = (struct dnsbl *) udata;
     unsigned int addr;
     char fqdn[256];
-    struct addrinfo hints;
-    struct addrinfo *ai;
     unsigned char c[4];
     int rv;
 
@@ -165,19 +123,11 @@ dnsbl_query(struct work *wqa, void *udata)
 
     log_debug("query='%s' host=%d", (char *) fqdn, addr);
 
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;
-    rv = getaddrinfo((char *) fqdn, NULL, NULL, &ai);
-
-    if (rv == EAI_NONAME) {
-        DNSBL_CACHE_SET(d->good, c);
-        wqa->retval = DNSBL_NOT_FOUND;
-    } else if (rv == 0) {
-        DNSBL_CACHE_SET(d->bad, c);
-        freeaddrinfo(ai);
-        wqa->retval = DNSBL_FOUND;
-    } else {
+    rv = resolver_lookup_addr(&addr, (char *) fqdn);
+    if (rv < 0) {
         wqa->retval = DNSBL_ERROR;
+    } else if (rv == 0) {
+        wqa->retval = (addr == 0) ? DNSBL_NOT_FOUND : DNSBL_FOUND;
     }
 }
 
