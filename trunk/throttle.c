@@ -1,4 +1,4 @@
-/*		$Id: dnsbl.c 187 2009-04-05 05:16:59Z mheily $		*/
+/*		$Id$		*/
 
 /*
  * Copyright (c) 2009 Mark Heily <devel@heily.com>
@@ -34,7 +34,7 @@ struct client {
     u_int   running_total;  /* Total number of connections */
     u_int   errors;         /* Total number of "bad" connections */
     time_t  last_attempt;     /* The last time the client attempted to connect */
-    time_t  lockout;        /* The time the client is locked out until (or 0 for not-locked-out */
+    time_t  lockout;        /* The time the client is locked out (0=no lockout) */
 };
 
 static int

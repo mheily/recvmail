@@ -80,6 +80,10 @@ hammer2:
 indent:
 	indent -orig -ncdb -nfc1 *.[ch]
 
+# Enable Id keyword expansion
+svn-fix:
+	svn propset svn:keywords Id *.[ch]
+
 # Reformat, diff, and checkin changes
 checkin: indent
 	svn diff | less
