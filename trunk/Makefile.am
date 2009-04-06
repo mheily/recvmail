@@ -28,7 +28,7 @@ recvmail_SOURCES = address.c poll.c dnsbl.c epoll.c \
 recvmail_LDADD   = -lpthread
 recvmail_HEADERS = recvmail.h epoll.h hash.h
 
-selftest_SOURCES = resolver.c log.c selftest.c
+selftest_SOURCES = resolver.c poll.c log.c selftest.c
 selftest_CFLAGS  = $(recvmail_CFLAGS)
 selftest_LDADD   = $(recvmail_LDADD)
 TESTS            = selftest
