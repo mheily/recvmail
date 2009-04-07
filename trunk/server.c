@@ -288,7 +288,7 @@ server_bind(void)
 
     for (; ifa != NULL; ifa = ifa->ifa_next) {
         /* TODO: IPv6 */
-        if (ifa->ifa_addr->sa_family != AF_INET)
+        if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != AF_INET)
             continue;
         sain = (struct sockaddr_in *) ifa->ifa_addr;
 
