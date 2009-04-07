@@ -25,11 +25,11 @@
 #include "queue.h"
 
 struct session;
+struct net_interface;
 
 struct server {
     int             port;	/* The port number to bind(2) to */
     struct in_addr  addr;	/* The IP address to listen(2) to */
-    int             fd;		/* The descriptor returned by socket(2) */
     struct sockaddr sa;		/* The socket address of the server */
     
     char           *chrootdir;	/* The directory to chroot(2) to */
@@ -67,6 +67,7 @@ struct server {
     struct dnsbl     *dnsbl;
     struct delivery_agent     *mda;
     unsigned long     next_sid;     /* Next available Session-ID */
+    LIST_HEAD(,net_interface) if_list;
 };
 
 extern struct server srv;
