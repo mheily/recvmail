@@ -18,6 +18,7 @@
 
 #include <fcntl.h>
 #include <grp.h>
+#include <ifaddrs.h>
 #include <limits.h>
 #include <pwd.h>
 #include <pthread.h>
@@ -34,7 +35,15 @@
 #include "aliases.h"
 #include "workqueue.h"
 
+static void server_accept(void *if_ptr, int events);
+
 struct server srv;
+
+struct net_interface {
+    struct sockaddr sa;
+    int fd;
+    LIST_ENTRY(net_interface) entry;
+};
 
 static void drop_privileges(void);
 
@@ -105,13 +114,21 @@ server_restart(void *unused, int events)
 static void
 server_shutdown(void *arg, int events)
 {
+    struct net_interface *ni;
+
     log_debug("shutting down");
     //TODO: wait for MDA to complete
     //TODO: wait for DNSBL to complete
     mda_free(srv.mda);
     dnsbl_free(srv.dnsbl);
     //TODO: shutdown the MDA and DNSBL threads
-    close(srv.fd);
+    
+    /* Close all listening sockets */
+    while ((ni = LIST_FIRST(&srv.if_list)) != NULL) {
+        close(ni->fd);
+        LIST_REMOVE(ni, entry);
+        free(ni);
+    }
 
     log_close();
 
@@ -132,6 +149,7 @@ server_init(struct server *_srv)
                     sid;
 
     memcpy(&srv, _srv, sizeof(srv));
+    LIST_INIT(&srv.if_list);
     session_table_init();
 
     if (OPT.daemon) {
@@ -200,22 +218,17 @@ server_init(struct server *_srv)
 }
 
 
-int
-server_bind(void)
+static int
+server_bind_addr(struct sockaddr_in *srv_addr)
 {
-    struct sockaddr_in srv_addr;
+    struct net_interface *ni;
     int             one = 1;
     int             fd = -1;
 
 	/* Adjust the port number for non-privileged processes */
 	if (getuid() > 0 && srv.port < 1024)
 		srv.port += 1000;
-
-	/* Initialize the socket variable */
-	memset(&srv_addr, 0, sizeof(srv_addr));
-	srv_addr.sin_family = AF_INET;
-	srv_addr.sin_addr = srv.addr;
-	srv_addr.sin_port = htons(srv.port);
+	srv_addr->sin_port = htons(srv.port);
 
 	/* Create the socket and bind(2) to it */
 	if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -227,7 +240,7 @@ server_bind(void)
 		log_errno("setsockopt(3)");
         goto errout;
     }
-	if (bind(fd, (struct sockaddr *) &srv_addr, sizeof(srv_addr)) < 0) {
+	if (bind(fd, (struct sockaddr *) srv_addr, sizeof(*srv_addr)) < 0) {
 		log_errno("bind(2)");
         goto errout;
     }
@@ -240,21 +253,66 @@ server_bind(void)
 
     log_debug("listening on fd %d port %d", fd, srv.port);
 
-    srv.fd = fd;
+    if ((ni = calloc(1, sizeof(*ni))) == NULL) {
+		log_errno("calloc(3)");
+        goto errout;
+    }
+    ni->fd = fd;
+    memcpy(&ni->sa, srv_addr, sizeof(*srv_addr));
+    LIST_INSERT_HEAD(&srv.if_list, ni, entry);
 
+    /* Monitor the server descriptor for new connections */
+    if (poll_enable(fd, SOCK_CAN_READ, server_accept, ni) < 0) { 
+        log_errno("poll_enable() (fd=%d)", fd);
+        goto errout;
+    }
+   
     return (0);
 
 errout:
     if (fd >= 0)
         close(fd);
-    srv.fd = -1;
     return (-1);
 }
 
+int
+server_bind(void)
+{
+    struct ifaddrs *ifa;
+    struct sockaddr_in *sain;
+
+    if (getifaddrs(&ifa) < 0) {
+        log_errno("getifaddrs(3)");
+        return (-1);
+    }
+
+    for (; ifa != NULL; ifa = ifa->ifa_next) {
+        /* TODO: IPv6 */
+        if (ifa->ifa_addr->sa_family != AF_INET)
+            continue;
+        sain = (struct sockaddr_in *) ifa->ifa_addr;
+
+        /* Don't listen on the loopback address (127.0.0.1) */
+        if (sain->sin_addr.s_addr == 16777343) 
+            continue;
+
+        if (server_bind_addr(sain) < 0)
+            goto errout;
+    } 
+
+    freeifaddrs(ifa);
+   // abort();
+    return (0);
+
+errout:
+    freeifaddrs(ifa);
+    return (0);
+}
 
 static void
-server_accept(void *unused, int events)
+server_accept(void *if_ptr, int events)
 {
+    struct net_interface *ni = (struct net_interface *) if_ptr;
     struct sockaddr_in cli;
 	socklen_t cli_len = sizeof(cli);
     int fd;
@@ -267,10 +325,8 @@ server_accept(void *unused, int events)
     
     /* Assume: (events & SOCK_CAN_READ) */
 
-    log_debug("incoming connection on fd %d", srv.fd);
-
     /* Accept the incoming connection */
-    if ((fd = accept(srv.fd, &srv.sa, &cli_len)) < 0) {
+    if ((fd = accept(ni->fd, &srv.sa, &cli_len)) < 0) {
         log_errno("accept(2)");
         return;
     }
@@ -323,11 +379,5 @@ server_dispatch(struct evcb *e)
     if (poll_signal(SIGHUP, server_restart, e) < 0) 
         return (-1);
 
-    /* Monitor the server descriptor for new connections */
-    if (poll_enable(srv.fd, SOCK_CAN_READ, server_accept, &srv) < 0) { 
-        log_errno("poll_enable() (srv.fd=%d)", srv.fd);
-        return (-1);
-    }
-   
     return poll_dispatch(e);
 }
