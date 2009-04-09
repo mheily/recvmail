@@ -20,7 +20,7 @@
 #include <stdarg.h>
 #include <unistd.h>
 
-#include "compat/tree.h"
+#include "contrib/tree.h"
 
 #include "log.h"
 #include "poll.h"
