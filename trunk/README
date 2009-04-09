@@ -1,15 +1,6 @@
-TODO
---
+Directory structure:
 
- * DNS lookups
- * fsync(2)
-
-
-Architecture
----
-
-* Throttling
-
-No throttling done by the application. Suggest using kernel-mode firewall
-to drop excessive SYN packets.
-
+  www/          http://www.recvmail.org Website
+  src/          recvmail source code
+  contrib/      contributed source code
+  test/         unit tests
