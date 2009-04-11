@@ -116,7 +116,7 @@ install: build
 	do 							  \
 	  section=`echo $$man | awk -F. '{ $$2 }'`		; \
 	  install -D -m 644 $$man $(MANDIR)/man$$section/$$man	; \
-	  gzip $(MANDIR)/man$$section/$$man			; \
+	  gzip -f $(MANDIR)/man$$section/$$man			; \
 	done
 	for data in $(data_DATA) 				; \
 	  do install -D -m 644 $$data $(DATADIR)/$$data		; \
