@@ -429,10 +429,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 int
 smtpd_greeting(struct session *s)
 {
-
-    /* Send the initial greeting */
-    session_printf(s, "220 %s recvmail/%s\r\n", OPT.mailname, VERSION);
-
+    session_println(s, "220 ESMTP server ready");
     return (0);
 }
 
