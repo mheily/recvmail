@@ -22,6 +22,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "log.h"
@@ -34,9 +35,6 @@
 #include "socket.h"
 #include "smtp.h"
 #include "workqueue.h"
-
-#include "server.h"
-extern struct server srv;  //FIXME -- Hide this
 
 #define RECIPIENT_MAX		100
 
@@ -159,7 +157,7 @@ smtpd_rcpt(struct session *s, char *line)
     switch (domain_exists(ma)) {
         case -1: 
             session_println(s, "421 Internal error, closing connection");
-            // FIXME: actually close the connection
+            s->smtp_state = SMTP_STATE_QUIT;
             goto errout;
         case 0: 
             session_println(s, "551 Relay access denied");
@@ -171,7 +169,7 @@ smtpd_rcpt(struct session *s, char *line)
     switch (maildir_exists(ma)) {
         case -1: 
             session_println(s, "421 Internal error, closing connection");
-            // FIXME: actually close the connection
+            s->smtp_state = SMTP_STATE_QUIT;
             goto errout;
             break;
         case 0: 
@@ -218,7 +216,8 @@ static int
 smtpd_rset(struct session *s)
 {
     if (smtpd_session_reset(s) != 0) {
-        // FIXME -- What error code goes here?
+        session_println(s, "421 Reset failed");
+        s->smtp_state = SMTP_STATE_QUIT;
         return (-1);
     }
 
@@ -384,14 +383,9 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
             }
         }
         
-        /* The actual delivery is done in the session_syncer thread */
-        /* XXX-FIXME disable READ events but not HUP events */
-        //if (session_poll_disable(s) != 0)
-        //   return (-1);
-       
-        //FIXME - hide srv object
+        /* Submit to the MDA workqueue for processing */
         s->handler = smtpd_fatal_error;
-        if (mda_submit(srv.mda, s->id, s->msg) < 0) {
+        if (mda_submit(s->id, s->msg) < 0) {
             log_error("mda_submit()");
             goto error;
         }

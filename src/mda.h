@@ -18,13 +18,11 @@
 #ifndef _MDA_H
 #define _MDA_H
 
-struct delivery_agent;
 struct message;
-struct evcb;
 
-struct delivery_agent * mda_new(void);
-void   mda_free(struct delivery_agent *);
+int    mda_init(void);
+void   mda_free(void);
 void * mda_dispatch(void *);
-int    mda_submit(struct delivery_agent *, unsigned long, struct message *);
+int    mda_submit(unsigned long, struct message *);
 
-#endif  /* _DNSBL_H */
+#endif  /* _MDA_H */
