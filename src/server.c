@@ -326,7 +326,7 @@ server_accept(void *if_ptr, int events)
     /* Assume: (events & SOCK_CAN_READ) */
 
     /* Accept the incoming connection */
-    if ((fd = accept(ni->fd, &srv.sa, &cli_len)) < 0) {
+    if ((fd = accept(ni->fd, &ni->sa, &cli_len)) < 0) {
         log_errno("accept(2)");
         return;
     }

@@ -4,7 +4,7 @@
 recvmail \- receive electronic mail
 .SH "SYNOPSIS"
 .LP 
-recvmail [\-fhqv] [\-d \fIpath\fP] [\-u \fIuid\fP] [\-g \fIgid\fP] [\-i \fIaddress\fP] [\-p \fIport\fP] 
+recvmail [\-fhqv] [\-d \fIpath\fP] [\-u \fIuid\fP] [\-g \fIgid\fP] 
 .SH "OPTIONS"
 .TP 13
 \fB\-d\fP \fIpath\fP
@@ -18,12 +18,6 @@ Run under a different group ID.
 .TP 13
 \fB\-h\fP
 Print a help message.
-.TP 13
-\fB\-i\fP \fIaddress\fP
-Listen on a specific IPv4 \fIaddress\fP. 
-.TP 13
-\fB\-p\fP \fIport\fP
-Listen on an alternate \fIport\fP.
 .TP 13
 \fB\-q\fP
 Quiet; only print error messages to the log.       
@@ -42,13 +36,13 @@ Recvmail is an electronic mail transfer agent that receives mail from the networ
 RFC 2821 - Simple Mail Transport Protocol
 .SH "BUGS"
 .LP
-Under heavy load, the server drops a small number of connections when running in
-multithreaded mode. Less than 0.02 percent of connections exhibit problems starting up. Multiprocess mode is not affected by this problem.
+.B recvmail
+does not currently respect the SIGTERM signal and must be killed with SIGKILL.
 .SH "AUTHORS"
 .LP 
-Mark Heily \<devel\@heily.com\>
+Mark Heily \<mark\@recvmail.org\>
 .SH "SEE ALSO"
 .LP 
 sendmail(1)
 .P
-http\://recvmail.org
+http\://www.recvmail.org

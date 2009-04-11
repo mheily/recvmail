@@ -36,7 +36,6 @@
 
 struct server   smtpd = {
     .port = 25,
-    .addr.s_addr = INADDR_ANY,
     .timeout_read = 15,
     .timeout_write = 30,
     .chrootdir = "/srv/mail",
@@ -69,12 +68,10 @@ void
 usage()
 {
     fprintf(stderr, "Usage:\n\n"
-	    "  recvmail [-fhstv] [-g gid] [-u uid] [-i address] [-p port]\n\n"
+	    "  recvmail [-fhstv] [-g gid] [-u uid]\n\n"
 	    "        -f      Run in the foreground           (default: no)\n"
 	    "        -g      Run under a different group ID  (default: 25)\n"
 	    "        -h      Display this help message\n"
-	    "        -i      IP address to listen on         (default: 0.0.0.0)\n"
-	    "        -p      Port number                     (default: 25)\n"
 	    "        -q      Quiet (warning messages only)                \n"
 	    "        -u      Run under a different user ID   (default: 25)\n"
 	    "        -v      Verbose debugging messages      (default: no)\n"
@@ -110,7 +107,7 @@ main(int argc, char *argv[])
     int  c, rv;
 
     /* Get arguments from ARGV */
-    while ((c = getopt(argc, argv, "fg:hi:o:p:qu:v")) != -1) {
+    while ((c = getopt(argc, argv, "fg:ho:qu:v")) != -1) {
 	switch (c) {
 	case 'f':
 	    OPT.daemon = 0;
@@ -122,17 +119,10 @@ main(int argc, char *argv[])
 	case 'h':
 	    usage();
 	    break;
-	case 'i':
-	    if (inet_aton(optarg, &smtpd.addr) < 0)
-		errx(1, "Invalid address");
-	    break;
 	case 'o':
 		//TODO: see option.c: parse_option(optarg);
 		abort();
 		break;
-	case 'p':
-	    smtpd.port = atoi(optarg);
-	    break;
 	case 'q':
 	    OPT.log_level = LOG_ERR;
 	    break;

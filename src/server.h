@@ -28,18 +28,12 @@ struct session;
 struct net_interface;
 
 struct server {
-    int             port;	/* The port number to bind(2) to */
-    struct in_addr  addr;	/* The IP address to listen(2) to */
-    struct sockaddr sa;		/* The socket address of the server */
-    
+    int             port;	    /* The port number to bind(2) to */
     char           *chrootdir;	/* The directory to chroot(2) to */
     char           *uid;        /* The symbolic user-ID to setuid(2) to */
     char           *gid;        /* The symbolic group-ID to setgid(2) to */
 
     pthread_t        fsyncer_tid;
-
-
-    //struct evcb * evcb;
 
     /* The number of seconds to wait for incoming data from the client */
     int             timeout_read;
