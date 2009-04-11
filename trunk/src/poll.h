@@ -26,17 +26,15 @@
 #define SOCK_EOF        0x0004
 #define SOCK_ERROR      0x0008
 
-extern struct evcb * GLOBAL_EVENT;
-
 struct timer;
-struct evcb;
-struct evcb * poll_new(void);
+
+int     poll_new(void);
 
 int     poll_disable(int);
 int     poll_enable(int, int, void (*)(void *, int), void *);
-int     poll_dispatch(struct evcb *);
-void    poll_shutdown(struct evcb *);
-void    poll_free(struct evcb *);
+int     poll_dispatch(void);
+void    poll_shutdown(void);
+void    poll_free(void);
 int     poll_signal(int, void(*)(void *, int), void *);
 struct timer *
         poll_timer_new(unsigned int, void (*)(void *), void *);
