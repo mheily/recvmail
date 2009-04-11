@@ -14,4 +14,8 @@ The name "recvmail" is pronounced <i>"receive mail"</i>, and has several meaning
 <p>
 The source code is available for <a href="download.php">download</a>.  Please note that Recvmail only accepts incoming mail and does not relay mail to other hosts. To have a complete bidirectional mail system, recvmail should be combined with another MTA such as <a href="http://sendmail.org">Sendmail</a>. In this configuration, sendmail is responsible for sending mail, while recvmail is responsible for receiving mail.
 
+<h2>Current Status</h2>
+
+The current stable version is <?php echo "$stable_version"?>.
+
 <?php include "footer.html"?>
