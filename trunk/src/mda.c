@@ -25,27 +25,31 @@
 #include "smtp.h"
 #include "workqueue.h"
 
+static struct delivery_agent *mda;
+
 struct delivery_agent {
     struct workqueue *wq;
 };
 
 static void mda_deliver(struct work *wqa, void *udata);
 
-struct delivery_agent *
-mda_new(void)
+int
+mda_init(void)
 {
-    struct delivery_agent *mda;
-
+    if (mda != NULL) {
+        log_error("cannot have multiple MDAs per process");
+        return (-1);
+    }
     if ((mda = calloc(1, sizeof(*mda))) == NULL)
-        return (NULL);
+        return (-1);
 
     mda->wq = wq_new(mda_deliver, smtp_mda_callback, mda);
 
-    return (mda);
+    return (0);
 }
 
 void
-mda_free(struct delivery_agent *mda)
+mda_free(void)
 {
     wq_free(mda->wq);
     free(mda);
@@ -68,7 +72,7 @@ mda_deliver(struct work *wqa, void *udata)
 
 
 int
-mda_submit(struct delivery_agent *mda, unsigned long sid, struct message *msg)
+mda_submit(unsigned long sid, struct message *msg)
 {
     struct work w;
 
@@ -80,9 +84,8 @@ mda_submit(struct delivery_agent *mda, unsigned long sid, struct message *msg)
 }
 
 void *
-mda_dispatch(void *arg)
+mda_dispatch(void *unused)
 {
-    struct delivery_agent *mda = (struct delivery_agent *) arg;
     wq_dispatch(mda->wq);
     return (NULL);
 }

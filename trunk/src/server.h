@@ -59,7 +59,6 @@ struct server {
     //DEADWOOD:void            (*reject_hook) (struct session *);
 
     struct dnsbl     *dnsbl;
-    struct delivery_agent     *mda;
     unsigned long     next_sid;     /* Next available Session-ID */
     LIST_HEAD(,net_interface) if_list;
 };

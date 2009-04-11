@@ -29,6 +29,7 @@
 #include "mda.h"
 #include "options.h"
 #include "poll.h"
+#include "mda.h"
 #include "server.h"
 #include "smtp.h"
 #include "session.h"
@@ -119,7 +120,7 @@ server_shutdown(void *unused, int events)
     log_notice("shutting down");
     //TODO: wait for MDA to complete
     //TODO: wait for DNSBL to complete
-    mda_free(srv.mda);
+    mda_free();
     dnsbl_free(srv.dnsbl);
     //TODO: shutdown the MDA and DNSBL threads
     
@@ -197,8 +198,11 @@ server_init(struct server *_srv)
     drop_privileges();
 
     /* Create the MDA thread */
-    srv.mda = mda_new();
-    if (pthread_create(&tid, NULL, mda_dispatch, srv.mda) != 0) {
+    if (mda_init() < 0) {
+        log_error("mda_init() failed");
+        return (-1);
+    }
+    if (pthread_create(&tid, NULL, mda_dispatch, NULL) != 0) {
         log_errno("pthread_create(3)");
         return (-1);
     }
