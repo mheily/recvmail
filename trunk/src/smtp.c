@@ -55,6 +55,7 @@ smtp_mda_callback(struct session *s, int retval)
     smtpd_session_reset(s);
 
     //FIXME: check retval, delivery might have failed
+    
     log_debug("callback");
     session_println(s, "250 Message delivered");
 
@@ -280,7 +281,7 @@ smtpd_parser(struct session *s)
         if (rv != 0) 
             s->errors++;
 
-        /* TODO: make configurable, max_errors or something */
+        /* Terminate the session after too many errors */
         if (s->errors > 10) {
             smtpd_client_error(s);
             return (-1);
@@ -403,7 +404,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
         src++;
     }
 
-    /* XXX-FIXME use writev(2) to write multiple lines in one syscall. */
+    /* TODO: use writev(2) to write multiple lines in one syscall. */
     /* Write the line to the file */
     if (write(s->msg->fd, src, len) < len) {
         log_errno("write(2)");
@@ -442,7 +443,6 @@ smtpd_timeout(struct session *s)
 {
     log_info("session timed out due to inactivity");
     session_println(s, "421 Idle time limit exceeded, goodbye");
-    session_close(s); //FIXME: is this a bad place for this? check dispatch()
 }
 
 void

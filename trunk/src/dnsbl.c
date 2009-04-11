@@ -68,27 +68,6 @@ dnsbl_free(struct dnsbl *d)
     free(d);
 }
 
-#if FIXME
-//broken
-static int
-dnsbl_cache_query(struct dnsbl *d, unsigned int addr)
-{
-    unsigned char c[4];
-
-    memcpy(&c, &addr, sizeof(c));  
-
-    if (d->good[0][c[3]] && d->good[1][c[2]] &&
-            d->good[2][c[1]] && d->good[3][c[0]]) 
-                return (DNSBL_NOT_FOUND);
-
-    if (d->bad[0][c[3]] && d->bad[1][c[2]] &&
-            d->bad[2][c[1]] && d->bad[3][c[0]]) 
-                return (DNSBL_FOUND);
-    
-    return (DNSBL_ERROR);
-}
-#endif
-
 static int
 dnsbl_reject_early_talker(struct session *s)
 {
@@ -106,7 +85,6 @@ dnsbl_query(struct work *wqa, void *udata)
     int rv;
 
 	memcpy(&c, &addr, sizeof(c));  
-    //FIXME: Was addr = s->remote_addr.s_addr;
     addr = wqa->argv0.u_i;
 
     /* Generate the FQDN */
@@ -146,23 +124,6 @@ dnsbl_submit(struct dnsbl *d, struct session *s)
     w.sid = s->id;
     w.argc = 1;
     w.argv0.u_i = s->remote_addr.s_addr;
-
-#if FIXME
-    int res;
-
-    // the cache is broken now
-    
-    /* Check the cache */
-    res = dnsbl_cache_query(d, s->remote_addr.s_addr);
-    if (res != DNSBL_ERROR) {
-        log_debug("cached result = %d", res);
-        dnsbl_response_handler(s, res);
-        return (0);
-    }
-
-    log_debug("DNSBL cached MISS");
-
-#endif
 
 	/* Don't allow "early talkers" to send data prior to the greeting */
 	s->handler = dnsbl_reject_early_talker;
