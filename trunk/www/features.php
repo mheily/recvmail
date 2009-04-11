@@ -4,25 +4,40 @@
 
 <h2>Features</h2>
 
+The list of features that are currently implemented is:
 
-
-
-<h3>Anti-Spam</h3>
 <ul>
-<li><b>100% unprivileged</b><p>
+<li>SMTP delivery to local Maildir mailboxes</li>
+<li>DNSBL lookups</li>
+</ul>
+
+Features that are in-progress or planned for development:
+
+<ul>
+<li>SpamAssassin spamc</li>
+<li>SPF</li>
+<li>Greylisting</li>
+<li>Throttling / connection limits</li>
+<li>MAC policies (SELinux, TrustedBSD, systrace, AppArmor, etc.)</li>
+<li>Sieve filtering</li>
+<li>Direct folder delivery using the "+(foldername)" convention</li>
 </ul>
 
 <h3>Security</h3>
 
 <ul>
 
-<li><b>100% unprivileged</b><p>
+<li><b>Runs without any root privileges</b><p>
 
 Unlike other mailers, recvmail doesn't require any root privileges. None. Zero.
 
-<li><b>100% restricted to a chroot(2) jail</b><p>
+<li><b>Totally restricted to a chroot(2) jail</b><p>
 
 The entire program runs inside of a chroot(2) jail.
+
+<li><b>Uses virtual accounts instead of system accounts.</b></li>
+
+Each mailbox on the system is owned by the "recvmail" user, and not directly by any system user.
 
 </ul>
 
@@ -66,6 +81,7 @@ If there are errors, they are reported to the sender during the SMTP conversatio
 
 As soon as possible, Recvmail permanently and completely drops root privileges, and the entire process is restricted to a chroot(2) jail. Most other software is designed to have one privileged component that interfaces with other non-privileged components. Since Recvmail uses virtual accounts, there is no need for it to have access to the system accounts.
 
+<!--
 <li><b>System calls are restricted by systrace(1)</b><p>
 
 By default, Recvmail runs under the <a href="http://www.citi.umich.edu/u/provos/systrace/">systrace</a> mechanism, which limits the type of system calls available to the program. In particular, the Recvmail daemon is not allowed to connect to other systems, open files for reading, delete files, or execute programs. Click <a href="systrace.policy">here</a> to view the systrace policy.
@@ -73,6 +89,7 @@ By default, Recvmail runs under the <a href="http://www.citi.umich.edu/u/provos/
 <li><b>DNS lookups are not done</b><p>
 
 Most mailservers issue a reverse DNS query every time a new client connects; Recvmail does not. With the large volume of mail traffic, most of which coming from compromised "zombie" machines operated by spammers, this DNS lookup is a pointless waste of resources. 
+-->
 
 <!-- TODO
 <li><b>Source code is peer reviewed</b><p>
@@ -86,16 +103,7 @@ Software is only "secure" after it has been throughly tested and peer reviewed. 
 
 <li><b>Clean design</b><p>
 
-Instead of providing many options and features, Recvmail tries to choose the best way to do things and then does it. For example, it uses Maildirs
-instead of mbox; it uses virtual accounts instead of system accounts.
-
-<li><b>Virtual accounts</b><p>
-
-Instead of delivering to mailboxes for system accounts, Recvmail is a purely virtual server. There is no association between system accounts and mailboxes.
-
-<li><b>Clustering</b><p>
-
-Recvmail was designed from the very beginning to support clustering, which allows multiple "front end" servers to deliver mail to a single "back end" mailstore.
+Instead of providing many options and features, Recvmail tries to choose the best way to do things and then does it. For example, it uses Maildirs instead of mbox; it uses virtual accounts instead of system accounts.
 
 </ul>
 

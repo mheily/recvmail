@@ -2,7 +2,7 @@
 
 <h2>License</h2>
 
-Copyright (c) 2004-2007 Mark Heily &lt;devel@heily.com&gt;<br>
+Copyright <?php echo "$copyright"?> &lt;<?php echo "$mailto" ?>&gt;<br>
 <p>
 Permission to use, copy, modify, and distribute this software for any
 purpose with or without fee is hereby granted, provided that the above
