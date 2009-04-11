@@ -155,7 +155,7 @@ wq_retrieve_all(void *arg, int events)
     n = read(wq->pfd[0], &c, 1);
     if (n < 0) {
         log_errno("read(2)");
-        abort();//FIXME:extreme
+        abort();//TODO: less extreme failure
     }
     log_debug("n=%zu", n);
 
@@ -204,7 +204,10 @@ queue_not_empty:
         pthread_mutex_unlock(&wq->res_mtx);
 
         /* Notify the main event loop */
-        (void)write(wq->pfd[1], "!", 1); // FIXME: err handling
+        if (write(wq->pfd[1], "!", 1) < 1) {
+            log_errno("write(2)");
+            abort();//TODO: less extreme failure
+        }
     }
 
     return (NULL);

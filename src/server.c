@@ -319,12 +319,12 @@ server_accept(void *if_ptr, int events)
     struct net_interface *ni = (struct net_interface *) if_ptr;
     struct sockaddr_in cli;
 	socklen_t cli_len = sizeof(cli);
-    int fd;
+    int fd = -1;
 	struct session *s;
 
     if (events & SOCK_ERROR) {
         log_errno("bad server socket");
-        return; //FIXME - Should abort
+        abort(); // TODO: cleanly
     }
     
     /* Assume: (events & SOCK_CAN_READ) */
@@ -350,7 +350,7 @@ server_accept(void *if_ptr, int events)
     /* Determine the IP address of the client */
     if (getpeername(fd, (struct sockaddr *) &cli, &cli_len) < 0) {
             log_errno("getpeername(2) of fd %d", fd);
-            //FIXME: fatal? goto errout;
+            goto errout;
     }
     s->remote_addr = cli.sin_addr;
 
@@ -359,16 +359,29 @@ server_accept(void *if_ptr, int events)
     /* Use non-blocking I/O */
     if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0) {
             log_errno("fcntl(2)");
-            //FIXME: fatal? goto errout;
+            goto errout;
     }
 
     /* TODO: Determine the reverse DNS name for the host */
 
     /* Monitor the client socket for events */
-    //FIXME:Was poll_enable(s->fd, SOCK_CAN_READ | SOCK_CAN_WRITE, session_handler, s);
-    poll_enable(s->fd, SOCK_CAN_READ, session_handler, s);
+    if (poll_enable(s->fd, SOCK_CAN_READ, session_handler, s) < 0) {
+        log_error("poll_enable()");
+        goto errout;
+    }
 
-    dnsbl_submit(srv.dnsbl, s);
+    if (dnsbl_submit(srv.dnsbl, s) < 0) {
+        log_error("dnsbl_submit()");
+        goto errout;
+    }
+
+    return;
+
+errout:
+    log_error("session_accept() failed");
+    if (s != NULL) {
+        session_close(s);
+    }
 }
 
 

@@ -203,6 +203,11 @@ session_flush(struct session *s)
 void
 session_close(struct session *s)
 {
+    if (s == NULL) {
+        log_warning("session_close() called twice");
+        return;
+    }
+
     log_info("closing session with %s", inet_ntoa(s->remote_addr));
 
     /* Run any protocol-specific hooks */
