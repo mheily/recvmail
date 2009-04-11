@@ -114,9 +114,9 @@ install: build
 	done
 	for man in $(man_MANS) $(dist_man_MANS)			; \
 	do 							  \
-	  section=`echo $$man | awk -F. '{ $$2 }'`		; \
-	  install -D -m 644 $$man $(MANDIR)/man$$section/$$man	; \
-	  gzip -f $(MANDIR)/man$$section/$$man			; \
+	  section=`echo $$man | sed 's,.*\\.,,'` ; \
+	  install -D -m 644 $$man $(MANDIR)/man$$section/$$man ; \
+	  gzip -f $(MANDIR)/man$$section/$$man ; \
 	done
 	for data in $(data_DATA) 				; \
 	  do install -D -m 644 $$data $(DATADIR)/$$data		; \
