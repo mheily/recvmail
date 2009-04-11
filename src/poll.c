@@ -27,8 +27,8 @@
 #include "poll.h"
 #include "queue.h"
 
-/* Lame.. but one event manager per process is a good idea */
-struct evcb * GLOBAL_EVENT;
+/* Global state object. There can only be one event manager per process */
+static struct evcb * e;
 
 static struct watch *
 poll_wait(struct evcb *e, int *events_ptr);
@@ -77,7 +77,6 @@ signal_handler(void *unused, int unused2)
 {
     int signum;
     char c;
-    struct evcb *e = GLOBAL_EVENT;
     struct watch *w;
 
     (void) read(e->sc_pipefd[0], &c, 1);
@@ -116,7 +115,7 @@ signal_dispatch(void *arg)
     for (;;) {
         sigwait(&set, &signum);
         log_debug("caught signal %d", signum);
-        GLOBAL_EVENT->sig_status[signum] = 1;
+        e->sig_status[signum] = 1;
         write(pipefd, &c, 1);
     }
 }
@@ -124,7 +123,6 @@ signal_dispatch(void *arg)
 static void
 timer_handler(void *unused, int unused2)
 {
-    struct evcb *e = GLOBAL_EVENT;
     struct timer *te, *te_next;
     time_t now;
     char c;
@@ -174,7 +172,7 @@ poll_timer_new(unsigned int interval,
     te->udata = udata;
     te->active = 1;
 
-    LIST_INSERT_HEAD(&GLOBAL_EVENT->timer_list, te, entries);
+    LIST_INSERT_HEAD(&e->timer_list, te, entries);
 
     return (te);
 }
@@ -237,75 +235,26 @@ watch_new(int fd,
     return (w);
 }
 
-struct evcb * 
+int
 poll_new(void)
 {
-    struct evcb *e;
-    sigset_t set;
-
+    if (e != NULL)
+        err(1, "only one poller per process is supported");
     if ((e = calloc(1, sizeof(*e))) == NULL)
-        return (NULL);
+        return (-1);
     if ((e->pfd = epoll_create(1)) < 0) {
         log_errno("epoll_create(2)");
         free(e);
-        return (NULL); 
+        return (-1); 
     }
     LIST_INIT(&e->watchlist); 
     LIST_INIT(&e->timer_list); 
 
-    /* KLUDGE: Someday this could be multi-threadsafe.. */
-    if (GLOBAL_EVENT != NULL)
-        err(1, "cannot have multiple event sinks");
-    else
-        GLOBAL_EVENT = e;
-
-    /* Block all signals */
-    sigfillset(&set);
-    if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0)
-        err(1, "pthread_sigmask(3)");
-
-    /* Create the signal-catching thread */
-    if (pipe(e->sc_pipefd) == -1) {
-        log_errno("pipe(2)");
-        goto errout;
-    }
-    if (pthread_create(&e->sig_catcher, NULL, 
-                signal_dispatch, &e->sc_pipefd[1]) != 0) {
-        log_errno("pthread_create(3)");
-        goto errout;
-    }
-    if (poll_enable(e->sc_pipefd[0], SOCK_CAN_READ, 
-                signal_handler, NULL) < 0) { 
-        log_errno("poll_enable()");
-        goto errout;
-    }
-
-    /* Create the timekeeper thread */
-    if (pipe(e->tk_pipefd) == -1) {
-        log_errno("pipe(2)");
-        goto errout;
-    }
-    if (pthread_create(&e->timekeeper, NULL, 
-                timekeeper, &e->tk_pipefd[1]) != 0) {
-        log_errno("pthread_create(3)");
-        goto errout;
-    }
-    if (poll_enable(e->tk_pipefd[0], SOCK_CAN_READ, 
-                timer_handler, NULL) < 0) { 
-        log_errno("poll_enable()");
-        goto errout;
-    }
-
-
-    return (e);
-
-errout:
-    free(e);
-    return (NULL);
+    return (0);
 }
 
 void
-poll_free(struct evcb *e)
+poll_free(void)
 {
     struct watch *w;
     struct timer *te;
@@ -327,17 +276,58 @@ poll_free(struct evcb *e)
 }
 
 void
-poll_shutdown(struct evcb *e)
+poll_shutdown(void)
 {
     e->shutdown = 1;
 }
 
 int
-poll_dispatch(struct evcb *e)
+poll_dispatch(void)
 {
+    sigset_t set;
     struct watch *w;
     int events;
 
+    /* Block all signals */
+    sigfillset(&set);
+    if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0)
+        err(1, "pthread_sigmask(3)");
+
+    /* Create the signal-catching thread */
+    if (pipe(e->sc_pipefd) == -1) {
+        log_errno("pipe(2)");
+        return (-1);
+    }
+    if (pthread_create(&e->sig_catcher, NULL, 
+                signal_dispatch, &e->sc_pipefd[1]) != 0) {
+        log_errno("pthread_create(3)");
+        return (-1);
+    }
+    if (poll_enable(e->sc_pipefd[0], SOCK_CAN_READ, 
+                signal_handler, NULL) < 0) { 
+        log_errno("poll_enable()");
+        return (-1);
+    }
+
+    /* Create the timekeeper thread */
+    if (pipe(e->tk_pipefd) == -1) {
+        log_errno("pipe(2)");
+        return (-1);
+    }
+    if (pthread_create(&e->timekeeper, NULL, 
+                timekeeper, &e->tk_pipefd[1]) != 0) {
+        log_errno("pthread_create(3)");
+        return (-1);
+    }
+    if (poll_enable(e->tk_pipefd[0], SOCK_CAN_READ, 
+                timer_handler, NULL) < 0) { 
+        log_errno("poll_enable()");
+        return (-1);
+    }
+
+    /*
+     * Main event loop
+     */
     for (;;) {
         /* TODO: reap pending events before shutting down.. ? */
         if (e->shutdown) {
@@ -397,7 +387,6 @@ poll_wait(struct evcb *e, int *events_ptr)
 int
 poll_disable(int fd)
 {
-    struct evcb *e = GLOBAL_EVENT;
     struct watch *w;
 
     /* FIXME: slow linear search */
@@ -417,8 +406,6 @@ poll_disable(int fd)
 int
 poll_signal(int signum, void(*cb)(void *, int), void *udata)
 {
-    struct evcb *e = GLOBAL_EVENT;
-
     if (signum > NSIG) {
         log_error("invalid signal number");
         return (-1);
@@ -433,7 +420,6 @@ poll_signal(int signum, void(*cb)(void *, int), void *udata)
 int
 poll_enable(int fd, int events, void (*cb)(void *, int), void *udata)
 {
-    struct evcb *e = GLOBAL_EVENT;
     struct watch *w;
 
     if (fd == 0) {

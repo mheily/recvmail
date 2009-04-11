@@ -112,11 +112,11 @@ server_restart(void *unused, int events)
 }
 
 static void
-server_shutdown(void *arg, int events)
+server_shutdown(void *unused, int events)
 {
     struct net_interface *ni;
 
-    log_debug("shutting down");
+    log_notice("shutting down");
     //TODO: wait for MDA to complete
     //TODO: wait for DNSBL to complete
     mda_free(srv.mda);
@@ -132,7 +132,7 @@ server_shutdown(void *arg, int events)
 
     log_close();
 
-    poll_shutdown((struct evcb *) arg);
+    poll_shutdown();
 }
 
 /* ------------------- Public functions ----------------------- */
@@ -369,15 +369,15 @@ server_accept(void *if_ptr, int events)
 
 
 int
-server_dispatch(struct evcb *e)
+server_dispatch(void)
 {
     /* Respond to signals */
-    if (poll_signal(SIGINT, server_shutdown, e) < 0) 
+    if (poll_signal(SIGINT, server_shutdown, &srv) < 0) 
         return (-1);
-    if (poll_signal(SIGTERM, server_shutdown, e) < 0) 
+    if (poll_signal(SIGTERM, server_shutdown, &srv) < 0) 
         return (-1);
-    if (poll_signal(SIGHUP, server_restart, e) < 0) 
+    if (poll_signal(SIGHUP, server_restart, &srv) < 0) 
         return (-1);
 
-    return poll_dispatch(e);
+    return poll_dispatch();
 }

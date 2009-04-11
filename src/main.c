@@ -103,7 +103,6 @@ int
 main(int argc, char *argv[])
 {
     char mailname[256];
-    struct evcb *e;
     int  c, rv;
 
     /* Get arguments from ARGV */
@@ -153,8 +152,8 @@ main(int argc, char *argv[])
         err(1, "gethostname");
     
     /* Create the event source */
-    if ((e = poll_new()) == NULL) 
-        err(1, "unable to create the event source");
+    if (poll_new() < 0) 
+        err(1, "unable to create the event dispatcher");
 
     if (resolver_init() < 0)
         errx(1, "resolver initialization failed");
@@ -168,9 +167,9 @@ main(int argc, char *argv[])
     /* Dump some variables to the log */
     log_debug("mailname=`%s'", OPT.mailname);
 
-    rv = server_dispatch(e);
+    rv = server_dispatch();
 
-    poll_free(e);
+    poll_free();
 
     /* Print the final log message */
     if (!detached) {
