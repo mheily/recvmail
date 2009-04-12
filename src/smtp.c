@@ -51,7 +51,7 @@ smtp_mda_callback(struct session *s, int retval)
     s->handler = smtpd_parser;
     smtpd_session_reset(s);
 
-    //FIXME: check retval, delivery might have failed
+    //TODO: check retval, delivery might have failed
     
     log_debug("callback");
     session_println(s, "250 Message delivered");
@@ -140,7 +140,7 @@ smtpd_rcpt(struct session *s, char *line)
     buf = strdup(line); //fixme: errhandling
 
     /* Ignore any trailing whitespace and additional options */
-    /* FIXME - doesn't handle quoted whitespace */
+    /* TODO - handle quoted whitespace */
     if ((p = strchr(buf, ' ')) != NULL)
         memset(p, 0, 1);
     if ((p = strchr(buf, '>')) != NULL)
@@ -261,8 +261,12 @@ smtpd_parser(struct session *s)
     /* Pass control to the 'command' or 'data' subparser */
     for (i = 0; i < s->in_buf.sb_iovlen; i++, s->in_buf.sb_iovpos++) {
         if (s->smtp_state != SMTP_STATE_DATA) {
-            // XXX-FIXME assumes len >0
-            memset(iov[i].iov_base + iov[i].iov_len - 1, 0, 1);     /* Replace LF with NUL */
+            if (iov[i].iov_len == 0)
+                abort();    //TODO: handle gracefully
+
+            /* Replace LF with NUL */
+            memset(iov[i].iov_base + iov[i].iov_len - 1, 0, 1);     
+
             log_debug("CMD=`%s'", (char *) iov[i].iov_base);
             rv = smtpd_parse_command(s, iov[i].iov_base, iov[i].iov_len - 1);
         } else {

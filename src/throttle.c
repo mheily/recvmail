@@ -155,7 +155,7 @@ throttle_connect(in_addr_t addr)
 int
 throttle_init(void)
 {
-#if FIXME
+#if TODO
     //enable when function is complete
     update_timer = poll_timer_new(60 * 30, cache_expire_all, NULL);
     if (update_timer == NULL)

@@ -80,11 +80,10 @@ socket_readv(struct socket_buf *sb, int fd)
     }
 
     /* Check for EOF */
-    /* XXX- is n==0 actually EOF? */
+    /* TODO - verify: is n==0 actually EOF? */
     if (n == 0) {
         log_debug("zero-length read(2)");
-        //FIXME -- how to indicate to session object that no more reads are possible?
-        //sb->sb_status = 1; //FIXME: magic constant, not checked anywhere else.
+        //TODO -- indicate to session object that no more reads are possible
         return (-1);
     }
 
@@ -94,7 +93,7 @@ socket_readv(struct socket_buf *sb, int fd)
     //uncomment for extra debugging
     //
     bufp = (char *) &buf;       //to un-fragment
-    bufp[nbuf] = '\0';          //FIXME: temp for debugging
+    bufp[nbuf] = '\0';          
     log_debug("read %zu bytes: `%s'", nbuf, bufp);
     */
     log_debug("read %zu bytes", nbuf);
