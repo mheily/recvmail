@@ -16,9 +16,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// for strndup
-#define _GNU_SOURCE 
-
 #include <ctype.h>
 #include <string.h>
 #include <sys/types.h>

@@ -18,9 +18,6 @@
 
 #define NDEBUG
 
-/* to get EAI_NODATA */
-#define _GNU_SOURCE 
-
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
