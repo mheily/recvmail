@@ -80,7 +80,7 @@ usage()
 }
 
 
-/* FIXME - This is incomplete */
+/* TODO - This is incomplete */
 void
 option_parse(const char *arg)
 {
@@ -119,7 +119,7 @@ main(int argc, char *argv[])
 	    usage();
 	    break;
 	case 'o':
-		//TODO: see option.c: parse_option(optarg);
+		//TODO: see main.c:parse_option(optarg);
 		abort();
 		break;
 	case 'q':

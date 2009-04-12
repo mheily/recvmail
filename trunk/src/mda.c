@@ -59,15 +59,14 @@ static void
 mda_deliver(struct work *wqa, void *udata)
 {
     struct message *msg;
+    
     log_debug("delivering");
-    // FIXME:msg object needs to be made wqa->ptr
     msg = (struct message *) wqa->argv0.ptr;
     message_fsync(msg); // TODO: error handling
     maildir_deliver(msg);// TODO: error handling
     log_info("delivered %s", msg->filename);
     message_close(msg); // TODO: error handling
     message_free(msg);
-    /* XXX-FIXME update state field */
 }
 
 

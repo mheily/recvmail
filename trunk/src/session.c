@@ -120,7 +120,7 @@ session_vprintf(struct session *s, const char *format, va_list ap)
 
         /* Generate the result buffer */
         if ((len = vasprintf(&buf, format, ap)) < 0) {
-                /* XXX-FIXME error handling */
+                /* TODO - error handling */
                 return (-1);
         }
 
@@ -184,22 +184,6 @@ session_new(void)
     return (s);
 }
 
-int
-session_flush(struct session *s)
-{
-#if DEADWOOD
-    struct nbuf *nbp;
-
-    while ((nbp = STAILQ_FIRST(&s->out_buf))) {
-   //XXX-FIXME - this actually kills all output data !! 
-            free(nbp->nb_data);
-            STAILQ_REMOVE_HEAD(&s->out_buf, entries);
-        }
-#endif
-    // FIXME -- this will be needed someday.
-    return (0);
-}
-
 void
 session_close(struct session *s)
 {
@@ -238,7 +222,7 @@ session_handler(void *sptr, int events)
         s->socket_state = SOCK_EOF;
         poll_disable(s->fd);
         session_close(s);
-        return;       // FIXME: this will discard anything in the read buffer
+        return;       // FIXME: process the rest of the read buffer
     }
     if (events & SOCK_CAN_READ) {
         s->socket_state |= SOCK_CAN_READ;
@@ -246,7 +230,7 @@ session_handler(void *sptr, int events)
         if (session_read(s) < 0) 
             session_close(s);
     }
-#if FIXME
+#if TODO
     // implement output buffreing
     if (events & SOCK_CAN_WRITE) {
         if (s->fd < 0) 

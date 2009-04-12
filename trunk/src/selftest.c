@@ -58,7 +58,7 @@ main(int argc, char *argv[])
 {
     test_resolver();
 
-#if FIXME
+#if TODO
     // need #includes
     struct mail_addr *addr;
 

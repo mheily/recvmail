@@ -389,7 +389,7 @@ poll_disable(int fd)
 {
     struct watch *w;
 
-    /* FIXME: slow linear search */
+    /* TODO: slow linear search, use a tree instead */
     LIST_FOREACH(w, &e->watchlist, entries) {
         if (w->fd != fd)
             continue;
