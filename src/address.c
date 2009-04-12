@@ -58,7 +58,7 @@ address_parse(const char *src)
             *p = ' ';
 
     /* Split the string into two parts */
-    /* XXX-FIXME - need to accept backslash-escaped and quoted strings */
+    /* TODO - need to accept backslash-escaped and quoted strings */
     i = sscanf(src, " %63[a-zA-Z0-9_.+=%#?~^-]@%63[a-zA-Z0-9_.-] ", 
             local_part, domain);
     if (i < 2 || i == EOF) {

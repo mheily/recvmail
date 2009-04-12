@@ -13,18 +13,16 @@ epoll_create(int size)
 }
 
 int
-epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
+epoll_ctl(int epfd, int op, int fd, struct epoll_event *ev)
 {
     struct kevent kev;
 
     kev.ident = fd;
-    if (op == EPOLL_CTL_DEL) {
-	kev.filter = EVFILT_READ; //FIXME bad assumption, could be both
+    kev.filter = (ev->events & EPOLLIN) ? EVFILT_READ : EVFILT_WRITE;
+    if (op == EPOLL_CTL_DEL) 
         kev.udata = NULL;
-    } else { // assume add
-        kev.filter = (event->events & EPOLLIN) ? EVFILT_READ : EVFILT_WRITE;
-    kev.udata = event->data.ptr;
-	}
+    else 
+        kev.udata = event->data.ptr;
     kev.flags = op;
     kev.fflags = 0;
     kev.data = 0;
@@ -57,7 +55,6 @@ epoll_wait(int epfd, struct epoll_event * events, int maxevents, int timeout)
 
     nevents = kevent(epfd, NULL, 0, &kev, 1, tvp);
 
-    /* FIXME: error handling */
     if (kev.flags & EV_ERROR) {
         events->events = EPOLLERR;
     } else {

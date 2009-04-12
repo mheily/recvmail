@@ -16,9 +16,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// FIXME - needed to get asprintf decl in stdio.h
-#define _GNU_SOURCE
-
 #include <assert.h>
 #include <fcntl.h>
 #include <limits.h>
