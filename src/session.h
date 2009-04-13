@@ -35,12 +35,13 @@ struct session {
                                           * This MUST be the first element in the structure.
                                           */ 
     unsigned long   id;             /* Session ID */
-    unsigned int    socket_state;   /* SOCK_CAN_READ | SOCK_CAN_WRITE, etc. */
 
     int             fd;		        /* The client socket descriptor */
     int flags;          // see SFL_*
     struct in_addr  remote_addr;	/* IP address of the client */
-    struct socket_buf in_buf;
+    struct socket *sock;
+    char *buf;
+    size_t buf_len;
 
     time_t          timeout;  
 
@@ -54,11 +55,6 @@ struct session {
     } fsync_state;
 
 
-    enum {
-      CONTINUE_AFTER_FSYNC = 0,
-      QUIT_AFTER_FSYNC,
-      RSET_AFTER_FSYNC,
-    } fsync_post_action;
     int dnsbl_res;              /* Result of the DNBSL query */
     int syncer_res;              /* Result of the syncer call */
 

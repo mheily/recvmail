@@ -25,6 +25,7 @@
 #include "log.h"
 #include "poll.h"
 #include "server.h"
+#include "socket.h"
 #include "session.h"
 #include "message.h"
 #include "maildir.h"
@@ -70,7 +71,8 @@ session_accept(struct session *s)
 int
 session_read(struct session *s) 
 {
-    ssize_t n = 0;
+    char    *buf;
+    ssize_t  len;
 
     if (s->handler == NULL)
         return (0);
@@ -79,18 +81,21 @@ session_read(struct session *s)
 
     /* Continue reading data until EAGAIN is returned */
     do {
-        if ((n = socket_readv(&s->in_buf, s->fd)) < 0) {
+        if ((len = socket_readln(&buf, s->sock)) < 0) {
             log_info("readln failed");
             return (-1);
         } 
-        log_debug("read: %zu bytes", n);
-        if (n > 0) {
-            if (s->handler(s) < 0) 
+        log_debug("read: %zu bytes", len);
+        if (len > 0) {
+            s->buf = buf;
+            s->buf_len = len; 
+            if (s->handler(s) < 0) {
+                free(buf);
                 return (-1);
-        } else {
-            s->socket_state &= ~SOCK_CAN_READ; 
+            }
+            free(buf);
         }
-    } while (n > 0);
+    } while (len > 0);
 
     return (0);
 }
@@ -173,8 +178,13 @@ session_new(void)
         return (NULL);
     }
 
-    /* Initialize the input buffer */
-    memset(&s->in_buf, 0, sizeof(s->in_buf));
+    /* Initialize the socket object */
+    if ((s->sock = socket_new(s->fd)) == NULL) {
+        log_error("socket_new()");
+        message_free(s->msg);
+        free(s);
+        return (NULL);
+    }
 
     /* Add to the session table */
     pthread_mutex_lock(&st_mtx);
@@ -213,19 +223,16 @@ void
 session_handler(void *sptr, int events)
 {
     struct session *s = (struct session *) sptr;
-    s->socket_state = events;
 
     log_debug("in session_handler()");
     
     if (events & SOCK_EOF) {
         log_debug("fd %d got EOF", s->fd);
-        s->socket_state = SOCK_EOF;
         poll_disable(s->fd);
         session_close(s);
         return;       // FIXME: process the rest of the read buffer
     }
     if (events & SOCK_CAN_READ) {
-        s->socket_state |= SOCK_CAN_READ;
         log_debug("fd %d is now readable", s->fd);
         if (session_read(s) < 0) 
             session_close(s);
