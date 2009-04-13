@@ -20,11 +20,7 @@
 #define _POLL_H
 
 #include <signal.h>
-
-#define SOCK_CAN_READ   0x0001
-#define SOCK_CAN_WRITE  0x0002
-#define SOCK_EOF        0x0004
-#define SOCK_ERROR      0x0008
+#include "socket.h"
 
 struct timer;
 

@@ -20,7 +20,24 @@
 
 #include <sys/types.h>
 #include <sys/uio.h>
+#include "queue.h"
 
+/* Socket status flags */
+#define SOCK_CAN_READ   0x0001
+#define SOCK_CAN_WRITE  0x0002
+#define SOCK_EOF        0x0004
+#define SOCK_ERROR      0x0008
+
+struct socket;
+
+struct socket *
+         socket_new(int);
+
+void     socket_free(struct socket *);
+ssize_t  socket_readln(char **, struct socket *);
+int      socket_poll(struct socket *, void (*)(void *, int), void *);
+
+#if DEADWOOD
 /* A socket buffer */
 struct socket_buf {
     struct iovec *sb_iov;           /* Buffer of lines */
@@ -33,5 +50,6 @@ struct socket_buf {
 
 ssize_t         socket_readv(struct socket_buf *, int);
 struct iovec *  socket_peek(struct socket_buf *);
+#endif
 
 #endif /* _SOCKET_H */

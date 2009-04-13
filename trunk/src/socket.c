@@ -22,8 +22,134 @@
 #include <unistd.h>
 
 #include "socket.h"
+#include "poll.h"
 #include "log.h"
 
+struct line {
+    char   *buf;
+    size_t  len;
+    int     frag;
+    STAILQ_ENTRY(line) entry;
+};
+
+/* A socket buffer */
+struct socket {
+    int fd;
+    unsigned int  status;   /* SOCK_CAN_READ | SOCK_CAN_WRITE, etc. */
+    void  *udata;
+    void (*callback)(void *, int);
+    STAILQ_HEAD(,line) input;
+    STAILQ_HEAD(,line) output;
+};
+
+struct socket *
+socket_new(int fd)
+{
+    struct socket *sock;
+
+    sock = malloc(sizeof(*sock));
+    if (sock == NULL) {
+        log_errno("malloc(3)");
+        return (NULL);
+    }
+
+    sock->fd = fd;
+    sock->status = 0;
+    STAILQ_INIT(&sock->input);
+    STAILQ_INIT(&sock->output);
+
+    return (sock);
+}
+
+void
+socket_free(struct socket *sock)
+{
+    /* STUB */
+}
+
+int
+socket_read(struct socket *sock, char *buf, size_t bufsz)
+{
+    ssize_t n;
+
+    if ((n = read(fd, bufp, bufsz)) < 0) { 
+        if (errno == EAGAIN) {
+            sock->status &= ~SOCK_CAN_READ; 
+            return (0);
+        } else {
+            log_errno("read(2)");
+            return (-1);
+        }
+    }
+    if (n == 0) {
+        /* TODO - see if zero-length read is meaningful */
+            return (0);
+    }
+}
+
+ssize_t
+socket_readln(char **dst, struct socket *sock)
+{
+    char buf[8192];
+    char *bufp;
+    ssize_t n;
+    size_t len, bufsz;
+    struct line *cur = NULL;
+
+    if (! STAILQ_EMPTY(&sock->input)) {
+        cur = STAILQ_FIRST(&sock->input);
+        if (cur->frag) {
+            memcpy((char *) &buf, cur->buf, cur->len);
+            bufp = &buf + cur->len;
+            bufsz = sizeof(buf) - cur->len;
+        }
+    } else {
+        bufp = &buf;
+        bufsz = sizeof(buf);
+    }
+    
+    if (cur == NULL || cur->frag) {
+        if ((n = read(fd, bufp, bufsz - 1)) < 0) { 
+            if (errno == EAGAIN) {
+                sock->status &= ~SOCK_CAN_READ; 
+                return (0);
+            } else {
+                log_errno("read(2)");
+                return (-1);
+            }
+        }
+    }
+    if (cur->frag)
+        return (1);
+
+    *dst = cur->buf;
+    len = cur->len;
+    STAILQ_REMOVE_HEAD(&sock->input, entry);
+    free(cur);
+
+    return (0);
+}
+
+static void
+socket_read_cb(void *arg, int events)
+{
+    struct socket *sock = (struct socket *) arg;
+
+    sock->status = events;
+    sock->callback(sock->udata, events);
+}
+
+int
+socket_poll(struct socket *sock, 
+        void (*callback)(void *, int), 
+        void *udata)
+{
+    sock->callback = callback;
+    sock->udata = udata;
+    return poll_enable(sock->fd, SOCK_CAN_READ, socket_read_cb, sock);
+}
+
+#if DEADWOOD
 /* TODO: make tunable, must be larger than kernel socket buffer */
 #define __BUFSIZE       (1024 * 256)
 
@@ -153,3 +279,4 @@ socket_peek(struct socket_buf *sb)
     else
         return (NULL);
 }
+#endif

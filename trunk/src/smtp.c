@@ -35,6 +35,9 @@
 
 #define RECIPIENT_MAX		100
 
+/* Maximum line length (excluding trailing NUL) */
+#define SMTP_LINE_MAX   1000
+
 /* The timeout (in seconds) while in the command state */
 #define SMTP_COMMAND_TIMEOUT    (60 * 5)
 
@@ -55,15 +58,6 @@ smtp_mda_callback(struct session *s, int retval)
     
     log_debug("callback");
     session_println(s, "250 Message delivered");
-
-    if (s->fsync_post_action == QUIT_AFTER_FSYNC) {
-        (void) smtpd_quit(s);
-        session_close(s);
-        return;
-    }
-
-    if (s->fsync_post_action == RSET_AFTER_FSYNC) 
-        (void) smtpd_rset(s);
 }
 
 static int
@@ -250,43 +244,41 @@ smtpd_fatal_error(struct session *s)
 int
 smtpd_parser(struct session *s)
 {
-    struct iovec *iov;
-    int i, rv;
+    char *buf;
+    size_t len;
+    int rv;
 
-    iov = s->in_buf.sb_iov;
-    s->in_buf.sb_iovpos = 0; 
+    buf = s->buf;
+    len = s->buf_len;
+
+    if (len == 0 || len > SMTP_LINE_MAX) {
+        log_error("invalid line length %zu", len);
+        return (-1);
+    }
 
     s->timeout = time(NULL) + SMTP_COMMAND_TIMEOUT;
 
-    /* Pass control to the 'command' or 'data' subparser */
-    for (i = 0; i < s->in_buf.sb_iovlen; i++, s->in_buf.sb_iovpos++) {
-        if (s->smtp_state != SMTP_STATE_DATA) {
-            if (iov[i].iov_len == 0)
-                abort();    //TODO: handle gracefully
+    if (s->smtp_state != SMTP_STATE_DATA) {
 
-            /* Replace LF with NUL */
-            memset(iov[i].iov_base + iov[i].iov_len - 1, 0, 1);     
+        /* Replace LF with NUL */
+        memset(buf + len - 1, 0, 1);     
 
-            log_debug("CMD=`%s'", (char *) iov[i].iov_base);
-            rv = smtpd_parse_command(s, iov[i].iov_base, iov[i].iov_len - 1);
-        } else {
-            rv = smtpd_parse_data(s, iov[i].iov_base, iov[i].iov_len);
-            /* KLUDGE - lame way to empty the socket buffer after '.' is received */
-            if (s->fsync_post_action > 0)
-                break;
-        }
+        log_debug("CMD=`%s'", buf);
+        rv = smtpd_parse_command(s, buf, len - 1);
+    } else {
+        rv = smtpd_parse_data(s, buf, len);
+    }
 
-        if (s->smtp_state == SMTP_STATE_QUIT) 
-            return (-1);
+    if (s->smtp_state == SMTP_STATE_QUIT) 
+        return (-1);
 
-        if (rv != 0) 
-            s->errors++;
+    if (rv != 0) 
+        s->errors++;
 
-        /* Terminate the session after too many errors */
-        if (s->errors > 10) {
-            smtpd_client_error(s);
-            return (-1);
-        }
+    /* Terminate the session after too many errors */
+    if (s->errors > 10) {
+        smtpd_client_error(s);
+        return (-1);
     }
 
     return (0);
@@ -367,24 +359,9 @@ smtpd_parse_command(struct session *s, char *src, size_t len)
 static int
 smtpd_parse_data(struct session *s, char *src, size_t len)
 {
-   struct iovec *nextline;
-
     /* If the line is '.', end the data stream */
     if ((len == 2) && strncmp(src, ".\n", 2) == 0) {
 
-        /* Determine the next command, if any are pipelined */
-        if ((nextline = socket_peek(&s->in_buf)) != NULL) {
-            if (strncasecmp(nextline->iov_base, "QUIT\n", nextline->iov_len) == 0) {
-                s->fsync_post_action = QUIT_AFTER_FSYNC;
-            }
-            else if (strncasecmp(nextline->iov_base, "RSET\n", nextline->iov_len) == 0) {
-                s->fsync_post_action = RSET_AFTER_FSYNC;
-            } else {
-                log_error("illegal pipelining; end-of-data not followed by QUIT or RSET");
-                goto error;
-            }
-        }
-        
         /* Submit to the MDA workqueue for processing */
         s->handler = smtpd_fatal_error;
         if (mda_submit(s->id, s->msg) < 0) {
