@@ -337,9 +337,8 @@ server_accept(void *if_ptr, int events)
     log_debug("accept(2) created fd %d", fd);
 
     /* Create a new session */
-    if ((s = session_new()) == NULL) 
+    if ((s = session_new(fd)) == NULL) 
         return;
-    s->fd = fd;
 
     /* Generate a session ID */
     if (srv.next_sid == ULONG_MAX)
