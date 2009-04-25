@@ -358,13 +358,20 @@ poll_wait(struct evcb *e, int *events_ptr)
     struct epoll_event evt;
     int n, events;
 
+retry:
     do {
         n = epoll_wait(e->pfd, &evt, 1, -1); 
     } while (n == 0);
 
     if (n < 0) {
-        log_errno("epoll_wait(2)");
-        return (NULL);
+        if (errno == EINTR) {
+            /* WORKAROUND: under gdb, signal masks aren't working */
+            log_warning("EINTR received -- signal handling may be broken");
+            goto retry;
+        } else {
+            log_errno("epoll_wait(2)");
+            return (NULL);
+        }
     }
 
     /* Determine which events happened. */

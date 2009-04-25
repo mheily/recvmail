@@ -30,26 +30,12 @@
 
 struct socket;
 
-struct socket *
-         socket_new(int);
+struct socket * socket_new(int);
+struct iovec *  socket_peek(struct socket *);
 
 void     socket_free(struct socket *);
 ssize_t  socket_readln(char **, struct socket *);
 int      socket_poll(struct socket *, void (*)(void *, int), void *);
-
-#if DEADWOOD
-/* A socket buffer */
-struct socket_buf {
-    struct iovec *sb_iov;           /* Buffer of lines */
-    size_t        sb_iovlen;        /* Number of structures in sb_iov */
-    size_t        sb_iovpos;        /* Current read offset within sb_iov */
-    char         *sb_frag;          /* Line fragment */
-    size_t        sb_fraglen;       /* Length of the line fragment */
-    int           sb_status;        /* Status code */
-};
-
-ssize_t         socket_readv(struct socket_buf *, int);
-struct iovec *  socket_peek(struct socket_buf *);
-#endif
+ssize_t  socket_readv(struct iovec **, struct socket *);
 
 #endif /* _SOCKET_H */

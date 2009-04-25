@@ -89,11 +89,8 @@ session_read(struct session *s)
         if (len > 0) {
             s->buf = buf;
             s->buf_len = len; 
-            if (s->handler(s) < 0) {
-                free(buf);
+            if (s->handler(s) < 0) 
                 return (-1);
-            }
-            free(buf);
         }
     } while (len > 0);
 
@@ -163,7 +160,7 @@ session_println(struct session *s, const char *buf)
 }
 
 struct session *
-session_new(void)
+session_new(int fd)
 {
     struct session *s;
 
@@ -172,6 +169,7 @@ session_new(void)
         log_errno("calloc(3)");
         return (NULL);
     }
+    s->fd = fd;
     if ((s->msg = message_new()) == NULL) {
         free(s);
         log_errno("message_new()");
@@ -215,6 +213,7 @@ session_close(struct session *s)
     LIST_REMOVE(s, st_entries);
     pthread_mutex_unlock(&st_mtx);
 
+    socket_free(s->sock);
     free(s);
 }
 

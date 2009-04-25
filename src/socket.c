@@ -18,6 +18,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
@@ -25,38 +26,49 @@
 #include "poll.h"
 #include "log.h"
 
-struct line {
-    char   *buf;
-    size_t  len;
-    int     frag;
-    STAILQ_ENTRY(line) entry;
+/* The buffer size of a socket */
+#define SOCK_BUF_SIZE   16384
+
+/* A socket buffer */
+struct socket_buf {
+    char          buf[SOCK_BUF_SIZE];
+    size_t        buf_len;       /* Number of characters contained in <buf> */
+    struct iovec *iov;           /* Lines within <buf> */
+    size_t        iov_cnt;       /* Number of lines */
+    size_t        iov_pos;       /* Current read offset within <iov> */
+    char         *frag;          /* Line fragment */
+    size_t        fraglen;       /* Length of the line fragment */
+    int           status;        /* Status code */
 };
+
+#define SBUF_EMPTY(s)   ((s)->iov_pos >= (s)->iov_cnt)
 
 /* A socket buffer */
 struct socket {
-    int fd;
-    unsigned int  status;   /* SOCK_CAN_READ | SOCK_CAN_WRITE, etc. */
-    void  *udata;
-    void (*callback)(void *, int);
-    STAILQ_HEAD(,line) input;
-    STAILQ_HEAD(,line) output;
+    int         fd;
+    int        status;   /* SOCK_CAN_READ | SOCK_CAN_WRITE, etc. */
+    void       *udata;
+    void      (*callback)(void *, int);
+    struct socket_buf input;
+//TODO:    TAILQ_HEAD(,line) output;
 };
 
 struct socket *
 socket_new(int fd)
 {
+    int bufsz = SOCK_BUF_SIZE;
     struct socket *sock;
 
-    sock = malloc(sizeof(*sock));
+    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (char *)&bufsz, sizeof(bufsz)); 
+    setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (char *)&bufsz, sizeof(bufsz)); 
+
+    sock = calloc(1, sizeof(*sock));
     if (sock == NULL) {
         log_errno("malloc(3)");
         return (NULL);
     }
 
     sock->fd = fd;
-    sock->status = 0;
-    STAILQ_INIT(&sock->input);
-    STAILQ_INIT(&sock->output);
 
     return (sock);
 }
@@ -64,71 +76,35 @@ socket_new(int fd)
 void
 socket_free(struct socket *sock)
 {
-    /* STUB */
+    if (sock == NULL) {
+        log_error("double free");
+        return;
+    }
+    free(sock->input.iov);
+    free(sock);
 }
 
-int
-socket_read(struct socket *sock, char *buf, size_t bufsz)
-{
-    ssize_t n;
-
-    if ((n = read(fd, bufp, bufsz)) < 0) { 
-        if (errno == EAGAIN) {
-            sock->status &= ~SOCK_CAN_READ; 
-            return (0);
-        } else {
-            log_errno("read(2)");
-            return (-1);
-        }
-    }
-    if (n == 0) {
-        /* TODO - see if zero-length read is meaningful */
-            return (0);
-    }
-}
 
 ssize_t
 socket_readln(char **dst, struct socket *sock)
 {
-    char buf[8192];
-    char *bufp;
-    ssize_t n;
-    size_t len, bufsz;
-    struct line *cur = NULL;
+    struct socket_buf *sb = &sock->input;
 
-    if (! STAILQ_EMPTY(&sock->input)) {
-        cur = STAILQ_FIRST(&sock->input);
-        if (cur->frag) {
-            memcpy((char *) &buf, cur->buf, cur->len);
-            bufp = &buf + cur->len;
-            bufsz = sizeof(buf) - cur->len;
-        }
-    } else {
-        bufp = &buf;
-        bufsz = sizeof(buf);
+    /* Read data if there is none in the buffer */
+    if (SBUF_EMPTY(sb) && socket_readv(NULL, sock) < 0) {
+            log_error("socket_readv() failed");
+            return (-1);
+    }
+
+    /* Return the first string and advance the read pointer */
+    if (! SBUF_EMPTY(sb)) {
+        *dst = sb->iov[sb->iov_pos].iov_base;
+        return (sb->iov[sb->iov_pos++].iov_len);
     }
     
-    if (cur == NULL || cur->frag) {
-        if ((n = read(fd, bufp, bufsz - 1)) < 0) { 
-            if (errno == EAGAIN) {
-                sock->status &= ~SOCK_CAN_READ; 
-                return (0);
-            } else {
-                log_errno("read(2)");
-                return (-1);
-            }
-        }
-    }
-    if (cur->frag)
-        return (1);
-
-    *dst = cur->buf;
-    len = cur->len;
-    STAILQ_REMOVE_HEAD(&sock->input, entry);
-    free(cur);
-
     return (0);
 }
+
 
 static void
 socket_read_cb(void *arg, int events)
@@ -138,6 +114,7 @@ socket_read_cb(void *arg, int events)
     sock->status = events;
     sock->callback(sock->udata, events);
 }
+
 
 int
 socket_poll(struct socket *sock, 
@@ -149,54 +126,87 @@ socket_poll(struct socket *sock,
     return poll_enable(sock->fd, SOCK_CAN_READ, socket_read_cb, sock);
 }
 
-#if DEADWOOD
-/* TODO: make tunable, must be larger than kernel socket buffer */
-#define __BUFSIZE       (1024 * 256)
 
-/* TODO: make tunable, this is derived from SMTP_LINE_MAX */
-#define __MAX_FRAGMENT_LEN  999
+static int
+parse_lines(struct socket *sock)
+{
+    struct socket_buf *sb = &sock->input;
+    struct iovec iov[SOCK_BUF_SIZE];
+    char *buf = (char *) sb->buf;
+    size_t iov_cnt, a, z;
 
-/**
- * Multiplexed I/O using non-blocking sockets and a single thread of control.
- */
-static char    buf[__BUFSIZE + 2];
-static size_t  nbuf;
+    /* Divide the buffer into lines. */
+    iov_cnt = 0;
+    for (a = z = 0; z < sock->input.buf_len; z++) {
 
-/* Pointers to all the lines within <buf> */
-static struct iovec lines[__BUFSIZE + 2];  //TODO: this is absurdly large, make it dynamic
-static size_t       nlines;
+        if (buf[z] != '\n') 
+            continue;
+
+        /* Convert network line endings (CR+LF) into POSIX line endings (LF). */
+        if ((z > a) && (buf[z - 1] == '\r')) {
+            buf[z - 1] = '\n';
+            iov[iov_cnt].iov_base = (char *) &buf[a];
+            iov[iov_cnt].iov_len = (z - a);
+        } else {
+            iov[iov_cnt].iov_base = (char *) &buf[a];
+            iov[iov_cnt].iov_len = (z - a) + 1;
+        }
+
+        iov_cnt++;
+        a = z + 1;
+    }
+
+    /* Special case: the final line is not terminated */
+    if (a != sock->input.buf_len) {
+        sb->fraglen = (z - a);
+        sb->frag = (char *) &buf[a];
+    }
+
+    /* Copy the iovec field into the socket object */
+    sb->iov = malloc(iov_cnt * sizeof(struct iovec));
+    if (sb->iov == NULL) {
+        log_errno("malloc(3)");
+        return (-1);
+    }
+    memcpy(sb->iov, iov, iov_cnt * sizeof(struct iovec));
+    sb->iov_cnt = iov_cnt;
+
+    return (0);
+}
 
 ssize_t
-socket_readv(struct socket_buf *sb, int fd)
+socket_readv(struct iovec **dst, struct socket *sock)
 {
-    char *a, *z, *buf_edge;
-    char *bufp = (char *) &buf;
-    size_t bufsz = __BUFSIZE;
-    size_t fraglen;
+    struct socket_buf *sb = &sock->input;
+    char *buf = (char *) &sb->buf;
+    size_t bufsz = sizeof(sb->buf);
     ssize_t n;
 
+    /* Free any previous iovec */
+    if (sb->iov != NULL) {
+        if (sb->iov_cnt != sb->iov_pos) {
+            log_error("existing iovec not fully processed");
+            return (-1);
+        }
+        free(sb->iov);
+        sb->iov = NULL;
+        sb->iov_cnt = 0;
+        sb->iov_pos = 0;
+    }
+
     /* If there is an existing line fragment, place it at the beginning of the buffer */
-    if (sb->sb_frag != NULL) {
-        memcpy(bufp, sb->sb_frag, sb->sb_fraglen);
-        bufp += sb->sb_fraglen;
-        bufsz -= sb->sb_fraglen;
-        nbuf = sb->sb_fraglen;
+    if (sb->frag != NULL) {
+        memmove(buf, sb->frag, sb->fraglen);
+        buf += sb->fraglen;
+        bufsz -= sb->fraglen;
 
-        /* Now, the fragment is no longer part of the socket_buf */
-        free(sb->sb_frag);
-        sb->sb_frag = NULL;
-        sb->sb_fraglen = 0;
-
-    } else {
-        nbuf = 0;
+        /* Destroy the fragment */
+        sb->frag = NULL;
+        sb->fraglen = 0;
     }
 
     /* Read as much as possible from the kernel socket buffer. */
-    if ((n = read(fd, bufp, bufsz - 1)) < 0) { 
-        sb->sb_iov = NULL;
-        sb->sb_iovlen = 0;
-
-        /* If no data is available, go to sleep */
+    if ((n = read(sock->fd, buf, bufsz)) < 0) { 
         if (errno == EAGAIN) {
             return (0);
         } else {
@@ -204,7 +214,6 @@ socket_readv(struct socket_buf *sb, int fd)
             return (-1);
         }
     }
-
     /* Check for EOF */
     /* TODO - verify: is n==0 actually EOF? */
     if (n == 0) {
@@ -213,56 +222,8 @@ socket_readv(struct socket_buf *sb, int fd)
         return (-1);
     }
 
-    nbuf += n;
-
-    /*
-    //uncomment for extra debugging
-    //
-    bufp = (char *) &buf;       //to un-fragment
-    bufp[nbuf] = '\0';          
-    log_debug("read %zu bytes: `%s'", nbuf, bufp);
-    */
-    log_debug("read %zu bytes", nbuf);
-
-    /* Compute the address of the end of the buffer */
-    buf_edge = ((char *) &buf) + nbuf;
-
-    /* Divide the buffer into lines. */
-    nlines = 0;
-    for (a = z = (char *) &buf; z < buf_edge; z++) {
-        if ((*z == '\r' && *(z + 1) == '\n') || (*z == '\n')) {
-
-            lines[nlines].iov_base = a;
-            lines[nlines].iov_len = (z - a) + 1;
-            nlines++;
-
-            /* Convert network line endings (CR+LF) into POSIX line endings (LF). */
-            if (*z == '\r') {
-                *z = '\n';
-                z++;
-            }
-
-            a = z + 1;
-        }
-    }
-
-    /* Special case: the final line is not terminated */
-    if (a != buf_edge) {
-        *z = '\0';
-        fraglen = (z - a);
-        if (fraglen > __MAX_FRAGMENT_LEN) {
-            log_error("line fragment exceeds maximum length");
-            return (-1);
-        }
-        sb->sb_fraglen = fraglen;
-        sb->sb_frag = strdup(a);
-        log_debug("frag='%s' fraglen=%zu", sb->sb_frag, sb->sb_fraglen);
-    }
-
-    sb->sb_iov = (struct iovec *) &lines;
-    sb->sb_iovlen = nlines;
-
-    return (nlines);
+    sb->buf_len = n;
+    return parse_lines(sock);
 } 
 
 /**
@@ -271,12 +232,13 @@ socket_readv(struct socket_buf *sb, int fd)
  * @return pointer to the next line, or NULL if no more lines
  */
 struct iovec *
-socket_peek(struct socket_buf *sb)
+socket_peek(struct socket *s)
 {
-    log_debug("len=%zu pos=%zu", sb->sb_iovlen , sb->sb_iovpos);
-    if ((sb->sb_iovlen - sb->sb_iovpos) > 1)
-        return (&sb->sb_iov[sb->sb_iovpos + 1]);
+    struct socket_buf *sb = &s->input;
+
+    log_debug("total=%zu pos=%zu", sb->iov_cnt, sb->iov_pos);
+    if ((sb->iov_cnt - sb->iov_pos) > 1)
+        return (&sb->iov[sb->iov_pos + 1]);
     else
         return (NULL);
 }
-#endif
