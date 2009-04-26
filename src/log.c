@@ -61,10 +61,19 @@ log_backtrace(void)
   len = backtrace(buf, BACKTRACE_MAX);
   strings = backtrace_symbols(buf, len);
 
-  /* TODO: need _log_all_raw() to avoid printing line numbers */
-  log_debug("stack backtrace:");
-  for (i = 0; i < len; i++)
-     log_debug("  %s", strings[i]);
+  /* This should never happen. */
+  if (len == 0)
+      return;
+
+  if (!detached) {
+    fprintf(stderr, "\nstack backtrace:\n");
+    for (i = 1; i < len; i++)
+        fprintf(stderr,"  %zu: %s\n", i, strings[i]);
+    fprintf(stderr, "\n");
+  } else {
+     /* TODO: integrate with syslog */
+     log_warning("STUB");
+  }
 
   free (strings);
 }
