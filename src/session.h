@@ -16,7 +16,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #ifndef _SESSION_H
 #define _SESSION_H
 
@@ -90,7 +89,8 @@ int session_readln(struct session *s);
 
 void    session_table_init(void);
 int     session_table_lookup(struct session **, unsigned long);
-
+int     session_suspend(struct session *);
+int     session_resume(struct session *);
 void    session_accept(struct session *);
 void    session_handler(void *, int);
 

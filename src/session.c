@@ -91,8 +91,9 @@ session_read(struct session *s)
             s->buf_len = len; 
             if (s->handler(s) < 0) 
                 return (-1);
+            /* Test if session_suspend() was called */
             if (s->handler == NULL)
-               return (0); //FIXME - testing
+               return (0);
         }
     } while (len > 0);
 
@@ -245,6 +246,29 @@ session_handler(void *sptr, int events)
         //TODO - flush output buffer, or do something
     }
 #endif
+}
+
+int
+session_suspend(struct session *s)
+{
+    s->handler = NULL;
+    return poll_disable(s->fd);
+}
+
+int
+session_resume(struct session *s)
+{
+    /* Poll for read(2) readiness */
+    if (socket_poll(s->sock, session_handler, s) < 0)
+        return (-1);
+
+    /* Process lines that are in the read buffer */
+    if (socket_peek(s->sock) != NULL) {
+        if (session_read(s) < 0) 
+            session_close(s);
+    }
+
+    return (0);
 }
 
 int

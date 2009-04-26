@@ -59,6 +59,7 @@ smtp_mda_callback(struct session *s, int retval)
     
     log_debug("callback");
     session_println(s, "250 Message delivered");
+    session_resume(s);
 }
 
 static int
@@ -363,7 +364,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
     if ((len == 2) && strncmp(src, ".\n", 2) == 0) {
 
         /* Submit to the MDA workqueue for processing */
-        s->handler = NULL; //FIXME: very bad
+        session_suspend(s);
         if (mda_submit(s->id, s->msg) < 0) {
             log_error("mda_submit()");
             goto error;
