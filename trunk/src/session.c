@@ -91,6 +91,8 @@ session_read(struct session *s)
             s->buf_len = len; 
             if (s->handler(s) < 0) 
                 return (-1);
+            if (s->handler == NULL)
+               return (0); //FIXME - testing
         }
     } while (len > 0);
 
