@@ -44,6 +44,7 @@
 static int smtpd_parse_command(struct session *, char *, size_t);
 static int smtpd_parse_data(struct session *, char *, size_t);
 static int smtpd_session_reset(struct session *);
+static int smtpd_fatal_error(struct session *s);
 
 static int smtpd_quit(struct session *s);
 static int smtpd_rset(struct session *s);
@@ -148,8 +149,7 @@ smtpd_rcpt(struct session *s, char *line)
     /* Check if we accept mail for this domain */
     switch (domain_exists(ma)) {
         case -1: 
-            session_println(s, "421 Internal error, closing connection");
-            s->smtp_state = SMTP_STATE_QUIT;
+            smtpd_fatal_error(s);
             goto errout;
         case 0: 
             session_println(s, "551 Relay access denied");
@@ -235,7 +235,6 @@ smtpd_quit(struct session *s)
 static int
 smtpd_fatal_error(struct session *s)
 {
-    log_backtrace();
     session_println(s, "421 Fatal error, closing connection");
     s->smtp_state = SMTP_STATE_QUIT;
     return (0);
@@ -364,7 +363,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
     if ((len == 2) && strncmp(src, ".\n", 2) == 0) {
 
         /* Submit to the MDA workqueue for processing */
-        s->handler = smtpd_fatal_error;
+        s->handler = NULL; //FIXME: very bad
         if (mda_submit(s->id, s->msg) < 0) {
             log_error("mda_submit()");
             goto error;
