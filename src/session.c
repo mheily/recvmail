@@ -205,9 +205,6 @@ session_close(struct session *s)
     /* Run any protocol-specific hooks */
     (void) protocol_close(s);
 
-    poll_disable(s->fd);
-    (void) close(s->fd); 
-
     /* Remove the descriptor from the session table */
     pthread_mutex_lock(&st_mtx);
     LIST_REMOVE(s, st_entries);
@@ -227,7 +224,6 @@ session_handler(void *sptr, int events)
     
     if (events & SOCK_EOF) {
         log_debug("fd %d got EOF", s->fd);
-        poll_disable(s->fd);
         session_close(s);
         return;       // FIXME: process the rest of the read buffer
     }

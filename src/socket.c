@@ -80,6 +80,8 @@ socket_free(struct socket *sock)
         log_error("double free");
         return;
     }
+    poll_disable(sock->fd);
+    (void) close(sock->fd); 
     free(sock->input.iov);
     free(sock);
 }
