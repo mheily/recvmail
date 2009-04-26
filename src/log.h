@@ -70,5 +70,6 @@ extern int log_is_open;
 
 void log_open(const char *, int, int, int);
 void log_close(void);
+void log_backtrace(void);
 
 #endif  /* _LOG_H */
