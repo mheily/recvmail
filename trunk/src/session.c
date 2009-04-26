@@ -108,6 +108,7 @@ session_write(struct session *s, const char *buf, size_t len)
         log_errno("write(2) (%zu of %zu)", n, len);
         return (-1);
     }
+    log_debug("> %s", buf);
 
     return (0);
 }

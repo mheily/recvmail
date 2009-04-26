@@ -235,6 +235,7 @@ smtpd_quit(struct session *s)
 static int
 smtpd_fatal_error(struct session *s)
 {
+    log_backtrace();
     session_println(s, "421 Fatal error, closing connection");
     s->smtp_state = SMTP_STATE_QUIT;
     return (0);
