@@ -96,6 +96,15 @@ option_parse(const char *arg)
 }
 
 
+static void
+sanity_check(void)
+{
+   if (access(smtpd.chrootdir, X_OK) != 0)
+        errx(1, "%s", smtpd.chrootdir);
+   /* TODO: check spool/ and etc/ and box/ */
+}
+
+
 int
 main(int argc, char *argv[])
 {
@@ -143,7 +152,7 @@ main(int argc, char *argv[])
         OPT.log_level++;
     }
 
-    /* Determine the prefix, UID, and GID */
+    /* Determine the chroot(2) prefix, UID, and GID */
 #if defined(__linux__)
     smtpd.chrootdir = "/srv/mail";
     smtpd.uid = "recvmail",
@@ -163,6 +172,8 @@ main(int argc, char *argv[])
     if (gethostname(OPT.mailname, 256) != 0)
         err(1, "gethostname");
     
+    sanity_check();
+
      if (poll_new() < 0) 
         err(1, "unable to create the event dispatcher");
 
