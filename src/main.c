@@ -23,7 +23,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "aliases.h"
 #include "dnsbl.h"
 #include "options.h"
 #include "log.h"

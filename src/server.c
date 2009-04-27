@@ -33,7 +33,6 @@
 #include "server.h"
 #include "smtp.h"
 #include "session.h"
-#include "aliases.h"
 #include "workqueue.h"
 
 static void server_accept(void *if_ptr, int events);

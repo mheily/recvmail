@@ -40,7 +40,7 @@ epoll_ctl(int epfd, int op, int fd, struct epoll_event *ev)
     if (op == EPOLL_CTL_DEL) 
         kev.udata = NULL;
     else 
-        kev.udata = event->data.ptr;
+        kev.udata = evt->data.ptr;
     kev.flags = op;
     kev.fflags = 0;
     kev.data = 0;
