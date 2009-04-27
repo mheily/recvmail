@@ -93,6 +93,7 @@ drop_privileges(void)
     if (setuid(uid) < 0)
         err(1, "setuid(2)");
     
+    log_info("chroot(2) to %s", srv.chrootdir);
     log_info("setuid(2) to %s(%d)", srv.uid, uid);
 }
 

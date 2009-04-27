@@ -37,9 +37,6 @@ static struct server smtpd = {
     .port = 25,
     .timeout_read = 15,
     .timeout_write = 30,
-    .chrootdir = "/srv/mail",
-    .uid = "recvmail",
-    .gid = "mail",
 
     /* vtable */
     .accept_hook = smtpd_accept,
@@ -145,6 +142,21 @@ main(int argc, char *argv[])
         OPT.daemon = 0;
         OPT.log_level++;
     }
+
+    /* Determine the prefix, UID, and GID */
+#if defined(__linux__)
+    smtpd.chrootdir = "/srv/mail";
+    smtpd.uid = "recvmail",
+    smtpd.gid = "mail",
+#elif defined(__OpenBSD__)
+    smtpd.uid = "_recvmail";
+    smtpd.gid = "_recvmail";
+    smtpd.chrootdir = "/var/recvmail";
+#else
+    smtpd.uid = "recvmail";
+    smtpd.gid = "recvmail";
+    smtpd.chrootdir = "/var/recvmail";
+#endif
 
     /* Get the hostname */
     OPT.mailname = (char *) &mailname;
