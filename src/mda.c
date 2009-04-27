@@ -16,7 +16,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <pthread.h>
 #include <unistd.h>
 
 #include "session.h"
@@ -36,6 +35,7 @@ static void mda_deliver(struct work *wqa, void *udata);
 int
 mda_init(void)
 {
+    /* TODO: eliminate this restriction */
     if (mda != NULL) {
         log_error("cannot have multiple MDAs per process");
         return (-1);
@@ -60,7 +60,6 @@ mda_deliver(struct work *wqa, void *udata)
 {
     struct message *msg;
     
-    log_debug("delivering");
     msg = (struct message *) wqa->argv0.ptr;
     message_fsync(msg); // TODO: error handling
     maildir_deliver(msg);// TODO: error handling

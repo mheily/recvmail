@@ -1,7 +1,7 @@
 /*      $Id$      */
 
 /*
- * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
+ * Copyright (c) 2004-2009 Mark Heily <devel@heily.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -55,12 +55,13 @@ smtp_mda_callback(struct session *s, int retval)
     s->handler = smtpd_parser;
     smtpd_session_reset(s);
 
-    //TODO: check retval, delivery might have failed
+    //FIXME: check retval, delivery might have failed
     
     log_debug("callback");
     session_println(s, "250 Message delivered");
     session_resume(s);
 }
+
 
 static int
 smtpd_session_reset(struct session *s)
@@ -71,10 +72,11 @@ smtpd_session_reset(struct session *s)
         log_errno("calloc(3)");
         return (-1);
     }
-
     s->smtp_state = SMTP_STATE_MAIL;
+    
     return (0);
 }
+
 
 static int
 smtpd_helo(struct session *s, const char *arg)
@@ -103,8 +105,8 @@ smtpd_mail(struct session *s, const char *arg)
     if (s->msg->sender != NULL)
         free(s->msg->sender);
     if ((s->msg->sender = address_parse(arg)) == NULL) {
-            session_println(s, "501 Malformed address");
-            return (-1);
+        session_println(s, "501 Malformed address");
+        return (-1);
     }
     session_println(s, "250 Ok");
     return (0);
@@ -189,8 +191,6 @@ errout:
 static int
 smtpd_data(struct session *s, const char *arg)
 {
-    log_debug("DATA arg=%s", arg);
-
     if (s->msg->recipient_count == 0) {
         session_println(s, "503 Error: need one or more recipients first");
         return (-1);
@@ -202,8 +202,10 @@ smtpd_data(struct session *s, const char *arg)
     }
     session_println(s, "354 End data with <CR><LF>.<CR><LF>");
     s->smtp_state = SMTP_STATE_DATA;
+    
     return (0);
 }
+
 
 static int
 smtpd_rset(struct session *s)
@@ -213,8 +215,8 @@ smtpd_rset(struct session *s)
         s->smtp_state = SMTP_STATE_QUIT;
         return (-1);
     }
-
     session_println(s, "250 Ok");
+    
     return (0);
 }
 
@@ -284,6 +286,7 @@ smtpd_parser(struct session *s)
 
     return (0);
 }
+
 
 static int
 smtpd_parse_command(struct session *s, char *src, size_t len)
@@ -399,14 +402,12 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 }
 
 
-
 int
 smtpd_greeting(struct session *s)
 {
     session_println(s, "220 ESMTP server ready");
     return (0);
 }
-
 
 
 void
@@ -417,6 +418,7 @@ smtpd_accept(struct session *s)
     smtpd_greeting(s);
 }
 
+
 void
 smtpd_timeout(struct session *s)
 {
@@ -424,11 +426,13 @@ smtpd_timeout(struct session *s)
     session_println(s, "421 Idle time limit exceeded, goodbye");
 }
 
+
 void
 smtpd_client_error(struct session *s)
 {
     session_println(s, "421 Too many errors");
 }
+
 
 void
 smtpd_close(struct session *s)

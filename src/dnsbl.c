@@ -16,11 +16,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <netdb.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <pthread.h>
-#include <sys/socket.h>
 #include <sys/queue.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -34,13 +34,14 @@
 
 static void dnsbl_query(struct work *wqa, void *udata);
 static void dnsbl_response_handler(struct session *, int);
-static int dnsbl_reject_early_talker(struct session *s);
+static int  dnsbl_reject_early_talker(struct session *s);
 
 struct dnsbl {
     /* FQDN of the DNSBL service (e.g. zen.spamhaus.org) */
-    char         *service;
+    char *service;
     struct workqueue *wq;
 };
+
 
 struct dnsbl *
 dnsbl_new(const char *service)
@@ -60,6 +61,7 @@ dnsbl_new(const char *service)
     return (d);
 }
 
+
 void
 dnsbl_free(struct dnsbl *d)
 {
@@ -68,12 +70,14 @@ dnsbl_free(struct dnsbl *d)
     free(d);
 }
 
+
 static int
 dnsbl_reject_early_talker(struct session *s)
 {
 	session_println(s, "421 Protocol error -- SMTP early talkers not allowed");
 	return (-1);
 }
+
 
 static void
 dnsbl_query(struct work *wqa, void *udata)
@@ -131,6 +135,7 @@ dnsbl_submit(struct dnsbl *d, struct session *s)
     return wq_submit(d->wq, w);
 }
 
+
 static void
 dnsbl_response_handler(struct session *s, int retval)
 {
@@ -147,6 +152,7 @@ dnsbl_response_handler(struct session *s, int retval)
     }
 }
 
+
 void *
 dnsbl_dispatch(void *arg)
 {
@@ -154,6 +160,7 @@ dnsbl_dispatch(void *arg)
     wq_dispatch(d->wq);
     return (NULL);
 }
+
 
 /**
  * Ensure that the libc stub resolver libraries are dynamically loaded 

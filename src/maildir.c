@@ -1,7 +1,7 @@
 /*		$Id$		*/
 
 /*
- * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
+ * Copyright (c) 2004-2009 Mark Heily <devel@heily.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,7 +16,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <assert.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
@@ -83,6 +82,7 @@ maildir_exists(const struct mail_addr *ma)
 }
 
 /* Generate a unique ID suitable for delivery to a Maildir */
+/* TODO: make threadsafe or move to mda.c */
 char *
 maildir_generate_id(void)
 {
@@ -106,12 +106,6 @@ maildir_generate_id(void)
 }
 
 
-/*
- * Open a file descriptor to receive the data of <msg>.
- *
- * Modifies: msg->fd, msg->id, msg->path
- *
- */
 int
 maildir_msg_open(struct message *msg, struct session *s)
 {
@@ -130,17 +124,18 @@ maildir_msg_open(struct message *msg, struct session *s)
 
     /* Generate the message pathname */
     if ((msg->filename = maildir_generate_id()) == NULL)
-        return -1;
+        return (-1);
     if (asprintf(&msg->path, "spool/tmp/%s", msg->filename) < 0)
-        return -1;
+        return (-1);
 
     /* Try to open the message file for writing */
     /* NOTE: O_EXCL may not work on older NFS servers */
-    msg->fd =
-	open(msg->path, O_CREAT | O_APPEND | O_WRONLY | O_EXCL, 00660);
+    msg->fd = open(msg->path, 
+                   O_CREAT | O_APPEND | O_WRONLY | O_EXCL,
+                   00660);
     if (msg->fd < 0) {
-	log_errno("open(2) of `%s'", msg->path);
-	return -1;
+        log_errno("open(2) of `%s'", msg->path);
+        return (-1);
     }
 
     /* Prepend the local 'Received:' header */
@@ -148,9 +143,12 @@ maildir_msg_open(struct message *msg, struct session *s)
     gmtime_r(&now, &timeval);
     asctime_r(&timeval, timestr);
     len = asprintf(&buf,
-            "Received: from %s ([%s])\n        by %s (recvmail) on %s",
-            address_get(ma_addr, sizeof(ma_addr), msg->sender),
-            remote_addr(in_addr, sizeof(in_addr), s), OPT.mailname, timestr);
+                   "Received: from %s ([%s])\n"
+                   "        by %s (recvmail) on %s",
+                   address_get(ma_addr, sizeof(ma_addr), msg->sender),
+                   remote_addr(in_addr, sizeof(in_addr), s),
+                   OPT.mailname,
+                   timestr);
     if (len < 0) {
         log_errno("asprintf(3)");
         goto errout;
@@ -179,9 +177,10 @@ maildir_deliver(struct message *msg)
     char dest[PATH_MAX];
     struct mail_addr *ma;
 
-    assert(msg->path);
-
+    /* Deliver to each SMTP recipient */
     LIST_FOREACH(ma, &msg->recipient, entries) {
+        
+        /* Generate the path to the new/ message */
         if (maildir_get_path((char *) &prefix, sizeof(prefix), ma) != 0) {
             log_error("prefix too long");
             goto errout;
@@ -191,14 +190,17 @@ maildir_deliver(struct message *msg)
             log_error("path too long");
             goto errout;
         }
+
+        /* Create a hard link to the message in spool/ */
         if (link(msg->path, dest) != 0) {
             log_errno("link(2) of `%s' to `%s'", msg->path, dest);
             goto errout;
         }
+        
         /* TODO - sync metadata */
     }
 
-    /* Delete the spooled message */
+    /* Delete the message from the spool/ directory */
     if (unlink(msg->path) != 0) {
             log_errno("unlink(2) of `%s'", msg->path);
             goto errout;
@@ -216,15 +218,10 @@ errout:
     return (-1);
 }
 
-/**
- * Close the file descriptor associated with <msg>
- *
- * Modifies: msg->path
- */
+
 int
 message_close(struct message *msg)
 {
-    /* Close the file */
     if (close(msg->fd) < 0) {
         log_errno("close(2)");
         return (-1);
