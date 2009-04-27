@@ -16,12 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <execinfo.h>
-
 #include "log.h"
-
-/* Maximum number of stack frames to print in a backtrace */
-#define BACKTRACE_MAX 20
 
 static char *_ident;
 
@@ -49,31 +44,4 @@ log_close(void)
     closelog();
     free(_ident);
     _ident = NULL;
-}
-
-void
-log_backtrace(void)
-{
-  void *buf[BACKTRACE_MAX];
-  size_t len, i;
-  char **strings;
-
-  len = backtrace(buf, BACKTRACE_MAX);
-  strings = backtrace_symbols(buf, len);
-
-  /* This should never happen. */
-  if (len == 0)
-      return;
-
-  if (!detached) {
-    fprintf(stderr, "\nstack backtrace:\n");
-    for (i = 1; i < len; i++)
-        fprintf(stderr,"  %zu: %s\n", i, strings[i]);
-    fprintf(stderr, "\n");
-  } else {
-     /* TODO: integrate with syslog */
-     log_warning("STUB");
-  }
-
-  free(strings);
 }
