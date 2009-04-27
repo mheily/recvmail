@@ -1,7 +1,7 @@
 /*		$Id$		*/
 
 /*
- * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
+ * Copyright (c) 2004-2009 Mark Heily <devel@heily.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,10 +24,10 @@
 #include "address.h"
 #include "log.h"
 
-#define USERNAME_MAX            63
+#define USERNAME_MAX    63
 #define DOMAIN_MAX		63
-#define HOSTNAME_MAX		63
-#define ADDRESS_MAX             (DOMAIN_MAX + HOSTNAME_MAX + 1)
+#define HOSTNAME_MAX    63
+#define ADDRESS_MAX     (DOMAIN_MAX + HOSTNAME_MAX + 1)
 
 /*
  * Take an RFC2822 email address (<foo@bar.com>) and validates it, returning
@@ -104,9 +104,8 @@ address_free(struct mail_addr *ma)
     }
 }
 
-/* dst should be sized MAIL_ADDRSTRLEN or more */
 char *
-address_get(char *dst, size_t len, struct mail_addr *src)
+address_get(char *dst, size_t len, const struct mail_addr *src)
 {
     int i;
 

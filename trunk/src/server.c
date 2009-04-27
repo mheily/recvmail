@@ -1,7 +1,7 @@
 /*		$Id$		*/
 
 /*
- * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
+ * Copyright (c) 2004-2009 Mark Heily <devel@heily.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -56,15 +56,7 @@ protocol_close(struct session *s)
     return (0);
 }
 
-/*
- * Remove root privileges from the running process.
- * 
- * If the process is running as root, change the UID and GID to the ID's of
- * <uid> and <gid>, respectively.
- * 
- * Also chroot(2) to another directory, if desired.
- * 
- */
+
 static void
 drop_privileges(void)
 {
@@ -105,12 +97,14 @@ drop_privileges(void)
     log_info("setuid(2) to %s(%d)", srv.uid, uid);
 }
 
+
 static void
 server_restart(void *unused, int events)
 {
     log_error("STUB");
     sleep(1);
 }
+
 
 static void
 server_shutdown(void *unused, int events)
@@ -279,6 +273,7 @@ errout:
     return (-1);
 }
 
+
 int
 server_bind(void)
 {
@@ -312,6 +307,7 @@ errout:
     freeifaddrs(ifa);
     return (0);
 }
+
 
 static void
 server_accept(void *if_ptr, int events)

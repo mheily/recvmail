@@ -31,11 +31,15 @@ struct mail_addr {
 
 int             domain_exists(const struct mail_addr *);
 
-struct rfc2822_addr *rfc2822_addr_new();
-struct mail_addr * address_parse(const char *src);
-void            address_free(struct mail_addr *addr);
-char * address_get(char *dst, size_t len, struct mail_addr *src);
-int             valid_address(const struct rfc2822_addr *addr);
-int             valid_domain(const char *domain);
+struct rfc2822_addr * 
+    rfc2822_addr_new();
+
+struct mail_addr *
+    address_parse(const char *);
+
+void    address_free(struct mail_addr *);
+char *  address_get(char *, size_t, const struct mail_addr *);
+int     valid_address(const struct rfc2822_addr *addr);
+int     valid_domain(const char *domain);
 
 #endif  /* _ADDRESS_H */

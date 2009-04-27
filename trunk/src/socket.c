@@ -1,7 +1,7 @@
 /*      $Id$      */
 
 /*
- * Copyright (c) 2008 Mark Heily <devel@heily.com>
+ * Copyright (c) 2008-2009 Mark Heily <devel@heily.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above

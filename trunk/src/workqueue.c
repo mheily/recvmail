@@ -30,9 +30,7 @@
 #include "session.h"
 #include "workqueue.h"
 
-static void
-wq_retrieve_all(void *, int events);
-
+static void wq_retrieve_all(void *, int events);
 
 struct wq_entry {
     unsigned long sid;                      /* Session ID */
@@ -94,6 +92,7 @@ wq_new( void (*bottom)(struct work *, void *),
     return (wq);
 }
 
+
 void
 wq_free(struct workqueue *wq)
 {
@@ -102,6 +101,7 @@ wq_free(struct workqueue *wq)
     close(wq->pfd[1]);
     free(wq);
 }
+
 
 int
 wq_submit(struct workqueue *wq, struct work w)
@@ -142,6 +142,7 @@ wq_retrieve(struct work *wptr, struct workqueue *wq)
     return (0);
 }
 
+
 static void
 wq_retrieve_all(void *arg, int events)
 {
@@ -169,6 +170,7 @@ wq_retrieve_all(void *arg, int events)
     log_debug("running top s->fd = %d", s->fd);
     wq->top(s, w.retval); 
 }
+
 
 void *
 wq_dispatch(struct workqueue *wq)

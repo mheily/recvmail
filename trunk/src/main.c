@@ -16,11 +16,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
 #include <signal.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include "aliases.h"
@@ -34,7 +34,7 @@
 
 /* Global variables */
 
-struct server   smtpd = {
+static struct server smtpd = {
     .port = 25,
     .timeout_read = 15,
     .timeout_write = 30,
@@ -49,6 +49,7 @@ struct server   smtpd = {
     .close_hook = smtpd_close,
 };
 
+/* TODO: eliminate this struct */
 struct options  OPT = {
     .debugging = 0,
     .daemon = 1,
@@ -107,37 +108,37 @@ main(int argc, char *argv[])
 
     /* Get arguments from ARGV */
     while ((c = getopt(argc, argv, "fg:ho:qu:v")) != -1) {
-	switch (c) {
-	case 'f':
-	    OPT.daemon = 0;
-	    break;
-	case 'g':
-	    if ((smtpd.gid = strdup(optarg)) == NULL)
-		err(1, "strdup failed");
-	    break;
-	case 'h':
-	    usage();
-	    break;
-	case 'o':
-		//TODO: see main.c:parse_option(optarg);
-		abort();
-		break;
-	case 'q':
-	    OPT.log_level = LOG_ERR;
-	    break;
-	case 'u':
-	    if ((smtpd.uid = strdup(optarg)) == NULL)
-		err(1, "strdup failed");
-	    break;
-	case 'v':
-        if (OPT.log_level == LOG_DEBUG)
-            err(1, "cannot enable logging above LOG_DEBUG");
-        OPT.log_level++;
-	    break;
-	default:
-	    usage();
-	    break;
-	}
+        switch (c) {
+            case 'f':
+                OPT.daemon = 0;
+                break;
+            case 'g':
+                if ((smtpd.gid = strdup(optarg)) == NULL)
+                    err(1, "strdup failed");
+                break;
+            case 'h':
+                usage();
+                break;
+            case 'o':
+                //TODO: see main.c:parse_option(optarg);
+                abort();
+                break;
+            case 'q':
+                OPT.log_level = LOG_ERR;
+                break;
+            case 'u':
+                if ((smtpd.uid = strdup(optarg)) == NULL)
+                    err(1, "strdup failed");
+                break;
+            case 'v':
+                if (OPT.log_level == LOG_DEBUG)
+                    err(1, "cannot enable logging above LOG_DEBUG");
+                OPT.log_level++;
+                break;
+            default:
+                usage();
+                break;
+        }
     }
 
     /* Check the 'debugging' environment option */
@@ -151,8 +152,7 @@ main(int argc, char *argv[])
     if (gethostname(OPT.mailname, 256) != 0)
         err(1, "gethostname");
     
-    /* Create the event source */
-    if (poll_new() < 0) 
+     if (poll_new() < 0) 
         err(1, "unable to create the event dispatcher");
 
     if (resolver_init() < 0)
@@ -163,9 +163,6 @@ main(int argc, char *argv[])
 
     if (server_init(&smtpd) < 0)
         errx(1, "server initialization failed");
-
-    /* Dump some variables to the log */
-    log_debug("mailname=`%s'", OPT.mailname);
 
     rv = server_dispatch();
 

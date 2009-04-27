@@ -75,5 +75,5 @@ log_backtrace(void)
      log_warning("STUB");
   }
 
-  free (strings);
+  free(strings);
 }

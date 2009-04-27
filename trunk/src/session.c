@@ -1,7 +1,7 @@
 /*		$Id$		*/
 
 /*
- * Copyright (c) 2004-2007 Mark Heily <devel@heily.com>
+ * Copyright (c) 2004-2009 Mark Heily <devel@heily.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -60,6 +60,7 @@ remote_addr(char *dest, size_t len, const struct session *s)
     return (dest);
 }
 
+
 void
 session_accept(struct session *s)
 {
@@ -67,6 +68,7 @@ session_accept(struct session *s)
     log_debug("accepted session on fd %d", s->fd);
     srv.accept_hook(s);
 }
+
 
 int
 session_read(struct session *s) 
@@ -106,12 +108,16 @@ session_write(struct session *s, const char *buf, size_t len)
 {
     ssize_t n;
 
+    /* If the file descriptor is closed, do nothing */
+    /* TODO: use a status flag instead of checking for -1 */
+    if (s->fd < 0)
+        return (0);
+    
     /* TODO: check for EAGAIN and enable polling for write readiness */
     if ((n = write(s->fd, buf, len)) != len) {
         log_errno("write(2) (%zu of %zu)", n, len);
         return (-1);
     }
-    log_debug("> %s", buf);
 
     return (0);
 }
@@ -136,14 +142,7 @@ session_vprintf(struct session *s, const char *format, va_list ap)
         return (rv);
 }
 
-/**
- * Print a formatted string to a socket.
- *
- * Uses printf(3) formatting syntax.
- *
- * @param sock socket object
- * @param format format string
-*/
+
 int
 session_printf(struct session *s, const char *format, ...)
 {
@@ -157,11 +156,13 @@ session_printf(struct session *s, const char *format, ...)
     return (rv);
 }
 
+
 int
 session_println(struct session *s, const char *buf)
 {
         return (session_printf(s, "%s\r\n", buf));
 }
+
 
 struct session *
 session_new(int fd)
@@ -215,6 +216,7 @@ session_close(struct session *s)
     pthread_mutex_unlock(&st_mtx);
 
     socket_free(s->sock);
+    message_free(s->msg);
     free(s);
 }
 
@@ -223,8 +225,6 @@ void
 session_handler(void *sptr, int events)
 {
     struct session *s = (struct session *) sptr;
-
-    log_debug("in session_handler()");
     
     if (events & SOCK_EOF) {
         log_debug("fd %d got EOF", s->fd);
@@ -237,7 +237,7 @@ session_handler(void *sptr, int events)
             session_close(s);
     }
 #if TODO
-    // implement output buffreing
+    // TODO: implement output buffreing
     if (events & SOCK_CAN_WRITE) {
         if (s->fd < 0) 
             log_debug("fd %d is writable (session terminated)", s->fd);
@@ -248,12 +248,14 @@ session_handler(void *sptr, int events)
 #endif
 }
 
+
 int
 session_suspend(struct session *s)
 {
     s->handler = NULL;
     return poll_disable(s->fd);
 }
+
 
 int
 session_resume(struct session *s)
@@ -262,7 +264,7 @@ session_resume(struct session *s)
     if (socket_poll(s->sock, session_handler, s) < 0)
         return (-1);
 
-    /* Process lines that are in the read buffer */
+    /* Process lines that are already in the read buffer */
     if (socket_peek(s->sock) != NULL) {
         if (session_read(s) < 0) 
             session_close(s);
@@ -270,6 +272,7 @@ session_resume(struct session *s)
 
     return (0);
 }
+
 
 int
 session_table_lookup(struct session **sptr, unsigned long sid)
@@ -289,6 +292,7 @@ session_table_lookup(struct session **sptr, unsigned long sid)
     return (-1);
 }
 
+
 static void
 session_table_expire(void *unused)
 {
@@ -305,6 +309,7 @@ session_table_expire(void *unused)
         }
     }
 }
+
 
 void
 session_table_init(void)
