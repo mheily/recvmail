@@ -226,19 +226,19 @@ session_handler(void *sptr, int events)
 {
     struct session *s = (struct session *) sptr;
     
-    if (events & SOCK_EOF) {
+    if (events & POLLHUP) {
         log_debug("fd %d got EOF", s->fd);
         session_close(s);
         return;       // FIXME: process the rest of the read buffer
     }
-    if (events & SOCK_CAN_READ) {
+    if (events & POLLIN) {
         log_debug("fd %d is now readable", s->fd);
         if (session_read(s) < 0) 
             session_close(s);
     }
 #if TODO
     // TODO: implement output buffreing
-    if (events & SOCK_CAN_WRITE) {
+    if (events & POLLOUT) {
         if (s->fd < 0) 
             log_debug("fd %d is writable (session terminated)", s->fd);
         else
@@ -253,7 +253,7 @@ int
 session_suspend(struct session *s)
 {
     s->handler = NULL;
-    return poll_disable(s->fd);
+    return poll_remove(s->fd); //TODO: use disable/enable when poll_enable() is available
 }
 
 

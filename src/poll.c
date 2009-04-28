@@ -18,55 +18,51 @@
 
 #include <stdlib.h>
 #include <errno.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
 
-#include "epoll.h"
 #include "log.h"
 #include "poll.h"
 #include "queue.h"
 
-/* Global state object. There can only be one event manager per process */
-static struct evcb * e;
-
-static struct watch *
-poll_wait(struct evcb *e, int *events_ptr);
-
-static void * timekeeper(void *arg);
+/* Maximum number of descriptors to watch (TODO: make dynamic) */
+#define POLLSET_MAX  2048
 
 struct watch {
-    struct epoll_event ev;
-    int   fd;
-    int    mask;
-    void  *udata;
-    void (*callback)(void *, int);
-    LIST_ENTRY(watch) entries;
+    struct pollfd *ps_ent;
+    int     fd;
+    void   *udata;
+    void  (*callback)(void *, int);
 };
 
 struct timer {
-    time_t   next_time;
-    uint32_t interval;
-    int      active;      
-    void    *udata;
-    void (*callback)(void *);
+    time_t  next_time;
+    u_int   interval;
+    int     active;      
+    void   *udata;
+    void  (*callback)(void *);
     LIST_ENTRY(timer) entries;
 };
 
-struct evcb {
-    pthread_t            sig_catcher;
-    int                  sc_pipefd[2];
+/*
+ * GLOBAL VARIABLES
+ */
+struct pollfd        pollset[POLLSET_MAX];
+struct watch         watchlist[POLLSET_MAX];
+size_t               ps_count;
 
-    pthread_t            timekeeper;
-    int                  tk_pipefd[2];
+pthread_t            sig_catcher_tid;
+int                  sc_pipefd[2];
 
-    int                  pfd;
-    int                  shutdown;
-    int                  sig_status[NSIG + 1];
-    struct watch         sig_watch[NSIG + 1];
-    LIST_HEAD(,watch)    watchlist;
-    LIST_HEAD(,timer)    timer_list;
-};
+pthread_t            timekeeper_tid;
+int                  tk_pipefd[2];
+
+int                  shutdown_flag;
+int                  sig_status[NSIG + 1];
+struct watch         sig_watch[NSIG + 1];
+LIST_HEAD(,timer)    timer_list;
 
 /*
  * Signal handling
@@ -79,18 +75,18 @@ signal_handler(void *unused, int unused2)
     char c;
     struct watch *w;
 
-    (void) read(e->sc_pipefd[0], &c, 1);
+    (void) read(sc_pipefd[0], &c, 1);
 
     /* Handle all signals */
     for (signum = 0; signum < NSIG; signum++) {
-        if (e->sig_status[signum] == 0)
+        if (sig_status[signum] == 0)
             continue;
 
-        w = &e->sig_watch[signum];
+        w = &sig_watch[signum];
         if (w != NULL) {
             log_debug("calling signal handler for signum %d", signum);
             w->callback(w->udata, signum);
-            e->sig_status[signum] = 0;
+            sig_status[signum] = 0;
         } else {
             log_error("Caught unhandled signal %d -- exiting", signum);
             exit(0);
@@ -115,7 +111,7 @@ signal_dispatch(void *arg)
     for (;;) {
         sigwait(&set, &signum);
         log_debug("caught signal %d", signum);
-        e->sig_status[signum] = 1;
+        sig_status[signum] = 1;
         write(pipefd, &c, 1);
     }
 }
@@ -127,11 +123,11 @@ timer_handler(void *unused, int unused2)
     time_t now;
     char c;
 
-    (void) read(e->tk_pipefd[0], &c, 1);
+    (void) read(tk_pipefd[0], &c, 1);
 
     /* Check each timed event to see if it should occur */
     now = time(NULL);
-    for (te = LIST_FIRST(&e->timer_list); te != LIST_END(&e->timer_list);
+    for (te = LIST_FIRST(&timer_list); te != LIST_END(&timer_list);
             te = te_next) {
         te_next = LIST_NEXT(te, entries);
 
@@ -172,7 +168,7 @@ poll_timer_new(unsigned int interval,
     te->udata = udata;
     te->active = 1;
 
-    LIST_INSERT_HEAD(&e->timer_list, te, entries);
+    LIST_INSERT_HEAD(&timer_list, te, entries);
 
     return (te);
 }
@@ -215,40 +211,10 @@ timekeeper(void *arg)
     }
 }
 
-static struct watch *
-watch_new(int fd, 
-        int mask, 
-        void (*callback)(void *, int),
-        void *udata)
-{
-    struct watch *w;
-
-    if ((w = calloc(1, sizeof(*w))) == NULL) {
-        log_errno("calloc(3)");
-        return (NULL);
-    }
-    w->fd = fd;
-    w->mask = mask;
-    w->callback = callback;
-    w->udata = udata;
-
-    return (w);
-}
-
 int
-poll_new(void)
+poll_init(void)
 {
-    if (e != NULL)
-        err(1, "only one poller per process is supported");
-    if ((e = calloc(1, sizeof(*e))) == NULL)
-        return (-1);
-    if ((e->pfd = epoll_create(1)) < 0) {
-        log_errno("epoll_create(2)");
-        free(e);
-        return (-1); 
-    }
-    LIST_INIT(&e->watchlist); 
-    LIST_INIT(&e->timer_list); 
+    LIST_INIT(&timer_list); 
 
     return (0);
 }
@@ -256,36 +222,31 @@ poll_new(void)
 void
 poll_free(void)
 {
-    struct watch *w;
     struct timer *te;
 
-    while ((w = LIST_FIRST(&e->watchlist)) != NULL) {
-        LIST_REMOVE(w, entries);
-        free(w);
-    }
-    while ((te = LIST_FIRST(&e->timer_list)) != NULL) {
+    while ((te = LIST_FIRST(&timer_list)) != NULL) {
         LIST_REMOVE(te, entries);
         free(te);
     }
-    close(e->pfd);
-    close(e->tk_pipefd[0]);
-    close(e->tk_pipefd[1]);
-    close(e->sc_pipefd[0]);
-    close(e->sc_pipefd[1]);
-    free(e);
+    close(tk_pipefd[0]);
+    close(tk_pipefd[1]);
+    close(sc_pipefd[0]);
+    close(sc_pipefd[1]);
 }
+
 
 void
 poll_shutdown(void)
 {
-    e->shutdown = 1;
+    shutdown_flag = 1;
 }
+
 
 int
 poll_dispatch(void)
 {
+    int i;
     sigset_t set;
-    struct watch *w;
     int events;
 
     /* Block all signals */
@@ -294,33 +255,32 @@ poll_dispatch(void)
         err(1, "pthread_sigmask(3)");
 
     /* Create the signal-catching thread */
-    if (pipe(e->sc_pipefd) == -1) {
+    if (pipe(sc_pipefd) == -1) {
         log_errno("pipe(2)");
         return (-1);
     }
-    if (pthread_create(&e->sig_catcher, NULL, 
-                signal_dispatch, &e->sc_pipefd[1]) != 0) {
+    if (pthread_create(&sig_catcher_tid, NULL, 
+                signal_dispatch, &sc_pipefd[1]) != 0) {
         log_errno("pthread_create(3)");
         return (-1);
     }
-    if (poll_enable(e->sc_pipefd[0], SOCK_CAN_READ, 
+    if (poll_enable(sc_pipefd[0], POLLIN, 
                 signal_handler, NULL) < 0) { 
         log_errno("poll_enable()");
         return (-1);
     }
 
     /* Create the timekeeper thread */
-    if (pipe(e->tk_pipefd) == -1) {
+    if (pipe(tk_pipefd) == -1) {
         log_errno("pipe(2)");
         return (-1);
     }
-    if (pthread_create(&e->timekeeper, NULL, 
-                timekeeper, &e->tk_pipefd[1]) != 0) {
+    if (pthread_create(&timekeeper_tid, NULL, 
+                timekeeper, &tk_pipefd[1]) != 0) {
         log_errno("pthread_create(3)");
         return (-1);
     }
-    if (poll_enable(e->tk_pipefd[0], SOCK_CAN_READ, 
-                timer_handler, NULL) < 0) { 
+    if (poll_enable(tk_pipefd[0], POLLIN, timer_handler, NULL) < 0) { 
         log_errno("poll_enable()");
         return (-1);
     }
@@ -330,86 +290,80 @@ poll_dispatch(void)
      */
     for (;;) {
         /* TODO: reap pending events before shutting down.. ? */
-        if (e->shutdown) {
+        if (shutdown_flag) {
             log_debug("shutting down");
             break;
         }
 
         /* Wait for an event */
         log_debug("waiting for event");
-        if ((w = poll_wait(e, &events)) == NULL) {
-            log_errno("poll_wait()");
+        events = poll(&pollset[0], ps_count, -1);
+        if (events < 0) {
+            log_debug("ps_count=%zu", ps_count);
+            log_errno("poll(2)");
             return (-1);
         }
+        if (events == 0) 
+            continue;
 
-        log_debug("got an event");
-        w->callback(w->udata, events);
+        for (i = 0; i < ps_count; i++) {
+            if (pollset[i].revents == 0)
+                continue;
+
+            if (pollset[i].revents)
+                watchlist[i].callback(watchlist[i].udata, pollset[i].revents);
+
+            if (--events == 0)
+                break;
+        }
     }
 
     return (0);
 }
 
-/* ------------------------- pollset handling functions -----------------*/
-
-static struct watch *
-poll_wait(struct evcb *e, int *events_ptr)
-{
-    struct watch *w;
-    struct epoll_event evt;
-    int n, events;
-
-retry:
-    do {
-        n = epoll_wait(e->pfd, &evt, 1, -1); 
-    } while (n == 0);
-
-    if (n < 0) {
-        if (errno == EINTR) {
-            /* WORKAROUND: under gdb, signal masks aren't working */
-            log_warning("EINTR received -- signal handling may be broken");
-            goto retry;
-        } else {
-            log_errno("epoll_wait(2)");
-            return (NULL);
-        }
-    }
-
-    /* Determine which events happened. */
-    events = 0;
-    if (evt.events & EPOLLIN) 
-        events |= SOCK_CAN_READ;
-    if (evt.events & EPOLLOUT) 
-        events |= SOCK_CAN_WRITE;
-    if (evt.events & EPOLLHUP || evt.events & EPOLLRDHUP) 
-        events |= SOCK_EOF;
-    if (evt.events & EPOLLERR) 
-        events |= SOCK_ERROR;
-
-    w = (struct watch *) evt.data.ptr;
-    log_debug("got event %d on fd %d", events, w->fd);
-    *events_ptr = events; //TODO: this is duplicate effort
-    return (w);
-}
 
 int
 poll_disable(int fd)
 {
-    struct watch *w;
+    int i;
 
     /* TODO: slow linear search, use a tree instead */
-    LIST_FOREACH(w, &e->watchlist, entries) {
-        if (w->fd != fd)
+    for (i = 0; i < ps_count; i++) {
+        if (pollset[i].fd != fd)
             continue;
-        
-        LIST_REMOVE(w, entries);
-        free(w);
-        return (epoll_ctl(e->pfd, EPOLL_CTL_DEL, fd, ((void *) -1L)));
+        pollset[i].fd = -1; 
+        return (0);
     }
 
     log_error("fd %d not found", fd);
     return (-1);
 }
 
+
+/* TODO: duplicates poll_disable() */
+int
+poll_remove(int fd)
+{
+    int i;
+
+    /* TODO: slow linear search, use a tree instead */
+    for (i = 0; i < ps_count; i++) {
+        if (pollset[i].fd != fd)
+            continue;
+
+        /* Backfill the free slot with the tail entry in the array */
+        if (--ps_count > 0) {
+            memcpy(&pollset[i], &pollset[ps_count], sizeof(struct pollfd));
+            memcpy(&watchlist[i], &watchlist[ps_count], sizeof(struct watch));
+            watchlist[i].ps_ent = &pollset[i];
+        }
+
+        return (0);
+    }
+
+    log_error("fd %d not found", fd);
+    return (-1);
+}
 int
 poll_signal(int signum, void(*cb)(void *, int), void *udata)
 {
@@ -418,14 +372,15 @@ poll_signal(int signum, void(*cb)(void *, int), void *udata)
         return (-1);
     }
 
-    e->sig_watch[signum].callback = cb;
-    e->sig_watch[signum].udata = udata;
+    sig_watch[signum].callback = cb;
+    sig_watch[signum].udata = udata;
 
     return (0);
 }
 
+
 int
-poll_enable(int fd, int events, void (*cb)(void *, int), void *udata)
+poll_enable(int fd, int events, void (*callback)(void *, int), void *udata)
 {
     struct watch *w;
 
@@ -434,21 +389,20 @@ poll_enable(int fd, int events, void (*cb)(void *, int), void *udata)
         abort();
     }
     
-    if ((w = watch_new(fd, events, cb, udata)) == NULL) 
+    /* TODO: make this dynamic */
+    if (ps_count == POLLSET_MAX) {
+        log_error("too many open file descriptors");
         return (-1);
-
-    w->ev.events = EPOLLRDHUP;
-    if (events & SOCK_CAN_READ)
-        w->ev.events |= EPOLLIN;
-    if (events & SOCK_CAN_WRITE)
-        w->ev.events |= EPOLLOUT;
-    w->ev.data.ptr = w;
-    if (epoll_ctl(e->pfd, EPOLL_CTL_ADD, fd, &w->ev) < 0) {
-        log_errno("epoll_ctl(2)");
-        free(w);
-        return (-1);
-    } else {
-        LIST_INSERT_HEAD(&e->watchlist, w, entries);
-        return (0);
     }
+
+    w = &watchlist[ps_count];
+    w->ps_ent = &pollset[ps_count];
+    w->ps_ent->fd = fd;
+    w->ps_ent->events = events;
+    w->fd = fd;
+    w->callback = callback;
+    w->udata = udata;
+    ps_count++;
+
+    return (0);
 }

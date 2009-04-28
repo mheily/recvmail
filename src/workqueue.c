@@ -82,8 +82,7 @@ wq_new( void (*bottom)(struct work *, void *),
     pthread_cond_init(&wq->req_pending, NULL);
     TAILQ_INIT(&wq->res);
 
-    if (poll_enable(wq->pfd[0], SOCK_CAN_READ, 
-                wq_retrieve_all, wq) < 0) { 
+    if (poll_enable(wq->pfd[0], POLLIN, wq_retrieve_all, wq) < 0) { 
         log_errno("poll_enable()");
         free(wq);
         return (NULL);

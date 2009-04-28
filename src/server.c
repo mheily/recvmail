@@ -260,7 +260,7 @@ server_bind_addr(struct sockaddr_in *srv_addr)
     LIST_INSERT_HEAD(&srv.if_list, ni, entry);
 
     /* Monitor the server descriptor for new connections */
-    if (poll_enable(fd, SOCK_CAN_READ, server_accept, ni) < 0) { 
+    if (poll_enable(fd, POLLIN, server_accept, ni) < 0) { 
         log_errno("poll_enable() (fd=%d)", fd);
         goto errout;
     }
@@ -318,7 +318,7 @@ server_accept(void *if_ptr, int events)
     int fd = -1;
 	struct session *s;
 
-    if (events & SOCK_ERROR) {
+    if (events & POLLERR) {
         log_errno("bad server socket");
         abort(); // TODO: cleanly
     }

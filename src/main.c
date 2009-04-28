@@ -174,8 +174,8 @@ main(int argc, char *argv[])
     
     sanity_check();
 
-     if (poll_new() < 0) 
-        err(1, "unable to create the event dispatcher");
+     if (poll_init() < 0) 
+        errx(1, "poll_init() failed");
 
     if (resolver_init() < 0)
         errx(1, "resolver initialization failed");
