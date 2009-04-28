@@ -19,19 +19,21 @@
 #ifndef _POLL_H
 #define _POLL_H
 
+#include <poll.h>
 #include <signal.h>
 #include "socket.h"
 
 struct timer;
 
-int     poll_new(void);
-
 int     poll_disable(int);
 int     poll_enable(int, int, void (*)(void *, int), void *);
+int     poll_remove(int);
 int     poll_dispatch(void);
 void    poll_shutdown(void);
+int     poll_init(void);
 void    poll_free(void);
 int     poll_signal(int, void(*)(void *, int), void *);
+
 struct timer *
         poll_timer_new(unsigned int, void (*)(void *), void *);
 void    poll_timer_free(struct timer *);

@@ -80,7 +80,7 @@ socket_free(struct socket *sock)
         log_error("double free");
         return;
     }
-    poll_disable(sock->fd);
+    poll_remove(sock->fd);
     (void) close(sock->fd); 
     free(sock->input.iov);
     free(sock);
@@ -125,7 +125,7 @@ socket_poll(struct socket *sock,
 {
     sock->callback = callback;
     sock->udata = udata;
-    return poll_enable(sock->fd, SOCK_CAN_READ, socket_read_cb, sock);
+    return poll_enable(sock->fd, POLLIN, socket_read_cb, sock);
 }
 
 

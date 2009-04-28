@@ -22,7 +22,7 @@ man_MANS         = recvmail.8
 SOURCES		 = $(recvmail_SOURCES) $(selftest_SOURCES)
 
 recvmail_CFLAGS  = -g -O0 -Wall -Werror -include config.h
-recvmail_SOURCES = address.c poll.c dnsbl.c epoll.c \
+recvmail_SOURCES = address.c poll.c dnsbl.c \
 		   log.c mda.c resolver.c socket.c message.c maildir.c session.c \
 		   smtp.c server.c throttle.c workqueue.c main.c
 recvmail_LDADD   = -lpthread
