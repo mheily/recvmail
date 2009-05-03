@@ -103,24 +103,6 @@ session_read(struct session *s)
 }
 
 
-int
-session_write(struct session *s, const char *buf, size_t len)
-{
-    ssize_t n;
-
-    /* If the file descriptor is closed, do nothing */
-    /* TODO: use a status flag instead of checking for -1 */
-    if (s->fd < 0)
-        return (0);
-    
-    /* TODO: check for EAGAIN and enable polling for write readiness */
-    if ((n = write(s->fd, buf, len)) != len) {
-        log_errno("write(2) (%zu of %zu)", n, len);
-        return (-1);
-    }
-
-    return (0);
-}
 
 
 int
@@ -137,7 +119,7 @@ session_vprintf(struct session *s, const char *format, va_list ap)
         }
 
         /* Write the buffer to the socket */
-        rv = session_write(s, (const char *) buf, len);
+        rv = socket_write(s->sock, (const char *) buf, len);
         free(buf);
         return (rv);
 }
