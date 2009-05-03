@@ -238,7 +238,7 @@ int
 session_resume(struct session *s)
 {
     /* Poll for read(2) readiness */
-    if (socket_poll_enable(s->sock, session_handler, s) < 0)
+    if (socket_poll_enable(s->sock, POLLIN, session_handler, s) < 0)
         return (-1);
 
     /* Process lines that are already in the read buffer */
