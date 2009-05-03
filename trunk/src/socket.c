@@ -47,8 +47,8 @@ struct line {
 struct socket {
     int         fd;
     STAILQ_HEAD(,line) input;
+    STAILQ_HEAD(,line) output;  //TODO:not used yet
     struct line *input_tmp;
-//TODO:    STAILQ_HEAD(,line) output;
 };
 
 #define LINE_FRAGMENTED(x) ((x)->buf[(x)->len - 1] != '\n')
@@ -79,6 +79,7 @@ append_input(struct socket *sock, const char *buf, size_t len)
         memcpy(&x->buf, tail->buf, tail->len);
         memcpy(&x->buf[tail->len], buf, len);
         x->buf[x->len] = '\0';
+
     } else {
         x = malloc(sizeof(*x) + len + 1);
         if (x == NULL) {
@@ -114,6 +115,7 @@ socket_new(int fd)
 
     sock->fd = fd;
     STAILQ_INIT(&sock->input);
+    STAILQ_INIT(&sock->output);
     sock->input_tmp = NULL;
 
     return (sock);
@@ -140,6 +142,14 @@ socket_free(struct socket *sock)
         n1 = n2;
     }
     free(sock->input_tmp);
+
+    /* Destroy all items in the output buffer */
+    n1 = STAILQ_FIRST(&sock->output);
+    while (n1 != NULL) {
+        n2 = STAILQ_NEXT(n1, entry);
+        free(n1);
+        n1 = n2;
+    }
 
     free(sock);
 }
@@ -202,9 +212,10 @@ parse_lines(struct socket *sock, char *buf, size_t buf_len)
         if (buf[z] != '\n') 
             continue;
 
-        /* Compute the line length including the trailing NUL. */
-        /* Convert CR+LF to LF line endings. */
+        /* Compute the line length including the trailing LF. */
         line_len = z - a + 1;
+
+        /* Convert CR+LF to LF line endings. */
         if (line_len > 0 && buf[z - 1] == '\r') {
             line_len--;
             buf[z - 1] = '\n';
@@ -262,6 +273,31 @@ socket_read(struct socket *sock)
 
     return parse_lines(sock, buf, (size_t) n);
 } 
+
+
+int
+socket_write(struct socket *sock, const char *buf, size_t len)
+{
+    ssize_t n;
+
+    /* If the file descriptor is closed, do nothing */
+    /* TODO: use a status flag instead of checking for -1 */
+    if (sock->fd < 0)
+        return (0);
+    
+    n = write(sock->fd, buf, len);
+    if (n < 0) {
+        log_errno("write(2)");
+        return (-1);
+    }
+    if (n < len) {
+        /* FIXME: check for EAGAIN and enable polling for write readiness */
+        log_errno("FIXME - short write(2)");
+        return (-1);
+    }
+
+    return (0);
+}
 
 
 int

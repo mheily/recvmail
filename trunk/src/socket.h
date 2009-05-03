@@ -24,9 +24,11 @@
 struct socket;
 
 struct socket * socket_new(int);
+void            socket_free(struct socket *);
+
 int      socket_pending(struct socket *);
-void     socket_free(struct socket *);
 ssize_t  socket_readln(char **, struct socket *);
+int      socket_write(struct socket *, const char *, size_t);
 int      socket_poll(struct socket *, void (*)(void *, int), void *);
 
 #endif /* _SOCKET_H */

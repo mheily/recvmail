@@ -77,7 +77,6 @@ struct session {
 };
     
 int     session_read(struct session *);
-int     session_write(struct session *, const char *, size_t size);
 int     session_printf(struct session *, const char *, ...);
 int     session_println(struct session *, const char *);
 void    session_close(struct session *);
