@@ -139,7 +139,6 @@ dnsbl_submit(struct dnsbl *d, struct session *s)
 static void
 dnsbl_response_handler(struct session *s, int retval)
 {
-    log_debug("s->fd=%d", s->fd);
     if (retval == DNSBL_FOUND) {
         log_debug("rejecting client due to DNSBL");
         session_println(s, "421 ESMTP access denied");

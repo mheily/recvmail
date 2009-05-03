@@ -191,11 +191,18 @@ socket_readln(char **dst, struct socket *sock)
 
 
 int
-socket_poll(struct socket *sock, 
+socket_poll_enable(struct socket *sock, 
         void (*callback)(void *, int), 
         void *udata)
 {
     return poll_enable(sock->fd, POLLIN, callback, udata);
+}
+
+
+int
+socket_poll_disable(struct socket *sock)
+{
+    return poll_disable(sock->fd);
 }
 
 
