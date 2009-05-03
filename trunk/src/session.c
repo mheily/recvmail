@@ -265,7 +265,7 @@ session_resume(struct session *s)
         return (-1);
 
     /* Process lines that are already in the read buffer */
-    if (socket_peek(s->sock) != NULL) {
+    if (socket_pending(s->sock)) {
         if (session_read(s) < 0) 
             session_close(s);
     }
