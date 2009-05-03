@@ -30,8 +30,6 @@
 #include "message.h"
 #include "maildir.h"
 
-int             smtpd_parser(struct session *);//smtp.c
-
 /** vasprintf(3) is a GNU extension and not universally visible */
 extern int      vasprintf(char **, const char *, va_list);
 
@@ -64,8 +62,6 @@ remote_addr(char *dest, size_t len, const struct session *s)
 void
 session_accept(struct session *s)
 {
-    s->handler = smtpd_parser;     // TODO -fix this layering violation
-    log_debug("accepted session on fd %d", s->fd);
     srv.accept_hook(s);
 }
 
@@ -156,7 +152,6 @@ session_new(int fd)
         log_errno("calloc(3)");
         return (NULL);
     }
-    s->fd = fd;
     if ((s->msg = message_new()) == NULL) {
         free(s);
         log_errno("message_new()");
@@ -164,7 +159,7 @@ session_new(int fd)
     }
 
     /* Initialize the socket object */
-    if ((s->sock = socket_new(s->fd)) == NULL) {
+    if ((s->sock = socket_new(fd)) == NULL) {
         log_error("socket_new()");
         message_free(s->msg);
         free(s);
@@ -209,12 +204,12 @@ session_handler(void *sptr, int events)
     struct session *s = (struct session *) sptr;
     
     if (events & POLLHUP) {
-        log_debug("fd %d got EOF", s->fd);
+        log_debug("session %lu got EOF", s->id);
         session_close(s);
         return;       // FIXME: process the rest of the read buffer
     }
     if (events & POLLIN) {
-        log_debug("fd %d is now readable", s->fd);
+        log_debug("session %lu is now readable", s->id);
         if (session_read(s) < 0) 
             session_close(s);
     }
@@ -235,7 +230,7 @@ int
 session_suspend(struct session *s)
 {
     s->handler = NULL;
-    return poll_remove(s->fd); //TODO: use disable/enable when poll_enable() is available
+    return socket_poll_disable(s->sock);
 }
 
 
@@ -243,7 +238,7 @@ int
 session_resume(struct session *s)
 {
     /* Poll for read(2) readiness */
-    if (socket_poll(s->sock, session_handler, s) < 0)
+    if (socket_poll_enable(s->sock, session_handler, s) < 0)
         return (-1);
 
     /* Process lines that are already in the read buffer */

@@ -29,6 +29,7 @@ void            socket_free(struct socket *);
 int      socket_pending(struct socket *);
 ssize_t  socket_readln(char **, struct socket *);
 int      socket_write(struct socket *, const char *, size_t);
-int      socket_poll(struct socket *, void (*)(void *, int), void *);
+int      socket_poll_enable(struct socket *, void (*)(void *, int), void *);
+int      socket_poll_disable(struct socket *);
 
 #endif /* _SOCKET_H */

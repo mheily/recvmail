@@ -36,7 +36,7 @@ struct session {
     unsigned long   id;             /* Session ID */
 
     /* TODO: move entirely to <struct socket> */
-    int             fd;		        /* The client socket descriptor */
+    //int             fd;		        /* The client socket descriptor */
 
     int flags;          // see SFL_*
     struct in_addr  remote_addr;	/* IP address of the client */

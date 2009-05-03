@@ -360,7 +360,7 @@ server_accept(void *if_ptr, int events)
     /* TODO: Determine the reverse DNS name for the host */
 
     /* Monitor the client socket for events */
-    if (socket_poll(s->sock, session_handler, s) < 0) {
+    if (socket_poll_enable(s->sock, session_handler, s) < 0) {
         log_error("poll_enable()");
         goto errout;
     }
