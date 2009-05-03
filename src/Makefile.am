@@ -19,20 +19,17 @@
 sbin_PROGRAMS    = recvmail
 man_MANS         = recvmail.8
 
-SOURCES		 = $(recvmail_SOURCES) $(selftest_SOURCES)
+SOURCES		 = $(recvmail_SOURCES) $(recvmail_HEADERS)
 
 recvmail_CFLAGS  = -g -O0 -Wall -Werror -include config.h
 recvmail_SOURCES = address.c poll.c dnsbl.c \
 		   log.c mda.c resolver.c socket.c message.c maildir.c session.c \
 		   smtp.c server.c throttle.c workqueue.c main.c
 recvmail_LDADD   = -lpthread
-recvmail_HEADERS = recvmail.h epoll.h hash.h
-
-selftest_SOURCES = resolver.c poll.c log.c selftest.c
-selftest_CFLAGS  = $(recvmail_CFLAGS)
-selftest_LDADD   = $(recvmail_LDADD)
-TESTS            = selftest
-check_PROGRAMS   = selftest
+recvmail_HEADERS = address.h  hash.h  mda.h poll.h server.h socket.h    \
+    config.h   log.h      message.h  queue.h     session.h  throttle.h  \
+    tree.h                                                              \
+    dnsbl.h    maildir.h  options.h  resolver.h  smtp.h     workqueue.h
 
 post-install:
 	if [ "`uname -s`" = "Linux" ] ; then \
