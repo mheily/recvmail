@@ -19,17 +19,14 @@
 #define _SOCKET_H
 
 #include <sys/types.h>
-#include <sys/uio.h>
 #include "queue.h"
 
 struct socket;
 
 struct socket * socket_new(int);
-struct iovec *  socket_peek(struct socket *);
-
+int      socket_pending(struct socket *);
 void     socket_free(struct socket *);
 ssize_t  socket_readln(char **, struct socket *);
 int      socket_poll(struct socket *, void (*)(void *, int), void *);
-ssize_t  socket_readv(struct iovec **, struct socket *);
 
 #endif /* _SOCKET_H */

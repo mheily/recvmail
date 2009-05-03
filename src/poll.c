@@ -352,7 +352,8 @@ poll_remove(int fd)
             continue;
 
         /* Backfill the free slot with the tail entry in the array */
-        if (--ps_count > 0) {
+        ps_count--; 
+        if (ps_count > 1 && i < ps_count) {
             memcpy(&pollset[i], &pollset[ps_count], sizeof(struct pollfd));
             memcpy(&watchlist[i], &watchlist[ps_count], sizeof(struct watch));
             watchlist[i].ps_ent = &pollset[i];
