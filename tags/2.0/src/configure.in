@@ -1,4 +1,0 @@
-PACKAGE=recvmail
-VERSION=2.0
-
-check_symbol strlcpy
