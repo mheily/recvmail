@@ -23,7 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../contrib/tree.h"
+#include "tree.h"
 #include "poll.h"
 #include "log.h"
 
