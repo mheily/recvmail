@@ -192,10 +192,11 @@ socket_readln(char **dst, struct socket *sock)
 
 int
 socket_poll_enable(struct socket *sock, 
+        int events,
         void (*callback)(void *, int), 
         void *udata)
 {
-    return poll_enable(sock->fd, POLLIN, callback, udata);
+    return poll_enable(sock->fd, events, callback, udata);
 }
 
 
@@ -258,13 +259,16 @@ socket_read(struct socket *sock)
     ssize_t n;
 
     /* Read as much as possible from the kernel socket buffer. */
-    n = read(sock->fd, &buf[0], sizeof(buf));
+    n = recv(sock->fd, &buf[0], sizeof(buf), 0);
     if (n < 0) { 
         if (errno == EAGAIN) {
             log_debug("got EAGAIN");
             return (0);
+        } else if (errno == ECONNRESET) {
+            log_info("connection reset by peer");   //TODO: add remote_addr
+            return (-1);
         } else {
-            log_errno("read(2)");
+            log_errno("recv(2)");
             return (-1);
         }
     }
@@ -282,6 +286,26 @@ socket_read(struct socket *sock)
 } 
 
 
+static int
+socket_buffer_write(struct socket *sock, const char *buf, size_t len)
+{
+    struct line *x;
+
+    /* Copy the buffer to a <line> object */
+    x = malloc(sizeof(*x) + len + 1);
+    if (x == NULL) {
+        log_errno("malloc(3)");
+        return (-1);
+    }
+    memcpy(&x->buf, buf, len);
+    x->buf[len] = '\0';
+    x->len = len;
+
+    STAILQ_INSERT_TAIL(&sock->output, x, entry);
+    /* FIXME: enable poll() for POLLOUT */
+    return (0);
+}
+
 int
 socket_write(struct socket *sock, const char *buf, size_t len)
 {
@@ -292,14 +316,17 @@ socket_write(struct socket *sock, const char *buf, size_t len)
     if (sock->fd < 0)
         return (0);
     
-    n = write(sock->fd, buf, len);
+    n = send(sock->fd, buf, len, 0);
     if (n < 0) {
-        log_errno("write(2)");
+        if (errno == EAGAIN) 
+            return socket_buffer_write(sock, buf, len);
+        /* TODO: if (errno == ECONNRESET) ... */
+        log_errno("send(2)");
         return (-1);
     }
     if (n < len) {
-        /* FIXME: check for EAGAIN and enable polling for write readiness */
-        log_errno("FIXME - short write(2)");
+        /* TODO: this is probably impossible for sockets */
+        log_errno("send(2) - short write");
         return (-1);
     }
 
