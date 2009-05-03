@@ -16,7 +16,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <arpa/inet.h>
 #include <assert.h>
+#include <fcntl.h>
+#include <netdb.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -46,6 +49,8 @@ struct line {
 /* A socket buffer */
 struct socket {
     int         fd;
+    struct sockaddr_storage peer;
+    char peername[INET6_ADDRSTRLEN];
     STAILQ_HEAD(,line) input;
     STAILQ_HEAD(,line) output;  //TODO:not used yet
     struct line *input_tmp;
@@ -101,24 +106,57 @@ append_input(struct socket *sock, const char *buf, size_t len)
 struct socket *
 socket_new(int fd)
 {
-    int bufsz = SOCK_BUF_SIZE;
-    struct socket *sock;
+    struct socket *sock = NULL;
+    const int bufsz = SOCK_BUF_SIZE;
+	socklen_t cli_len = sizeof(sock->peer);
+    int rv;
 
-    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (char *)&bufsz, sizeof(bufsz)); 
-    setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (char *)&bufsz, sizeof(bufsz)); 
+    /* Set the kernel socket buffer size */
+    if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (char *)&bufsz, sizeof(bufsz)) < 0) {
+        log_errno("setsockopt(2)");
+        goto errout;
+    }
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (char *)&bufsz, sizeof(bufsz)) < 0) {
+        log_errno("setsockopt(2)");
+        goto errout;
+    }
+ 
+    /* Use non-blocking I/O */
+    if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0) {
+        log_errno("fcntl(2)");
+        goto errout;
+    }
 
+    /* Initialize the object */
     sock = malloc(sizeof(*sock));
     if (sock == NULL) {
         log_errno("malloc(3)");
         return (NULL);
     }
-
     sock->fd = fd;
     STAILQ_INIT(&sock->input);
     STAILQ_INIT(&sock->output);
     sock->input_tmp = NULL;
 
+    /* Get the peer socket address */
+    if (getpeername(fd, (struct sockaddr *) &sock->peer, &cli_len) < 0) {
+            log_errno("getpeername(3) of fd %d", fd);
+            goto errout;
+    }
+    /* Generate a human-readable representation of the remote address */
+    rv = getnameinfo((struct sockaddr *) &sock->peer, cli_len, 
+                &sock->peername[0], sizeof(sock->peername), NULL, 0, NI_NUMERICHOST);
+    if (rv != 0) {
+            log_errno("getnameinfo(3): %s", gai_strerror(rv));
+            goto errout;
+    }
+
+
     return (sock);
+
+errout:
+    free(sock);
+    return (NULL);
 }
 
 
@@ -338,4 +376,26 @@ int
 socket_pending(struct socket *sock)
 {
     return (STAILQ_EMPTY(&sock->input));
+}
+
+
+int
+socket_get_family(struct socket *sock)
+{
+    return (sock->peer.ss_family);
+}
+
+
+int
+socket_get_peeraddr4(struct socket *sock)
+{
+    struct sockaddr_in *sain = (struct sockaddr_in *) &sock->peer;
+    return (sain->sin_addr.s_addr);
+}
+
+
+const char *
+socket_get_peername(struct socket *sock)
+{
+    return ((const char *) &sock->peername);
 }

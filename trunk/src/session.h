@@ -34,12 +34,7 @@ struct session {
                                           * This MUST be the first element in the structure.
                                           */ 
     unsigned long   id;             /* Session ID */
-
-    /* TODO: move entirely to <struct socket> */
-    //int             fd;		        /* The client socket descriptor */
-
     int flags;          // see SFL_*
-    struct in_addr  remote_addr;	/* IP address of the client */
     struct socket *sock;
     char *buf;
     size_t buf_len;
@@ -82,8 +77,6 @@ int     session_println(struct session *, const char *);
 void    session_close(struct session *);
 struct session * session_new(int);
 void            session_free(struct session *s);
-char *          remote_addr(char *dest, size_t len, const struct session *s);
-//struct session * session_lookup(int fd);
 int session_readln(struct session *s);
 
 void    session_table_init(void);

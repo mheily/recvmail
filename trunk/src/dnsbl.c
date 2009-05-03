@@ -119,15 +119,23 @@ dnsbl_submit(struct dnsbl *d, struct session *s)
 {
     struct work w;
 
-    /* Special case: loopback (127.0.0.1) */
-    if (s->remote_addr.s_addr == 16777343) {
+    /* TODO: Find out if there are IPv6 DNSBLs */
+    if (socket_get_family(s->sock) == AF_INET6) {
         dnsbl_response_handler(s, DNSBL_NOT_FOUND);
         return (0);
     }
 
+    /* TODO: check the whitelist (e.g. for loopback, */
+    /* Example:
+    if (s->remote_addr.s_addr == 16777343) {
+        dnsbl_response_handler(s, DNSBL_NOT_FOUND);
+        return (0);
+    }
+    */
+
     w.sid = s->id;
     w.argc = 1;
-    w.argv0.u_i = s->remote_addr.s_addr;
+    w.argv0.u_i = socket_get_peeraddr4(s->sock);
 
 	/* Don't allow "early talkers" to send data prior to the greeting */
 	s->handler = dnsbl_reject_early_talker;

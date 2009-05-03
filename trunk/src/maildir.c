@@ -113,7 +113,6 @@ maildir_msg_open(struct message *msg, struct session *s)
     struct tm       timeval;
     char            timestr[64];
     size_t          len;
-    char            in_addr[INET_ADDRSTRLEN + 1];
     char            ma_addr[MAIL_ADDRSTRLEN + 1];
     char           *buf = NULL;
 
@@ -146,7 +145,7 @@ maildir_msg_open(struct message *msg, struct session *s)
                    "Received: from %s ([%s])\n"
                    "        by %s (recvmail) on %s",
                    address_get(ma_addr, sizeof(ma_addr), msg->sender),
-                   remote_addr(in_addr, sizeof(in_addr), s),
+                   socket_get_peername(s->sock),
                    OPT.mailname,
                    timestr);
     if (len < 0) {

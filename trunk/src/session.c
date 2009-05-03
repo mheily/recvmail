@@ -46,18 +46,6 @@ static struct timer       *st_expiration_timer;
  *
  */
 
-/* Convert the IP address to ASCII */
-char *
-remote_addr(char *dest, size_t len, const struct session *s)
-{
-    if (inet_ntop(AF_INET, &s->remote_addr, dest, len) == NULL) {
-        log_errno("inet_ntop(3)");
-        return (NULL);
-    }
-
-    return (dest);
-}
-
 
 void
 session_accept(struct session *s)
@@ -182,7 +170,7 @@ session_close(struct session *s)
         return;
     }
 
-    log_info("closing session with %s", inet_ntoa(s->remote_addr));
+    log_info("closing session with %s", socket_get_peername(s->sock));
 
     /* Run any protocol-specific hooks */
     (void) protocol_close(s);
