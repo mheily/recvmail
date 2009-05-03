@@ -20,6 +20,7 @@
 #include <grp.h>
 #include <ifaddrs.h>
 #include <limits.h>
+#include <netdb.h>
 #include <pwd.h>
 #include <pthread.h>
 #include <sys/resource.h>
@@ -40,7 +41,9 @@ static void server_accept(void *if_ptr, int events);
 struct server srv;
 
 struct net_interface {
-    struct sockaddr sa;
+    char name[INET6_ADDRSTRLEN];
+    struct sockaddr_storage ss;
+    socklen_t ss_len;
     int fd;
     LIST_ENTRY(net_interface) entry;
 };
@@ -217,19 +220,55 @@ server_init(struct server *_srv)
 
 
 static int
-server_bind_addr(struct sockaddr_in *srv_addr)
+server_bind_addr(struct sockaddr *sa)
 {
+    struct sockaddr_in sain;
+    struct sockaddr_in6 sain6;
+    char sa_name[INET6_ADDRSTRLEN];
+    socklen_t sa_len;
     struct net_interface *ni;
     int             one = 1;
     int             fd = -1;
+    int rv;
+
+    /* Setup the protocol-specific socket structure */
+    if (sa->sa_family == AF_INET) {
+        memcpy(&sain, sa, sizeof(sain));
+        memset(&sain6, 0, sizeof(sain6));
+        sa_len = sizeof(sain);
+    } else if (sa->sa_family == AF_INET6) {
+        memset(&sain, 0, sizeof(sain));
+        memcpy(&sain6, sa, sizeof(sain6));
+        sa_len = sizeof(sain6);
+    } else {
+        log_error("unsupported family %d", sa->sa_family);
+        return (-1);
+    }
+
+    /* Generate a human-readable representation of the socket address */
+    rv = getnameinfo(sa, sa_len, &sa_name[0], sizeof(sa_name), NULL, 0, NI_NUMERICHOST);
+    if (rv != 0) {
+            log_errno("getnameinfo(3): %s", gai_strerror(rv));
+            goto errout;
+    }
 
 	/* Adjust the port number for non-privileged processes */
 	if (getuid() > 0 && srv.port < 1024)
 		srv.port += 1000;
-	srv_addr->sin_port = htons(srv.port);
+    if (sa->sa_family == AF_INET) {
+        sain.sin_port = htons(srv.port);
+    } else {
+        sain6.sin6_port = htons(srv.port);
+    }
+
+    /* Don't listen on the loopback address (127.0.0.1 or ::1) */
+    if (strcmp(&sa_name[0], "127.0.0.1") == 0 
+            || strcmp(&sa_name[0], "::1") == 0) {
+        return (0);
+    }
 
 	/* Create the socket and bind(2) to it */
-	if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+	if ((fd = socket(sa->sa_family, SOCK_STREAM, 0)) < 0) {
 		log_errno("socket(2)");
         goto errout;
     }
@@ -238,7 +277,12 @@ server_bind_addr(struct sockaddr_in *srv_addr)
 		log_errno("setsockopt(3)");
         goto errout;
     }
-	if (bind(fd, (struct sockaddr *) srv_addr, sizeof(*srv_addr)) < 0) {
+    if (sa->sa_family == AF_INET) {
+	 rv = bind(fd, (struct sockaddr *) &sain, sa_len);
+    } else {
+	 rv = bind(fd, (struct sockaddr *) &sain6, sa_len);
+    }
+	if (rv < 0) {
 		log_errno("bind(2)");
         goto errout;
     }
@@ -249,14 +293,16 @@ server_bind_addr(struct sockaddr_in *srv_addr)
         goto errout;
     }
 
-    log_debug("listening on fd %d port %d", fd, srv.port);
+    log_debug("bound to %s port %d (fd=%d)", &sa_name[0], srv.port, fd);
 
     if ((ni = calloc(1, sizeof(*ni))) == NULL) {
 		log_errno("calloc(3)");
         goto errout;
     }
     ni->fd = fd;
-    memcpy(&ni->sa, srv_addr, sizeof(*srv_addr));
+    memcpy(&ni->ss, sa, sa_len);
+    memcpy(&ni->name, sa_name, sizeof(ni->name));
+    ni->ss_len = sa_len;
     LIST_INSERT_HEAD(&srv.if_list, ni, entry);
 
     /* Monitor the server descriptor for new connections */
@@ -268,6 +314,7 @@ server_bind_addr(struct sockaddr_in *srv_addr)
     return (0);
 
 errout:
+    log_error("unable to bind(2) to %s", &sa_name[0]);
     if (fd >= 0)
         close(fd);
     return (-1);
@@ -278,7 +325,7 @@ int
 server_bind(void)
 {
     struct ifaddrs *ifa;
-    struct sockaddr_in *sain;
+    struct sockaddr *sa;
 
     if (getifaddrs(&ifa) < 0) {
         log_errno("getifaddrs(3)");
@@ -286,21 +333,14 @@ server_bind(void)
     }
 
     for (; ifa != NULL; ifa = ifa->ifa_next) {
-        /* TODO: IPv6 */
-        if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != AF_INET)
-            continue;
-        sain = (struct sockaddr_in *) ifa->ifa_addr;
-
-        /* Don't listen on the loopback address (127.0.0.1) */
-        if (sain->sin_addr.s_addr == 16777343) 
-            continue;
-
-        if (server_bind_addr(sain) < 0)
-            goto errout;
+        sa = ifa->ifa_addr;
+        if (sa != NULL && (sa->sa_family == AF_INET || sa->sa_family == AF_INET6)) {
+            if (server_bind_addr(sa) < 0)
+                goto errout;
+        }
     } 
 
     freeifaddrs(ifa);
-   // abort();
     return (0);
 
 errout:
@@ -313,8 +353,7 @@ static void
 server_accept(void *if_ptr, int events)
 {
     struct net_interface *ni = (struct net_interface *) if_ptr;
-    struct sockaddr_in cli;
-	socklen_t cli_len = sizeof(cli);
+	socklen_t cli_len = ni->ss_len;
     int fd = -1;
 	struct session *s;
 
@@ -326,7 +365,7 @@ server_accept(void *if_ptr, int events)
     /* Assume: (events & SOCK_CAN_READ) */
 
     /* Accept the incoming connection */
-    if ((fd = accept(ni->fd, &ni->sa, &cli_len)) < 0) {
+    if ((fd = accept(ni->fd, (struct sockaddr *) &ni->ss, &cli_len)) < 0) {
         log_errno("accept(2)");
         return;
     }
@@ -342,21 +381,8 @@ server_accept(void *if_ptr, int events)
     else
         s->id = ++srv.next_sid;
 
-    /* Determine the IP address of the client */
-    if (getpeername(fd, (struct sockaddr *) &cli, &cli_len) < 0) {
-            log_errno("getpeername(2) of fd %d", fd);
-            goto errout;
-    }
-    s->remote_addr = cli.sin_addr;
-
-    log_info("accepted connection from %s", inet_ntoa(cli.sin_addr)); 
-    
-    /* Use non-blocking I/O */
-    if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0) {
-            log_errno("fcntl(2)");
-            goto errout;
-    }
-
+    log_info("accepted connection from %s", socket_get_peername(s->sock)); 
+   
     /* TODO: Determine the reverse DNS name for the host */
 
     /* Monitor the client socket for events */

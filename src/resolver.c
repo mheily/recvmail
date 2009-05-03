@@ -35,10 +35,10 @@
 #define DEFAULT_TTL     (60 * 60)
 
 struct node {
-    RB_ENTRY(node) entry;
-    in_addr_t addr;
-    char     *name;
-    time_t    expires;
+    RB_ENTRY(node)   entry;
+    in_addr_t        addr;          /* TODO: struct in6_addr  addr; */
+    char            *name;
+    time_t           expires;
 };
 
 static struct timer       *update_timer;
@@ -46,7 +46,7 @@ static struct timer       *update_timer;
 static int
 addr_cmp(struct node *e1, struct node *e2)
 {
-    return (e1->addr < e2->addr ? -1 : e1->addr > e2->addr);
+    return (memcmp(&e1->addr, &e2->addr, sizeof(e1->addr)));
 }
 
 static int
