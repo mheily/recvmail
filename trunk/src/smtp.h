@@ -20,7 +20,6 @@
 #define _SMTP_H
 
 struct session;
-struct work;
 
 void    smtpd_accept(struct session *);
 int     smtpd_parser(struct session *);

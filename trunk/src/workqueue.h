@@ -19,18 +19,16 @@
 #define _WORKQUEUE_H
 
 struct work {
-    unsigned long sid;
-    int argc;
+    u_long  sid;                /* Session ID */
+    u_int   argc;               /* Number of arguments */
     union {
-        unsigned int u_i;
-        unsigned long u_l;
-        void *ptr;
-    } argv0;
-    int retval;
+        u_int   u_i;
+        u_long  u_l;
+        void   *ptr;
+    } argv0;                    /* Argument vector */
+    int retval;                 /* Return value */
 };
 
-struct wq;
-struct evcb;
 struct session;
 
 struct workqueue *
@@ -38,9 +36,9 @@ wq_new( void (*)(struct work *, void *),
         void (*)(struct session *, int), 
         void *);
 
-void *      wq_dispatch(struct workqueue *);
-int         wq_submit(struct workqueue *, struct work);
-int         wq_retrieve(struct work *, struct workqueue *);
-void        wq_free(struct workqueue *);
+void *  wq_dispatch(struct workqueue *);
+int     wq_submit(struct workqueue *, struct work);
+int     wq_retrieve(struct work *, struct workqueue *);
+void    wq_free(struct workqueue *);
 
 #endif  /* _WORKQUEUE_H */

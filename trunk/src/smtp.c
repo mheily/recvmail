@@ -22,6 +22,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "address.h"
 #include "log.h"
 #include "options.h"
 #include "maildir.h"

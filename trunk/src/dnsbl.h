@@ -15,6 +15,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+
 #ifndef _DNSBL_H
 #define _DNSBL_H
 
@@ -25,14 +26,13 @@
 
 struct dnsbl;
 struct session;
-struct evcb;
 
 struct dnsbl * dnsbl_new(const char *);
 
-void *      dnsbl_dispatch(void *);
-int         dnsbl_submit(struct dnsbl *, struct session *);
-int         dnsbl_response(struct session **, struct dnsbl *);
-int         dnsbl_init(void);
-void        dnsbl_free(struct dnsbl *);
+void *  dnsbl_dispatch(void *);
+int     dnsbl_submit(struct dnsbl *, struct session *);
+int     dnsbl_response(struct session **, struct dnsbl *);
+int     dnsbl_init(void);
+void    dnsbl_free(struct dnsbl *);
 
 #endif  /* _DNSBL_H */

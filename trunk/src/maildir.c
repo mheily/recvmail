@@ -28,6 +28,7 @@
 #include "message.h"
 #include "session.h"
 #include "options.h"
+#include "socket.h"
 #include "log.h"
 
 static int
