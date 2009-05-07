@@ -19,29 +19,24 @@
 #define _MESSAGE_H
 
 #include "queue.h"
-#include "address.h"
 
 struct session;
 
 /* An RFC-2822 message */
 struct message {
-    int             fd;		/* A file descriptor opened for writing the message */
-    char           *path;	/* The path to the message */
-    struct mail_addr *sender;	/* The email address of the sender */
-//    struct session *session;
-    LIST_HEAD(,mail_addr) 
-                    recipient;
-    size_t          recipient_count;
-    size_t          size;
-    char           *filename;	/* The Maildir message-ID */
+    int     fd;		            /* File descriptor of the spoolfile */
+    char   *path;	            /* The path to the spoolfile */
+    size_t  recipient_count;
+    size_t  size;
+    char   *filename;	        /* The Maildir message-ID */
+    struct mail_addr *sender;	/* The envelope sender */
+    LIST_HEAD(,mail_addr) recipient;    /* All recipients */
 };
 
-int     rset_message(struct message *);
-int     valid_message(struct message *);
-
 struct message * message_new(void);
+void             message_free(struct message *);
+
 int     message_close(struct message *);
 int     message_fsync(struct message *);
-void    message_free(struct message *);
 
 #endif /* _MESSAGE_H */

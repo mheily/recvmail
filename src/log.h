@@ -29,24 +29,24 @@ extern int log_level;
 extern int log_is_open;
 // XXX-fixme - convert OPT.log_level to log_level
 
-#define _log_all(level, format,...) do {                            \
-    if (log_is_open)                                                \
-        syslog(level, format, ## __VA_ARGS__);                      \
-    if (!detached && log_level >= level)                            \
-        fprintf(stderr, "%10s:%-5d %-18s" format "\n",                  \
-                 __FILE__, __LINE__, __func__, ## __VA_ARGS__);      \
+#define _log_all(level, format,...) do {                                    \
+    if (log_is_open)                                                        \
+        syslog(level, format, ## __VA_ARGS__);                              \
+    if (!detached && log_level >= level)                                    \
+        fprintf(stderr, "%10s:%-5d %-18s" format "\n",                      \
+                 __FILE__, __LINE__, __func__, ## __VA_ARGS__);             \
 } while (/*CONSTCOND*/0)
 
-#define log_error(format,...) _log_all(LOG_ERR, "**ERROR** "format, ## __VA_ARGS__)
+#define log_error(format,...)   _log_all(LOG_ERR, "**ERROR** "format, ## __VA_ARGS__)
 #define log_warning(format,...) _log_all(LOG_WARNING, "WARNING: "format, ## __VA_ARGS__)
-#define log_notice(format,...) _log_all(LOG_NOTICE, format, ## __VA_ARGS__)
-#define log_info(format,...) _log_all(LOG_INFO, format, ## __VA_ARGS__)
-#define log_errno(format,...) _log_all(LOG_ERR, format": %s (errno=%d)", ## __VA_ARGS__, strerror(errno), errno)
+#define log_notice(format,...)  _log_all(LOG_NOTICE, format, ## __VA_ARGS__)
+#define log_info(format,...)    _log_all(LOG_INFO, format, ## __VA_ARGS__)
+#define log_errno(format,...)   _log_all(LOG_ERR, format": %s (errno=%d)", ## __VA_ARGS__, strerror(errno), errno)
 
 #ifndef NDEBUG
-# define log_debug(format,...) _log_all(LOG_DEBUG, format, ## __VA_ARGS__)
+#define log_debug(format,...)   _log_all(LOG_DEBUG, format, ## __VA_ARGS__)
 #else
-# define log_debug(format,...) do { ; } while (/*CONSTCOND*/0)
+#define log_debug(format,...)   do { } while (/*CONSTCOND*/0)
 #endif
 
 /* Emulate macros from <err.h> but use syslog logging instead of stderr */
@@ -56,16 +56,16 @@ extern int log_is_open;
     if (detached)                                                           \
         log_errno(format, ## __VA_ARGS__);					                \
     else                                                                    \
-        fprintf(stderr, "ERROR: " format "\n", ## __VA_ARGS__);                              \
+        fprintf(stderr, "ERROR: " format "\n", ## __VA_ARGS__);             \
    exit(rc);								                                \
 } while (0)
 
-#define errx(rc,format,...) do {					\
+#define errx(rc,format,...) do {					                        \
     if (detached)                                                           \
-       log_error(format, ## __VA_ARGS__);					\
+       log_error(format, ## __VA_ARGS__);					                \
     else                                                                    \
-        fprintf(stderr, "ERROR: " format "\n", ## __VA_ARGS__);                              \
-    exit(rc);								\
+        fprintf(stderr, "ERROR: " format "\n", ## __VA_ARGS__);             \
+    exit(rc);								                                \
 } while (0)
 
 void log_open(const char *, int, int, int);

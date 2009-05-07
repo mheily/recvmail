@@ -21,39 +21,28 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
-
-#include "message.h"
-#include "socket.h"
 #include "queue.h"
-#include "log.h"
+
+struct message;
+struct socket;
 
 /* A client session */
 struct session {
-    int (*handler)(struct session *);    /* 
-                                          * Callback function when data is ready. 
-                                          * This MUST be the first element in the structure.
-                                          */ 
-    unsigned long   id;             /* Session ID */
-    int flags;          // see SFL_*
-    struct socket *sock;
-    char *buf;
-    size_t buf_len;
+   /* 
+    * Callback function when data is ready. 
+    * This MUST be the first element in the structure.
+    */ 
+    int (*handler)(struct session *); 
 
+    u_long      id;             /* Session ID */
+    struct socket *sock;
+    char       *buf;
+    size_t      buf_len;
     time_t          timeout;  
 
     /* ---------- protocol specific members ------------ */
 
     struct message *msg;
-
-    enum {
-      FSYNC_PENDING = 0,
-      FSYNC_COMPLETE
-    } fsync_state;
-
-
-    int dnsbl_res;              /* Result of the DNBSL query */
-    int syncer_res;              /* Result of the syncer call */
-
 
     /* The state determines which SMTP commands are valid */
     enum {
@@ -71,19 +60,20 @@ struct session {
     LIST_ENTRY(session)  st_entries;
 };
     
+struct session * session_new(int);
+void             session_free(struct session *s);
+
 int     session_read(struct session *);
+int     session_readln(struct session *s);
 int     session_printf(struct session *, const char *, ...);
 int     session_println(struct session *, const char *);
 void    session_close(struct session *);
-struct session * session_new(int);
-void            session_free(struct session *s);
-int session_readln(struct session *s);
-
-void    session_table_init(void);
-int     session_table_lookup(struct session **, unsigned long);
 int     session_suspend(struct session *);
 int     session_resume(struct session *);
 void    session_accept(struct session *);
 void    session_handler(void *, int);
+
+void    session_table_init(void);
+int     session_table_lookup(struct session **, unsigned long);
 
 #endif /* _SESSION_H */

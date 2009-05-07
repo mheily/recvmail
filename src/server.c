@@ -28,6 +28,7 @@
 
 #include "dnsbl.h"
 #include "mda.h"
+#include "log.h"
 #include "options.h"
 #include "poll.h"
 #include "mda.h"

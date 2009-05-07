@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "address.h"
 #include "message.h"
 #include "log.h"
 
