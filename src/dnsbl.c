@@ -27,6 +27,7 @@
 
 #include "dnsbl.h"
 #include "session.h"
+#include "server.h"
 #include "poll.h"
 #include "resolver.h"
 #include "workqueue.h"
@@ -153,7 +154,7 @@ dnsbl_response_handler(struct session *s, int retval)
         session_close(s);
     } else if (retval == DNSBL_NOT_FOUND || retval == DNSBL_ERROR) {
         log_debug("client is not in a DNSBL");
-        session_accept(s);
+        s->proto->accept_hook(s); // TODO: fix layering violation
         if (session_read(s) < 0)
             session_close(s);
     }
