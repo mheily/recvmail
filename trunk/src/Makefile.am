@@ -28,7 +28,7 @@ recvmail_SOURCES = address.c poll.c dnsbl.c \
 recvmail_LDADD   = -lpthread
 recvmail_HEADERS = address.h  hash.h  mda.h poll.h server.h socket.h    \
     config.h   log.h      message.h  queue.h     session.h  throttle.h  \
-    tree.h                                                              \
+    tree.h     protocol.h                                               \
     dnsbl.h    maildir.h  options.h  resolver.h  smtp.h     workqueue.h
 
 post-install:
