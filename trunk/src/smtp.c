@@ -34,6 +34,13 @@
 #include "smtp.h"
 #include "workqueue.h"
 
+struct protocol SMTP = {
+    .accept_hook = smtpd_accept,
+    .timeout_hook = smtpd_timeout,
+    .abort_hook = NULL,		// fixme
+    .close_hook = smtpd_close,
+};
+
 #define RECIPIENT_MAX		100
 
 /* Maximum line length (excluding trailing NUL) */

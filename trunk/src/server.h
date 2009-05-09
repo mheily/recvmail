@@ -41,23 +41,6 @@ struct server {
     /* The number of seconds to wait to send data to the client */
     int             timeout_write;
 
-    /* Called prior to close(2) for a session due to timeout */
-    void           (*timeout_hook) (struct session *);
-
-    /* Called after accept(2) */
-    void           (*accept_hook) (struct session *);
-
-    /* Called prior to close(2) for a session */
-    void           (*close_hook) (struct session *);
-
-    /* Sends a 'fatal internal error' message to the client before closing 
-     */
-    void           (*abort_hook) (struct session *);
-
-    /* Sends a 'too many errors' message to a misbehaving client before
-     * closing */
-    //DEADWOOD:void            (*reject_hook) (struct session *);
-
     struct dnsbl     *dnsbl;
     unsigned long     next_sid;     /* Next available Session-ID */
     LIST_HEAD(,net_interface) if_list;

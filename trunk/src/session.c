@@ -17,6 +17,7 @@
  */
 
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <unistd.h>
 
@@ -24,7 +25,6 @@
 
 #include "log.h"
 #include "poll.h"
-#include "server.h"
 #include "socket.h"
 #include "session.h"
 #include "message.h"
@@ -40,18 +40,15 @@ static LIST_HEAD(,session) st;
 static pthread_mutex_t     st_mtx;
 static struct timer       *st_expiration_timer;
 
+/* defined in smtp.c */
+extern struct protocol SMTP;
+
+
 /*
  *
  * PUBLIC FUNCTIONS
  *
  */
-
-
-void
-session_accept(struct session *s)
-{
-    srv.accept_hook(s);
-}
 
 
 int
@@ -140,6 +137,7 @@ session_new(int fd)
         log_errno("calloc(3)");
         return (NULL);
     }
+    s->proto = &SMTP;       /* TODO: define at the server level.. ? */
     if ((s->msg = message_new()) == NULL) {
         free(s);
         log_errno("message_new()");
@@ -173,7 +171,7 @@ session_close(struct session *s)
     log_info("closing session with %s", socket_get_peername(s->sock));
 
     /* Run any protocol-specific hooks */
-    (void) protocol_close(s);
+    s->proto->close_hook(s);
 
     /* Remove the descriptor from the session table */
     pthread_mutex_lock(&st_mtx);
@@ -245,7 +243,7 @@ session_table_lookup(struct session **sptr, unsigned long sid)
     struct session *s;
    
     // TODO: use a binary tree
-   
+// FIXME -- called from workqueue, ergo needs mutex protection.   
     LIST_FOREACH(s, &st, st_entries) {
         if (s->id == sid) {
             *sptr = s;
@@ -269,7 +267,7 @@ session_table_expire(void *unused)
     for (s = LIST_FIRST(&st); s != LIST_END(&st); s = s_next) {
         s_next = LIST_NEXT(s, st_entries);
         if (s->timeout < now) {
-            srv.timeout_hook(s);
+            s->proto->timeout_hook(s);
             session_close(s);
         }
     }

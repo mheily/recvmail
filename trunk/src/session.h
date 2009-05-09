@@ -25,6 +25,27 @@
 
 struct message;
 struct socket;
+struct session;
+
+struct protocol {
+    /* Called prior to close(2) for a session due to timeout */
+    void           (*timeout_hook) (struct session *);
+
+    /* Called after accept(2) */
+    void           (*accept_hook) (struct session *);
+
+    /* Called prior to close(2) for a session */
+    void           (*close_hook) (struct session *);
+
+    /* Sends a 'fatal internal error' message to the client before closing 
+     */
+    void           (*abort_hook) (struct session *);
+
+    /* Sends a 'too many errors' message to a misbehaving client before
+     * closing */
+    //DEADWOOD:void            (*reject_hook) (struct session *);
+};
+
 
 /* A client session */
 struct session {
@@ -33,6 +54,7 @@ struct session {
     * This MUST be the first element in the structure.
     */ 
     int (*handler)(struct session *); 
+    struct protocol *proto;
 
     u_long      id;             /* Session ID */
     struct socket *sock;
@@ -70,7 +92,6 @@ int     session_println(struct session *, const char *);
 void    session_close(struct session *);
 int     session_suspend(struct session *);
 int     session_resume(struct session *);
-void    session_accept(struct session *);
 void    session_handler(void *, int);
 
 void    session_table_init(void);

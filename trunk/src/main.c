@@ -23,11 +23,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "dnsbl.h"
 #include "options.h"
 #include "log.h"
 #include "poll.h"
-#include "resolver.h"
 #include "server.h"
 #include "smtp.h"
 
@@ -37,12 +35,6 @@ static struct server smtpd = {
     .port = 25,
     .timeout_read = 15,
     .timeout_write = 30,
-
-    /* vtable */
-    .accept_hook = smtpd_accept,
-    .timeout_hook = smtpd_timeout,
-    .abort_hook = NULL,		// fixme
-    .close_hook = smtpd_close,
 };
 
 /* TODO: eliminate this struct */
@@ -174,14 +166,8 @@ main(int argc, char *argv[])
     
     sanity_check();
 
-     if (poll_init() < 0) 
+    if (poll_init() < 0) 
         errx(1, "poll_init() failed");
-
-    if (resolver_init() < 0)
-        errx(1, "resolver initialization failed");
-
-    if (dnsbl_init() < 0)
-        errx(1, "DNSBL initialization failed");
 
     if (server_init(&smtpd) < 0)
         errx(1, "server initialization failed");

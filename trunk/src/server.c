@@ -27,13 +27,12 @@
 #include <unistd.h>
 
 #include "dnsbl.h"
-#include "mda.h"
 #include "log.h"
+#include "mda.h"
 #include "options.h"
 #include "poll.h"
-#include "mda.h"
+#include "resolver.h"
 #include "server.h"
-#include "smtp.h"
 #include "session.h"
 #include "workqueue.h"
 
@@ -50,15 +49,6 @@ struct net_interface {
 };
 
 static void drop_privileges(void);
-
-// wierd place for this..
-int
-protocol_close(struct session *s)
-{
-    srv.close_hook(s);
-    return (0);
-}
-
 
 static void
 drop_privileges(void)
@@ -150,6 +140,13 @@ server_init(struct server *_srv)
     memcpy(&srv, _srv, sizeof(srv));
     LIST_INIT(&srv.if_list);
     session_table_init();
+
+    if ((resolver_init() < 0) ||
+        (dnsbl_init() < 0))
+    {
+        log_error("initialization failed");
+        return (-1);
+    }
 
     if (OPT.daemon) {
 
