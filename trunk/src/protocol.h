@@ -22,24 +22,17 @@
 struct session;
 
 struct protocol {
-    /* Called prior to close(2) for a session due to timeout */
-    void           (*timeout_hook) (struct session *);
-
-    /* Called after accept(2) */
-    void           (*accept_hook) (struct session *);
-
-    /* Called prior to close(2) for a session */
-    void           (*close_hook) (struct session *);
-
-    /* Sends a 'fatal internal error' message to the client before closing 
-     */
-    void           (*abort_hook) (struct session *);
-
+    int     (*getopt_hook)(void);
+    int     (*init_hook)(void); /* FIXME - server startup */
+    int     (*shutdown_hook)(void);             /* server shutdown */
+    int     (*reload_hook)(void); /* TODO - Reload configuration files */
+    void    (*timeout_hook)(struct session *); /* session timeout */
+    int     (*accept_hook)(struct session *); /* Called after accept(2) */
+    void    (*close_hook)(struct session *); /* Called prior to close(2) for a session */
+    void    (*abort_hook) (struct session *); /* Fatal internal error */
     /* Sends a 'too many errors' message to a misbehaving client before
      * closing */
     //DEADWOOD:void            (*reject_hook) (struct session *);
 };
-
-extern struct protocol SMTP;
 
 #endif /* _SESSION_H */

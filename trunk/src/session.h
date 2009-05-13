@@ -22,11 +22,11 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include "queue.h"
-#include "protocol.h"
 
 struct message;
 struct socket;
 struct session;
+struct protocol;
 
 /* A client session */
 struct session {

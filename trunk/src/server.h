@@ -22,26 +22,14 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <pthread.h>
+
 #include "queue.h"
 
 struct session;
 struct net_interface;
 
 struct server {
-    int             port;	    /* The port number to bind(2) to */
-    char           *chrootdir;	/* The directory to chroot(2) to */
-    char           *uid;        /* The symbolic user-ID to setuid(2) to */
-    char           *gid;        /* The symbolic group-ID to setgid(2) to */
-
-    pthread_t        fsyncer_tid;
-
-    /* The number of seconds to wait for incoming data from the client */
-    int             timeout_read;
-
-    /* The number of seconds to wait to send data to the client */
-    int             timeout_write;
-
-    struct dnsbl     *dnsbl;
+    struct protocol  *proto;
     unsigned long     next_sid;     /* Next available Session-ID */
     LIST_HEAD(,net_interface) if_list;
 };
@@ -51,7 +39,7 @@ extern struct server srv;
 int  protocol_close(struct session *);
 int  server_disconnect(int);
 int  server_dispatch(void);
-int  server_init(struct server *_srv);
+int  server_init(int, char *[], struct protocol *);
 int  server_bind(void);
 void server_update_pollset(struct server *);
 

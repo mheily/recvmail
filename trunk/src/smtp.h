@@ -19,13 +19,19 @@
 #ifndef _SMTP_H
 #define _SMTP_H
 
-struct session;
+#include "protocol.h"
 
-void    smtpd_accept(struct session *);
+
+extern struct protocol SMTP;
+
+
+int    smtpd_accept(struct session *);
 int     smtpd_parser(struct session *);
 void    smtpd_client_error(struct session *);
 void    smtpd_close(struct session *);
 void    smtp_mda_callback(struct session *, int);
 void    smtpd_timeout(struct session *s);
+int     smtpd_init(void);
+int     smtpd_shutdown(void);
 
 #endif /* _SMTP_H */

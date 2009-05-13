@@ -318,6 +318,9 @@ poll_dispatch(void)
         }
     }
 
+    /* TODO: possibly other cleanup (kill threads?) */
+    poll_free();
+
     return (0);
 }
 
