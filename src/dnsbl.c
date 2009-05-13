@@ -29,46 +29,41 @@
 #include "session.h"
 #include "server.h"
 #include "poll.h"
+#include "protocol.h"
 #include "resolver.h"
 #include "workqueue.h"
 #include "log.h"
 
 static void dnsbl_query(struct work *wqa, void *udata);
-static void dnsbl_response_handler(struct session *, int);
 static int  dnsbl_reject_early_talker(struct session *s);
 
-struct dnsbl {
+static struct dnsbl {
     /* FQDN of the DNSBL service (e.g. zen.spamhaus.org) */
     char *service;
     struct workqueue *wq;
-};
+    void (*handler)(struct session *, int);
+} d;
 
 
-struct dnsbl *
-dnsbl_new(const char *service)
+int
+dnsbl_new(const char *service, void (*handler)(struct session *, int))
 {
-    struct dnsbl *d;
+    d.service = strdup(service);
+    if (d.service == NULL) 
+        return (-1);
 
-    if ((d = calloc(1, sizeof(*d))) == NULL)
-        return (NULL);
+    d.handler = handler;
+    d.wq = wq_new(dnsbl_query, handler, &d);
 
-    d->service = strdup(service);
-    if (d->service == NULL) {
-        free(d);
-        return (NULL);
-    }
-    d->wq = wq_new(dnsbl_query, dnsbl_response_handler, d);
-
-    return (d);
+    return (0);
 }
 
 
 void
-dnsbl_free(struct dnsbl *d)
+dnsbl_free(void)
 {
-    free(d->service);
-    wq_free(d->wq); 
-    free(d);
+    free(d.service);
+    wq_free(d.wq); 
 }
 
 
@@ -116,20 +111,20 @@ dnsbl_query(struct work *wqa, void *udata)
 
 
 int
-dnsbl_submit(struct dnsbl *d, struct session *s)
+dnsbl_submit(struct session *s)
 {
     struct work w;
 
     /* TODO: Find out if there are IPv6 DNSBLs */
     if (socket_get_family(s->sock) == AF_INET6) {
-        dnsbl_response_handler(s, DNSBL_NOT_FOUND);
+        d.handler(s, DNSBL_NOT_FOUND);
         return (0);
     }
 
     /* TODO: check the whitelist (e.g. for loopback, */
     /* Example:
     if (s->remote_addr.s_addr == 16777343) {
-        dnsbl_response_handler(s, DNSBL_NOT_FOUND);
+        d.handler(s, DNSBL_NOT_FOUND);
         return (0);
     }
     */
@@ -141,57 +136,13 @@ dnsbl_submit(struct dnsbl *d, struct session *s)
 	/* Don't allow "early talkers" to send data prior to the greeting */
 	s->handler = dnsbl_reject_early_talker;
 	
-    return wq_submit(d->wq, w);
+    return wq_submit(d.wq, w);
 }
 
-
-static void
-dnsbl_response_handler(struct session *s, int retval)
-{
-    if (retval == DNSBL_FOUND) {
-        log_debug("rejecting client due to DNSBL");
-        session_println(s, "421 ESMTP access denied");
-        session_close(s);
-    } else if (retval == DNSBL_NOT_FOUND || retval == DNSBL_ERROR) {
-        log_debug("client is not in a DNSBL");
-        s->proto->accept_hook(s); // TODO: fix layering violation
-        if (session_read(s) < 0)
-            session_close(s);
-    }
-}
 
 
 void *
-dnsbl_dispatch(void *arg)
+dnsbl_dispatch(void *unused)
 {
-    struct dnsbl *d = (struct dnsbl *) arg;
-    wq_dispatch(d->wq);
-    return (NULL);
-}
-
-
-/**
- * Ensure that the libc stub resolver libraries are dynamically loaded 
- * prior to chroot(2).
- */
-int
-dnsbl_init(void)
-{
-    struct addrinfo hints;
-    struct addrinfo *ai;
-    int rv;
-
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;
-    rv = getaddrinfo("www.recvmail.org", NULL, NULL, &ai);
-    freeaddrinfo(ai);
-    if (rv == EAI_NONAME) {
-        log_warning("DNS resolution failed -- check your DNS configuration and network connectivity");
-        return (0);
-    } else if (rv == 0) {
-        return (0);
-    } else {
-        log_error("DNS resolution failed: internal resolver error");
-        return (-1);
-    }
+    return wq_dispatch(d.wq);
 }

@@ -239,9 +239,27 @@ resolver_lookup_name(char **dst, const in_addr_t src)
 int
 resolver_init(void)
 {
+    struct addrinfo hints;
+    struct addrinfo *ai;
+    int rv;
+
+    /* Set a timer to periodically purge the cache of expired entries */
     update_timer = poll_timer_new(DEFAULT_TTL, cache_expire_all, NULL);
     if (update_timer == NULL)
         return(-1);
+
+    /* Ensure that libresolv.so is loaded prior to chroot(2) */
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    rv = getaddrinfo("www.recvmail.org", NULL, NULL, &ai);
+    freeaddrinfo(ai);
+    if (rv == EAI_NONAME) {
+        log_warning("DNS resolution failed -- check your DNS configuration and network connectivity");
+        return (0);
+    } else if (rv != 0) {
+        log_error("DNS resolution failed: internal resolver error");
+        return (-1);
+    }
 
     return (0);
 }

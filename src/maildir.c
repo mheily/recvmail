@@ -98,7 +98,7 @@ maildir_generate_id(void)
 			    tv.tv_usec,
 			    getpid(),
 			    delivery_counter++,
-			    OPT.mailname) < 0) {
+			    OPT.hostname) < 0) {
 	    log_warning("asprintf(3)");
 	    return NULL;
     }
@@ -147,7 +147,7 @@ maildir_msg_open(struct message *msg, struct session *s)
                    "        by %s (recvmail) on %s",
                    address_get(ma_addr, sizeof(ma_addr), msg->sender),
                    socket_get_peername(s->sock),
-                   OPT.mailname,
+                   OPT.hostname,
                    timestr);
     if (len < 0) {
         log_errno("asprintf(3)");

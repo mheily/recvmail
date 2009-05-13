@@ -17,28 +17,36 @@
  */
 
 #include <ctype.h>
+#include <pthread.h>
 #include <string.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "address.h"
+#include "dnsbl.h"
 #include "log.h"
 #include "options.h"
 #include "maildir.h"
 #include "mda.h"
 #include "message.h"
 #include "session.h"
+#include "protocol.h"
 #include "poll.h"
 #include "socket.h"
 #include "smtp.h"
 #include "workqueue.h"
 
+static int sanity_check(void);
+
 struct protocol SMTP = {
-    .accept_hook = smtpd_accept,
-    .timeout_hook = smtpd_timeout,
-    .abort_hook = NULL,		// fixme
-    .close_hook = smtpd_close,
+    .getopt_hook    = sanity_check,
+    .accept_hook    = smtpd_accept,
+    .timeout_hook   = smtpd_timeout,
+    .abort_hook     = NULL,		// fixme
+    .close_hook     = smtpd_close,
+    .init_hook      = smtpd_init,
+    .shutdown_hook  = smtpd_shutdown,
 };
 
 #define RECIPIENT_MAX		100
@@ -49,6 +57,7 @@ struct protocol SMTP = {
 /* The timeout (in seconds) while in the command state */
 #define SMTP_COMMAND_TIMEOUT    (60 * 5)
 
+static int smtpd_greeting(struct session *s);
 static int smtpd_parse_command(struct session *, char *, size_t);
 static int smtpd_parse_data(struct session *, char *, size_t);
 static int smtpd_session_reset(struct session *);
@@ -90,7 +99,7 @@ static int
 smtpd_helo(struct session *s, const char *arg)
 {
     log_debug("HELO=`%s'", arg);
-    session_printf(s, "250 %s\r\n", OPT.mailname);
+    session_printf(s, "250 %s\r\n", OPT.hostname);
     return (0);
 }
 
@@ -102,7 +111,7 @@ smtpd_ehlo(struct session *s, const char *arg)
     session_printf(s, "250-%s\r\n"
                     "250-PIPELINING\r\n"
                     "250 8BITMIME\r\n" 
-                    , OPT.mailname);
+                    , OPT.hostname);
     return (0);
 }
 
@@ -409,8 +418,25 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
     return (-1);
 }
 
+static void
+dnsbl_response_handler(struct session *s, int retval)
+{
+    if (retval == DNSBL_FOUND) {
+        log_debug("rejecting client due to DNSBL");
+        session_println(s, "421 ESMTP access denied");
+        session_close(s);
+    } else if (retval == DNSBL_NOT_FOUND || retval == DNSBL_ERROR) {
+        log_debug("client is not in a DNSBL");
+        s->handler = smtpd_parser;
+        s->timeout = time(NULL) + SMTP_COMMAND_TIMEOUT;
+        smtpd_greeting(s);
+        if (session_read(s) < 0)
+            session_close(s);
+    }
+}
 
-int
+
+static int
 smtpd_greeting(struct session *s)
 {
     session_println(s, "220 ESMTP server ready");
@@ -418,12 +444,16 @@ smtpd_greeting(struct session *s)
 }
 
 
-void
+int
 smtpd_accept(struct session *s)
 {
-    s->handler = smtpd_parser;
-    s->timeout = time(NULL) + SMTP_COMMAND_TIMEOUT;
-    smtpd_greeting(s);
+    if (dnsbl_submit(s) < 0) {
+        log_error("dnsbl_submit() failed");
+        smtpd_fatal_error(s);
+        return (-1);
+    }
+
+    return (0);
 }
 
 
@@ -448,3 +478,57 @@ smtpd_close(struct session *s)
     message_free(s->msg);
     s->msg = NULL;
 }
+
+static int
+sanity_check(void)
+{
+   if (access(OPT.chrootdir, X_OK) != 0) {
+        log_error("unable to access %s", OPT.chrootdir);
+        return (-1);
+   }
+   /* TODO: check spool/ and etc/ and box/ */
+
+   return (0);
+}
+
+int
+smtpd_init(void)
+{
+    pthread_t       tid;
+
+    if (sanity_check() < 0)
+        return (-1);
+
+    /* Create the MDA thread */
+    if (mda_init() < 0) {
+        log_error("mda_init() failed");
+        return (-1);
+    }
+    if (pthread_create(&tid, NULL, mda_dispatch, NULL) != 0) {
+        log_errno("pthread_create(3)");
+        return (-1);
+    }
+
+    /* Create the DNSBL thread */
+    if (dnsbl_new("zen.spamhaus.org", dnsbl_response_handler) < 0) {
+        log_error("dnsbl_new()");
+        return (-1);
+    }
+    if (pthread_create(&tid, NULL, dnsbl_dispatch, NULL) != 0) {
+        log_errno("pthread_create(3)");
+        return (-1);
+    }
+
+    return (0);
+}
+
+int
+smtpd_shutdown(void)
+{
+    //TODO: wait for MDA to complete
+    //TODO: wait for DNSBL to complete
+    mda_free();
+    dnsbl_free();
+    //TODO: shutdown the MDA and DNSBL threads
+    return (0);
+}    

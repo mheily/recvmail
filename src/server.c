@@ -26,11 +26,11 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
-#include "dnsbl.h"
 #include "log.h"
 #include "mda.h"
 #include "options.h"
 #include "poll.h"
+#include "protocol.h"
 #include "resolver.h"
 #include "server.h"
 #include "session.h"
@@ -48,10 +48,8 @@ struct net_interface {
     LIST_ENTRY(net_interface) entry;
 };
 
-static void drop_privileges(void);
-
 static void
-drop_privileges(void)
+drop_privileges(const char *chrootdir, const char *user, const char *group)
 {
     struct group   *grent;
     struct passwd  *pwent;
@@ -59,8 +57,8 @@ drop_privileges(void)
     gid_t           gid;
 
     /* Chdir into the chroot directory */
-    if (srv.chrootdir && (chdir(srv.chrootdir) < 0)) 
-        err(1, "chdir(2) to `%s'", srv.chrootdir);
+    if (chrootdir && (chdir(chrootdir) < 0)) 
+        err(1, "chdir(2) to `%s'", chrootdir);
 
     /* Only root is allowed to drop privileges */
     if (getuid() > 0) {
@@ -70,15 +68,15 @@ drop_privileges(void)
 
     /* Convert the symbolic group to numeric GID */
     /* Convert the symbolic user-id to the numeric UID */
-    if ((grent = getgrnam(srv.gid)) == NULL) 
-        err(1, "a group named '%s' does not exist", srv.gid);
-    if ((pwent = getpwnam(srv.uid)) == NULL)
-        err(1, "a user named '%s' does not exist", srv.uid);
+    if ((grent = getgrnam(group)) == NULL) 
+        err(1, "a group named '%s' does not exist", group);
+    if ((pwent = getpwnam(user)) == NULL)
+        err(1, "a user named '%s' does not exist", user);
     gid = grent->gr_gid;
     uid = pwent->pw_uid;
 
     /* chroot */
-    if (srv.chrootdir && (chroot(srv.chrootdir) < 0))
+    if (chrootdir && (chroot(chrootdir) < 0))
         err(1, "chroot(2)");
 
     /* Set the real UID and GID */
@@ -87,8 +85,9 @@ drop_privileges(void)
     if (setuid(uid) < 0)
         err(1, "setuid(2)");
     
-    log_info("chroot(2) to %s", srv.chrootdir);
-    log_info("setuid(2) to %s(%d)", srv.uid, uid);
+    log_info("chroot(2) to %s", chrootdir);
+    log_info("setuid(2) to %s(%d)", user, uid);
+    log_info("setgid(2) to %s(%d)", group, gid);
 }
 
 
@@ -106,12 +105,9 @@ server_shutdown(void *unused, int events)
     struct net_interface *ni;
 
     log_notice("shutting down");
-    //TODO: wait for MDA to complete
-    //TODO: wait for DNSBL to complete
-    mda_free();
-    dnsbl_free(srv.dnsbl);
-    //TODO: shutdown the MDA and DNSBL threads
-    
+
+    (void) srv.proto->shutdown_hook();  /* TODO: error handling */
+
     /* Close all listening sockets */
     while ((ni = LIST_FIRST(&srv.if_list)) != NULL) {
         close(ni->fd);
@@ -130,20 +126,28 @@ server_shutdown(void *unused, int events)
 
 /* Initialization routines common to all servers */
 int
-server_init(struct server *_srv)
+server_init(int argc, char *argv[], struct protocol *proto)
 {
     struct rlimit   limit;
-    pthread_t       tid;
     pid_t           pid,
                     sid;
 
-    memcpy(&srv, _srv, sizeof(srv));
+    memset(&srv, 0, sizeof(srv));
+    srv.proto = proto;
     LIST_INIT(&srv.if_list);
     session_table_init();
 
-    if ((resolver_init() < 0) ||
-        (dnsbl_init() < 0))
-    {
+    if (options_parse(argc, argv) < 0) {
+        log_error("options_parse() failed");
+        return (-1);
+    }
+    
+    if (poll_init() < 0) {
+        log_error("poll_init() failed");
+        return (-1);
+    }
+
+    if (resolver_init() < 0) {
         log_error("initialization failed");
         return (-1);
     }
@@ -190,36 +194,17 @@ server_init(struct server *_srv)
         err(1, "setrlimit failed");
 
     /* Drop root privilges and call chroot(2) */
-    drop_privileges();
+    drop_privileges(OPT.chrootdir, OPT.uid, OPT.gid);
 
-    /* Create the MDA thread */
-    if (mda_init() < 0) {
-        log_error("mda_init() failed");
-        return (-1);
-    }
-    if (pthread_create(&tid, NULL, mda_dispatch, NULL) != 0) {
-        log_errno("pthread_create(3)");
-        return (-1);
-    }
-
-    /* Create the DNSBL thread */
-    srv.dnsbl = dnsbl_new("zen.spamhaus.org");
-    if (srv.dnsbl == NULL) {
-        log_error("dnsbl_new()");
-        return (-1);
-    }
-    if (pthread_create(&tid, NULL, dnsbl_dispatch, srv.dnsbl) != 0) {
-        log_errno("pthread_create(3)");
-        return (-1);
-    }
-
-    return (0);
+    /* Run the protocol-specific initialization routines. */
+    return srv.proto->init_hook();
 }
 
 
 static int
 server_bind_addr(struct sockaddr *sa)
 {
+    u_int port;
     struct sockaddr_in sain;
     struct sockaddr_in6 sain6;
     char sa_name[INET6_ADDRSTRLEN];
@@ -228,6 +213,8 @@ server_bind_addr(struct sockaddr *sa)
     int             one = 1;
     int             fd = -1;
     int rv;
+
+    port = OPT.port;
 
     /* Setup the protocol-specific socket structure */
     if (sa->sa_family == AF_INET) {
@@ -251,12 +238,12 @@ server_bind_addr(struct sockaddr *sa)
     }
 
 	/* Adjust the port number for non-privileged processes */
-	if (getuid() > 0 && srv.port < 1024)
-		srv.port += 1000;
+	if (getuid() > 0 && port < 1024)
+		port += 1000;
     if (sa->sa_family == AF_INET) {
-        sain.sin_port = htons(srv.port);
+        sain.sin_port = htons(port);
     } else {
-        sain6.sin6_port = htons(srv.port);
+        sain6.sin6_port = htons(port);
     }
 
     /* Don't listen on the loopback address (127.0.0.1 or ::1) */
@@ -291,7 +278,7 @@ server_bind_addr(struct sockaddr *sa)
         goto errout;
     }
 
-    log_debug("bound to %s port %d (fd=%d)", &sa_name[0], srv.port, fd);
+    log_debug("bound to %s port %d (fd=%d)", &sa_name[0], port, fd);
 
     if ((ni = calloc(1, sizeof(*ni))) == NULL) {
 		log_errno("calloc(3)");
@@ -390,8 +377,8 @@ server_accept(void *if_ptr, int events)
         goto errout;
     }
 
-    if (dnsbl_submit(srv.dnsbl, s) < 0) {
-        log_error("dnsbl_submit()");
+    /* Run the protocol specific accept(2) hook */
+    if (srv.proto->accept_hook(s) < 0) {
         goto errout;
     }
 
@@ -417,4 +404,102 @@ server_dispatch(void)
         return (-1);
 
     return poll_dispatch();
+}
+
+
+/*
+ * TODO -- move to options.c
+ */
+
+void
+usage()
+{
+    fprintf(stderr, "Usage:\n\n"
+	    "  recvmail [-fhstv] [-g gid] [-u uid]\n\n"
+	    "        -f      Run in the foreground           (default: no)\n"
+	    "        -g      Run under a different group ID  (default: 25)\n"
+	    "        -h      Display this help message\n"
+	    "        -q      Quiet (warning messages only)                \n"
+	    "        -u      Run under a different user ID   (default: 25)\n"
+	    "        -v      Verbose debugging messages      (default: no)\n"
+	    "\n");
+    exit(1);
+}
+
+/* getopt(3) variables */
+extern char    *optarg;
+extern int      optind;
+extern int      optopt;
+extern int      opterr;
+extern int      optreset;
+
+
+/* TODO - This is incomplete */
+void
+option_parse(const char *arg)
+{
+	char *p;
+	char *buf, *key, *val;
+
+	buf = strdup(arg);
+	if ((p = strchr(arg, '=')) == NULL)
+		errx(1, "Syntax error");
+	*p++ = '\0';
+	key = buf;
+	val = p;
+	printf("key=%s val=%s\n", key, val);
+	abort();
+	free(buf);
+}
+
+
+int
+options_parse(int argc, char *argv[])
+{
+    char buf[256];
+    int  c;
+
+    /* Get the hostname */
+    if (gethostname(&buf[0], 256) != 0) {
+        log_errno("gethostname(3)");
+        return (-1);
+    }
+    OPT.hostname = strdup(&buf[0]);
+
+    /* Get arguments from ARGV */
+    while ((c = getopt(argc, argv, "fg:ho:qu:v")) != -1) {
+        switch (c) {
+            case 'f':
+                OPT.daemon = 0;
+                break;
+            case 'g':
+                if ((OPT.gid = strdup(optarg)) == NULL)
+                    err(1, "strdup failed");
+                break;
+            case 'h':
+                usage();
+                break;
+            case 'o':
+                //TODO: see main.c:parse_option(optarg);
+                abort();
+                break;
+            case 'q':
+                OPT.log_level = LOG_ERR;
+                break;
+            case 'u':
+                if ((OPT.uid = strdup(optarg)) == NULL)
+                    err(1, "strdup failed");
+                break;
+            case 'v':
+                if (OPT.log_level == LOG_DEBUG)
+                    err(1, "cannot enable logging above LOG_DEBUG");
+                OPT.log_level++;
+                break;
+            default:
+                usage();
+                break;
+        }
+    }
+
+    return srv.proto->getopt_hook();
 }

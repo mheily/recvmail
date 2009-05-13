@@ -25,6 +25,7 @@
 
 #include "log.h"
 #include "poll.h"
+#include "protocol.h"
 #include "socket.h"
 #include "session.h"
 #include "message.h"
@@ -137,7 +138,7 @@ session_new(int fd)
         log_errno("calloc(3)");
         return (NULL);
     }
-    s->proto = &SMTP;       /* TODO: define at the server level.. ? */
+    s->proto = &SMTP;       /* FIXME: defined at the server level.. ? */
     if ((s->msg = message_new()) == NULL) {
         free(s);
         log_errno("message_new()");

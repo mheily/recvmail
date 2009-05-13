@@ -24,15 +24,13 @@
 #define DNSBL_FOUND         (1)
 #define DNSBL_ERROR         (-1)
 
-struct dnsbl;
 struct session;
 
-struct dnsbl * dnsbl_new(const char *);
+int     dnsbl_new(const char *service, void (*)(struct session *, int));
+void    dnsbl_free(void);
 
 void *  dnsbl_dispatch(void *);
-int     dnsbl_submit(struct dnsbl *, struct session *);
-int     dnsbl_response(struct session **, struct dnsbl *);
-int     dnsbl_init(void);
-void    dnsbl_free(struct dnsbl *);
+int     dnsbl_submit(struct session *);
+int     dnsbl_response(struct session **);
 
 #endif  /* _DNSBL_H */
