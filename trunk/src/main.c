@@ -25,7 +25,6 @@
 
 #include "options.h"
 #include "log.h"
-#include "poll.h"
 #include "server.h"
 #include "smtp.h"
 

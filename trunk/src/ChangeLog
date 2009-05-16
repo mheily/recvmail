@@ -1,6 +1,16 @@
 recvmail revision history
 =========================
 
+2.1
+5/15/09
+
+ * Reorganize code without making functionality changes.
+ * Fix the build system for porting to Debian
+
+2.0
+?
+
+
 1.1  Thursday, May 18th 2006
 
 * Fixed a non-exploitable memory allocation error in the accept(2) loop.
