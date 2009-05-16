@@ -19,7 +19,7 @@
 
 define_str() {
   id=$1
-  if [ -n "$2" ] 
+  if [ "$2" != "" ] 
    then val=$2
   else val=$3
   fi
@@ -117,9 +117,11 @@ do
   check_header "$header"
 done
 
-if [ -z "$cf_prefix"]
+if [ "$cf_PREFIX" = "" ]
 then
   cf_prefix="/usr/local"
+else 
+  cf_prefix="$cf_PREFIX"            # workaround
 fi
 
 define_str "PREFIX" "$cf_prefix" "/usr/local"
