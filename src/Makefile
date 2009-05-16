@@ -124,4 +124,3 @@ install: build
 	for data in $(pkgdata_DATA) 				; \
 	  do install -D -m 644 $$data $(PKGDATADIR)/$$data	; \
 	done
-	if [ `id -u` -eq '0' ] ; then ldconfig ; fi
