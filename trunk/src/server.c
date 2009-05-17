@@ -309,27 +309,30 @@ errout:
 int
 server_bind(void)
 {
-    struct ifaddrs *ifa;
+    struct ifaddrs *ifa_head, *ifa;
     struct sockaddr *sa;
 
-    if (getifaddrs(&ifa) < 0) {
+    if (getifaddrs(&ifa_head) < 0) {
         log_errno("getifaddrs(3)");
         return (-1);
     }
 
-    for (; ifa != NULL; ifa = ifa->ifa_next) {
+    for (ifa = ifa_head; ifa != NULL; ifa = ifa->ifa_next) {
         sa = ifa->ifa_addr;
-        if (sa != NULL && (sa->sa_family == AF_INET || sa->sa_family == AF_INET6)) {
+        if (sa == NULL)
+            continue;
+            
+        if (sa->sa_family == AF_INET || sa->sa_family == AF_INET6) {
             if (server_bind_addr(sa) < 0)
                 goto errout;
         }
     } 
 
-    freeifaddrs(ifa);
+    freeifaddrs(ifa_head);
     return (0);
 
 errout:
-    freeifaddrs(ifa);
+    freeifaddrs(ifa_head);
     return (0);
 }
 
