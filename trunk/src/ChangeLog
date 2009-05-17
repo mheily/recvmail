@@ -1,6 +1,11 @@
 recvmail revision history
 =========================
 
+2.1.1
+5/16/09
+
+ * Create a pidfile in /var/run
+
 2.1
 5/15/09
 
