@@ -1,0 +1,45 @@
+.TH "recvmail" "8" "" "" "Electronic Mail"
+.SH "NAME"
+.LP 
+recvmail \- receive electronic mail
+.SH "SYNOPSIS"
+.LP 
+recvmail [\-fhqv] [\-d \fIpath\fP] [\-u \fIuid\fP] 
+.SH "OPTIONS"
+.TP 13
+\fB\-d\fP \fIpath\fP
+Directory to use as the root of the chroot(1) jail.
+.TP 13
+\fB\-f\fP
+Run in the foreground.
+.TP 13
+\fB\-h\fP
+Print a help message.
+.TP 13
+\fB\-q\fP
+Quiet; only print error messages to the log.       
+.TP 13
+\fB\-u \fIuid\fP
+Run under a different user ID.
+.TP 13
+\fB\-v\fR
+Verbose; increase the logging verbosity.
+.SH "DESCRIPTION"
+.LP 
+Recvmail is an electronic mail transfer agent that receives mail from the network and delivers it to Maildir-formatted mailboxes.  
+.br
+.SH "STANDARDS"
+.LP
+RFC 2821 - Simple Mail Transport Protocol
+.\".SH "BUGS"\"
+.\".LP\"
+.\".B recvmail\"
+.\"does not have any major known bugs at this time.\"
+.SH "AUTHORS"
+.LP 
+Mark Heily \<mark\@recvmail.org\>
+.SH "SEE ALSO"
+.LP 
+sendmail(1)
+.P
+http\://www.recvmail.org
