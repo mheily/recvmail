@@ -19,6 +19,7 @@
 #include <ctype.h>
 #include <pthread.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -495,10 +496,55 @@ sanity_check(void)
    return (0);
 }
 
+
+static int
+create_dirs(void)
+{
+    /* Create the spooldir, if necessary */
+    if (access("spool", F_OK) != 0) {
+        if (errno != ENOENT) {
+            log_errno("access(2) of `spool'");
+            return (-1);
+        }
+
+        if (mkdir("spool", 0770) != 0) {
+            log_errno("mkdir(2) of `spool'");
+            return (-1);
+        }
+        if (mkdir("spool/new", 0770) != 0) {
+            log_errno("mkdir(2) of `spool/new'");
+            return (-1);
+        }
+        if (mkdir("spool/cur", 0770) != 0) {
+            log_errno("mkdir(2) of `spool/cur'");
+            return (-1);
+        }
+    }
+
+    /* Create the mailboxdir, if necessary */
+    if (access("box", F_OK) != 0) {
+        if (errno != ENOENT) {
+            log_errno("access(2) of `box'");
+            return (-1);
+        }
+
+        if (mkdir("box", 0770) != 0) {
+            log_errno("mkdir(2) of `box'");
+            return (-1);
+        }
+    }
+
+    return (0);
+}
+
 int
 smtpd_init(void)
 {
     pthread_t       tid;
+
+    /* Create the directory heirarchy */
+    if (create_dirs() < 0)
+        return (-1);
 
     /* Create the MDA thread */
     if (mda_init() < 0) {
