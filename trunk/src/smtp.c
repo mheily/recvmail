@@ -482,11 +482,15 @@ smtpd_close(struct session *s)
 static int
 sanity_check(void)
 {
+#if TODO
+   //example
+   // test this during drop_privileges
    if (access(OPT.chrootdir, X_OK) != 0) {
         log_errno("unable to access %s", OPT.chrootdir);
         return (-1);
    }
    /* TODO: check spool/ and etc/ and box/ */
+#endif
 
    return (0);
 }

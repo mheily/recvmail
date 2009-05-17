@@ -49,12 +49,19 @@ struct net_interface {
 };
 
 static void
-drop_privileges(const char *chrootdir, const char *user, const char *group)
+drop_privileges(const char *user)
 {
-    struct group   *grent;
+    char           *chrootdir;
     struct passwd  *pwent;
     uid_t           uid;
     gid_t           gid;
+
+    /* Lookup the user-ID */
+    if ((pwent = getpwnam(user)) == NULL)
+        err(1, "a user named '%s' does not exist", user);
+    uid = pwent->pw_uid;
+    gid = pwent->pw_gid;
+    chrootdir = pwent->pw_dir;
 
     /* Chdir into the chroot directory */
     if (chrootdir && (chdir(chrootdir) < 0)) 
@@ -66,17 +73,8 @@ drop_privileges(const char *chrootdir, const char *user, const char *group)
         return;
     }
 
-    /* Convert the symbolic group to numeric GID */
-    /* Convert the symbolic user-id to the numeric UID */
-    if ((grent = getgrnam(group)) == NULL) 
-        err(1, "a group named '%s' does not exist", group);
-    if ((pwent = getpwnam(user)) == NULL)
-        err(1, "a user named '%s' does not exist", user);
-    gid = grent->gr_gid;
-    uid = pwent->pw_uid;
-
     /* chroot */
-    if (chrootdir && (chroot(chrootdir) < 0))
+    if (chroot(chrootdir) < 0)
         err(1, "chroot(2)");
 
     /* Set the real UID and GID */
@@ -86,8 +84,7 @@ drop_privileges(const char *chrootdir, const char *user, const char *group)
         err(1, "setuid(2)");
     
     log_info("chroot(2) to %s", chrootdir);
-    log_info("setuid(2) to %s(%d)", user, uid);
-    log_info("setgid(2) to %s(%d)", group, gid);
+    log_info("setuid(2) to %s (%d:%d)", user, uid, gid);
 }
 
 
@@ -194,7 +191,7 @@ server_init(int argc, char *argv[], struct protocol *proto)
         err(1, "setrlimit failed");
 
     /* Drop root privilges and call chroot(2) */
-    drop_privileges(OPT.chrootdir, OPT.uid, OPT.gid);
+    drop_privileges(OPT.uid);
 
     /* Run the protocol-specific initialization routines. */
     return srv.proto->init_hook();
@@ -418,12 +415,11 @@ void
 usage()
 {
     fprintf(stderr, "Usage:\n\n"
-	    "  recvmail [-fhstv] [-g gid] [-u uid]\n\n"
+	    "  recvmail [-fhstv] [-u uid]\n\n"
 	    "        -f      Run in the foreground           (default: no)\n"
-	    "        -g      Run under a different group ID  (default: 25)\n"
 	    "        -h      Display this help message\n"
 	    "        -q      Quiet (warning messages only)                \n"
-	    "        -u      Run under a different user ID   (default: 25)\n"
+	    "        -u      Run under a different user ID   (default: recvmail)\n"
 	    "        -v      Verbose debugging messages      (default: no)\n"
 	    "\n");
     exit(1);
@@ -470,14 +466,10 @@ options_parse(int argc, char *argv[])
     OPT.hostname = strdup(&buf[0]);
 
     /* Get arguments from ARGV */
-    while ((c = getopt(argc, argv, "fg:ho:qu:v")) != -1) {
+    while ((c = getopt(argc, argv, "fho:qu:v")) != -1) {
         switch (c) {
             case 'f':
                 OPT.daemon = 0;
-                break;
-            case 'g':
-                if ((OPT.gid = strdup(optarg)) == NULL)
-                    err(1, "strdup failed");
                 break;
             case 'h':
                 usage();

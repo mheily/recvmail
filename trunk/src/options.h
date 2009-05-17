@@ -9,15 +9,13 @@
 
 struct options {
     u_short     port;
-    char       *chrootdir;
     bool        debugging;
     char       *hostname;
     bool        daemon;	        /* Run as daemon ? */
     char       *log_ident;	    /* Program name to use in syslog */
     int         log_facility;	/* The log facility to provide to syslog(3) */
     int         log_level;	    /* The level used by setlogmask(3) */
-    char       *uid;            /* The symbolic user-ID to setuid(2) to */
-    char       *gid;            /* The symbolic group-ID to setgid(2) to */
+    char       *uid;            /* The user ID to run under */
 };
 
 extern struct options OPT;
