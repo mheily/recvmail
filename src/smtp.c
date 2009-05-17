@@ -483,7 +483,7 @@ static int
 sanity_check(void)
 {
    if (access(OPT.chrootdir, X_OK) != 0) {
-        log_error("unable to access %s", OPT.chrootdir);
+        log_errno("unable to access %s", OPT.chrootdir);
         return (-1);
    }
    /* TODO: check spool/ and etc/ and box/ */
@@ -495,9 +495,6 @@ int
 smtpd_init(void)
 {
     pthread_t       tid;
-
-    if (sanity_check() < 0)
-        return (-1);
 
     /* Create the MDA thread */
     if (mda_init() < 0) {
