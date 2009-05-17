@@ -333,7 +333,7 @@ server_bind(void)
 
 errout:
     freeifaddrs(ifa_head);
-    return (0);
+    return (-1);
 }
 
 
