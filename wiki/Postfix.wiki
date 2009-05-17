@@ -4,6 +4,11 @@
 
 In some systems, Postfix will listen on all interfaces by default. To force it to only bind to localhost:
 
- 1. Edit `/etc/postfix/main.cf` and add (or change) this parameter: {{{
+ 1. Edit `/etc/postfix/main.cf` and add (or change) this parameter: 
+{{{
 inet_interfaces = 127.0.0.1
+}}}
+ 2. Restart Postfix.
+{{{
+/etc/init.d/postfix restart
 }}}
