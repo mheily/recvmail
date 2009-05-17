@@ -1,0 +1,6 @@
+Directory structure:
+
+  www/          http://www.recvmail.org Website
+  src/          recvmail source code
+  contrib/      contributed source code
+  test/         unit tests
