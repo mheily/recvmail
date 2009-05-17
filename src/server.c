@@ -49,6 +49,32 @@ struct net_interface {
 };
 
 static void
+pidfile_create(void)
+{
+    char *pidfile;
+    char *pidstr;
+    int fd;
+
+    if (asprintf(&pidfile, "/var/run/%s.pid", OPT.log_ident) < 0)
+        err(1, "out of memory");
+    if (asprintf(&pidstr, "%d", getpid()) < 0)
+        err(1, "out of memory");
+
+    /* FIXME: check for an existing pidfile */
+
+    fd = open(pidfile, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (fd < 0) 
+        err(1, "open(2) of %s", pidfile);
+    if (write(fd, pidstr, strlen(pidstr)) < strlen(pidstr))
+        err(1, "write(2) to %s", pidfile);
+    if (close(fd) < 0)
+        err(1, "close(2) of %s", pidfile);
+
+    free(pidfile);
+    free(pidstr);
+}
+
+static void
 drop_privileges(const char *user)
 {
     char           *chrootdir;
@@ -168,6 +194,7 @@ server_init(int argc, char *argv[], struct protocol *proto)
         close(1);
         close(2);
 
+        pidfile_create();
         detached = 1;
     }
 
