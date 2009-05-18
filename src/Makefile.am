@@ -31,25 +31,6 @@ recvmail_HEADERS = address.h  hash.h  mda.h poll.h server.h socket.h    \
     tree.h     protocol.h                                               \
     dnsbl.h    maildir.h  options.h  resolver.h  smtp.h     workqueue.h
 
-post-install:
-	if [ "`uname -s`" = "Linux" ] ; then \
-		useradd -c "SMTP daemon" -d /srv/mail -g mail -s /bin/false -N recvmail ;  \
-	fi
-	if [ "`uname -s`" = "OpenBSD" ] ; then \
-		groupadd mail ; \
-		useradd -c "SMTP daemon" -d /srv/mail -g mail -s /bin/false recvmail ;  \
-	fi
-	mkdir -p /srv/mail/spool/{new,cur,tmp}
-	mkdir -p /srv/mail/
-	mkdir /srv/mail/etc
-	cp /etc/resolv.conf /srv/mail/etc
-	chown -R recvmail:mail /srv/mail/spool/*
-	chmod -R 770 /srv/mail
-
-post-uninstall:
-	if [ "`uname -s`" = "Linux" ] ; then \
-		userdel recvmail ; fi
-
 loopback:
 	printf "helo a\nmail from:abc@def.ghi\nrcpt to:example@example.com\ndata\nSubject: hi\n\nHello\n.\nquit\n" | nc localhost 1025
 
