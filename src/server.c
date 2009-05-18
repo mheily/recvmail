@@ -24,6 +24,8 @@
 #include <pwd.h>
 #include <pthread.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include "log.h"
@@ -74,7 +76,7 @@ pidfile_create(void)
     free(pidstr);
 }
 
-static void
+static int
 drop_privileges(const char *user)
 {
     char           *chrootdir;
@@ -83,34 +85,82 @@ drop_privileges(const char *user)
     gid_t           gid;
 
     /* Lookup the user-ID */
-    if ((pwent = getpwnam(user)) == NULL)
-        err(1, "a user named '%s' does not exist", user);
+    if ((pwent = getpwnam(user)) == NULL) {
+        log_errno("a user named '%s' does not exist", user);
+        return (-1);
+    }
     uid = pwent->pw_uid;
     gid = pwent->pw_gid;
     chrootdir = pwent->pw_dir;
 
+    /* Make sure the home directory is valid. */
+    if (strcmp(chrootdir, "") == 0 || strcmp(chrootdir, "/") == 0) {
+        log_error("user '%s' has illegal home directory '%s'", 
+                   user, chrootdir);
+        return (-1);
+    }
+
     /* Chdir into the chroot directory */
-    if (chrootdir && (chdir(chrootdir) < 0)) 
-        err(1, "chdir(2) to `%s'", chrootdir);
+    if (chrootdir && (chdir(chrootdir) < 0)) {
+        log_errno("chdir(2) to `%s'", chrootdir);
+        return (-1);
+    }
+
 
     /* Only root is allowed to drop privileges */
     if (getuid() > 0) {
         log_warning("cannot drop privileges if UID != 0");
-        return;
+        return (0);
     }
 
+    /* Populate the chroot environment with required files */
+    if (access("etc", F_OK) != 0) {
+        if (errno != ENOENT) {
+            log_errno("access(2) of `etc'");
+            return (-1);
+        }
+        if (mkdir("etc", 0755) != 0) {
+            log_errno("mkdir(2) of `etc'");
+            return (-1);
+        }
+    }
+    (void) system("cp /etc/resolv.conf ./etc"); //FIXME: error check
+
+#if TODO
+// isn't needed yet...    
+    if (access("dev", F_OK) != 0) {
+        if (errno != ENOENT) {
+            log_errno("access(2) of `dev'");
+            return (-1);
+        }
+        if (mkdir("dev", 0755) != 0) {
+            log_errno("mkdir(2) of `dev'");
+            return (-1);
+        }
+    }
+    (void) system("cp /dev/null ./dev"); //FIXME: error check
+    //TODO: solaris may need more devices
+#endif
+
     /* chroot */
-    if (chroot(chrootdir) < 0)
-        err(1, "chroot(2)");
+    if (chroot(chrootdir) < 0) {
+        log_errno("chroot(2) to `%s'", chrootdir);
+        return (-1);
+    }
 
     /* Set the real UID and GID */
-    if (setgid(gid) < 0)
-        err(1, "setgid(2)");
-    if (setuid(uid) < 0)
-        err(1, "setuid(2)");
+    if (setgid(gid) < 0) {
+        log_errno("setgid(2)");
+        return (-1);
+    }
+    if (setuid(uid) < 0) {
+        log_errno("setuid(2)");
+        return (-1);
+    }
     
     log_info("chroot(2) to %s", chrootdir);
     log_info("setuid(2) to %s (%d:%d)", user, uid, gid);
+    return (0);
 }
 
 
@@ -218,7 +268,8 @@ server_init(int argc, char *argv[], struct protocol *proto)
         err(1, "setrlimit failed");
 
     /* Drop root privilges and call chroot(2) */
-    drop_privileges(OPT.uid);
+    if (drop_privileges(OPT.uid) < 0)
+        err(1, "unable to drop privileges");
 
     /* Run the protocol-specific initialization routines. */
     return srv.proto->init_hook();
