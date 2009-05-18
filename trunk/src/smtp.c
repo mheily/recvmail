@@ -506,7 +506,6 @@ create_dirs(void)
             log_errno("access(2) of `spool'");
             return (-1);
         }
-
         if (mkdir("spool", 0770) != 0) {
             log_errno("mkdir(2) of `spool'");
             return (-1);
@@ -517,6 +516,10 @@ create_dirs(void)
         }
         if (mkdir("spool/cur", 0770) != 0) {
             log_errno("mkdir(2) of `spool/cur'");
+            return (-1);
+        }
+        if (mkdir("spool/tmp", 0770) != 0) {
+            log_errno("mkdir(2) of `spool/tmp'");
             return (-1);
         }
     }
