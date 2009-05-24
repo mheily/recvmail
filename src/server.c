@@ -510,23 +510,47 @@ extern int      optopt;
 extern int      opterr;
 extern int      optreset;
 
-
 /* TODO - This is incomplete */
-void
+static int
 option_parse(const char *arg)
 {
 	char *p;
 	char *buf, *key, *val;
 
-	buf = strdup(arg);
-	if ((p = strchr(arg, '=')) == NULL)
-		errx(1, "Syntax error");
+	if ((buf = strdup(arg)) == NULL) {
+        log_error("out of memory");
+        return (-1);
+    }
+
+    /* Split the string into a key & value */
+    if ((p = strchr(buf, '=')) == NULL) {
+        log_error("syntax error parsing option '%s'", buf);
+        goto errout;
+    }
 	*p++ = '\0';
 	key = buf;
 	val = p;
-	printf("key=%s val=%s\n", key, val);
-	abort();
+
+	log_debug("key=%s val=%s\n", key, val);
+
+    /* Update the OPT structure with the key/value */
+    if (strcmp(key, "ServerName") == 0) {
+        free(OPT.hostname);
+        if ((OPT.hostname = strdup(val)) == NULL) {
+            log_error("out of memory");
+            goto errout;
+        }
+    } else {
+        log_error("Unrecognized option: `%s'", key);
+        goto errout;
+    }
+
 	free(buf);
+    return (0);
+
+errout:
+	free(buf);
+    return (-1);
 }
 
 
@@ -553,8 +577,8 @@ options_parse(int argc, char *argv[])
                 usage();
                 break;
             case 'o':
-                //TODO: see main.c:parse_option(optarg);
-                abort();
+                if (option_parse(optarg) < 0)
+                    errx(1, "parse error");
                 break;
             case 'q':
                 OPT.log_level = LOG_ERR;
