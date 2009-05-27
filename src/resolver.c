@@ -16,7 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#define NDEBUG
+#define DEBUG
 
 #include <netdb.h>
 #include <arpa/inet.h>
@@ -83,28 +83,22 @@ struct node {
 static struct timer       *update_timer;
 
 static int
-addr_cmp(struct node *e1, struct node *e2)
+node_cmp(struct node *e1, struct node *e2)
 {
-    return (memcmp(&e1->key.addr, &e2->key.addr, sizeof(e1->key.addr)));
+    if (e1->rec_type != e2->rec_type)
+        return (e1->rec_type > e2->rec_type ? 1 : -1);
+
+    if (e1->rec_type == T_PTR) 
+        return (memcmp(&e1->key.addr, &e2->key.addr, sizeof(e1->key.addr)));
+    else
+        return (strcmp(e1->key.name, e2->key.name));
 }
 
-static int
-name_cmp(struct node *e1, struct node *e2)
-{
-    return (strcmp(e1->key.name, e2->key.name));
-}
-
-RB_HEAD(a_tree, node) a_cache = RB_INITIALIZER(&a_cache);
-RB_GENERATE(a_tree, node, entry, name_cmp);
-
-RB_HEAD(mx_tree, node) mx_cache = RB_INITIALIZER(&mx_cache);
-RB_GENERATE(mx_tree, node, entry, name_cmp);
-
-RB_HEAD(ptr_tree, node) reverse = RB_INITIALIZER(&reverse);
-RB_GENERATE(ptr_tree, node, entry, addr_cmp);
+RB_HEAD(dns_tree, node) dns_cache = RB_INITIALIZER(&dns_cache);
+RB_GENERATE(dns_tree, node, entry, node_cmp);
 
 static struct node *
-node_new(int rec_type, const void *key, const void *val, u_int ttl)
+cache_insert(int rec_type, const void *key, const void *val, u_int ttl)
 {
     struct node *n;
 
@@ -142,12 +136,14 @@ node_new(int rec_type, const void *key, const void *val, u_int ttl)
             goto errout;
     }
 
+    RB_INSERT(dns_tree, &dns_cache, n);
     return (n);
 
 errout:
     free(n);
     return (NULL);
 }
+
 
 static void
 node_free(struct node *n)
@@ -170,6 +166,9 @@ node_free(struct node *n)
                 free(*p++);
             free(n->val.name_list);
             break;
+
+        default:
+            log_error("invalid node type");
     }
 
     free(n);
@@ -177,39 +176,29 @@ node_free(struct node *n)
 
 
 static struct node *
-cache_lookup_addr(const char *name)
+cache_lookup(int rec_type, const void *key)
 {
     struct node  query;
     struct node *res;
 
-    query.key.name = (char *) name;
-    res = RB_FIND(a_tree, &a_cache, &query);
+    query.rec_type = rec_type;
+    switch (rec_type) {
+        case T_A:   
+        case T_MX:   
+            query.key.name = (char *) key;
+            break;
 
-    return (res);
-}
+        case T_PTR:   
+            query.key.addr = *((in_addr_t *) key);
+            break;
 
-#if TODO
-// need add_mx()
-static struct node *
-cache_lookup_mx(const char *name)
-{
-    struct node  query;
-    struct node *res;
+        default:
+            log_error("invalid node type");
+            return (NULL);
+    }
 
-    query.name = (char *) name;
-    res = RB_FIND(mx_tree, &mx_cache, &query);
-    return (res);
-}
-#endif
+    res = RB_FIND(dns_tree, &dns_cache, &query);
 
-static struct node *
-cache_lookup_name(in_addr_t addr)
-{
-    struct node  query;
-    struct node *res;
-
-    query.key.addr = addr;
-    res = RB_FIND(ptr_tree, &reverse, &query);
     return (res);
 }
 
@@ -222,20 +211,11 @@ cache_expire_all(void *unused)
 
     now = time(NULL);
 
-    /* Remove stale entries from the A record cache */
-    for (var = RB_MIN(a_tree, &a_cache); var != NULL; var = nxt) {
-        nxt = RB_NEXT(a_tree, &a_cache, var);
+    /* Remove stale entries from the DNS cache */
+    for (var = RB_MIN(dns_tree, &dns_cache); var != NULL; var = nxt) {
+        nxt = RB_NEXT(dns_tree, &dns_cache, var);
         if (now > var->expires) {
-            RB_REMOVE(a_tree, &a_cache, var);
-            node_free(var);
-        }
-    }
-
-    /* Remove stale entries from the PTR record cache */
-    for (var = RB_MIN(ptr_tree, &reverse); var != NULL; var = nxt) {
-        nxt = RB_NEXT(ptr_tree, &reverse, var);
-        if (now > var->expires) {
-            RB_REMOVE(ptr_tree, &reverse, var);
+            RB_REMOVE(dns_tree, &dns_cache, var);
             node_free(var);
         }
     }
@@ -251,7 +231,7 @@ resolver_lookup_addr(in_addr_t *dst, const char *src, int flags)
     int rv;
 
     /* Check the cache */
-    if ((n = cache_lookup_addr(src)) != NULL) {
+    if ((n = cache_lookup(T_A, src)) != NULL) {
         log_debug("cache hit");
         *dst = n->val.addr;
         return (0);
@@ -279,10 +259,9 @@ resolver_lookup_addr(in_addr_t *dst, const char *src, int flags)
     }
 
     /* Add the entry to the cache */
-    n = node_new(T_A, src, &sain->sin_addr.s_addr, DEFAULT_TTL);
+    n = cache_insert(T_A, src, &sain->sin_addr.s_addr, DEFAULT_TTL);
     if (n == NULL)
         return (-1);
-    RB_INSERT(a_tree, &a_cache, n);
 
     return (0);
 }
@@ -297,7 +276,7 @@ resolver_lookup_name(char **dst, const in_addr_t src, int flags)
     int rv;
 
     /* Check the cache */
-    if ((n = cache_lookup_name(src)) != NULL) {
+    if ((n = cache_lookup(T_PTR, &src)) != NULL) {
         *dst = n->val.name;
         return (0);
     } else if (flags & RES_NONBLOCK) {
@@ -318,10 +297,9 @@ resolver_lookup_name(char **dst, const in_addr_t src, int flags)
     }
 
     /* Add the result to the cache */
-    n = node_new(T_PTR, &src, &host, DEFAULT_TTL);
+    n = cache_insert(T_PTR, &src, &host, DEFAULT_TTL);
     if (n == NULL)
         goto errout;
-    RB_INSERT(ptr_tree, &reverse, n);
 
     *dst = n->val.name;
     return (0);
@@ -364,8 +342,8 @@ dns_log_error(const char *domain, const char *message)
 /* Based on the parsing techniques discussed at:
         http://www.woodmann.com/fravia/DNS.htm
  */
-char **
-resolver_lookup_mx(const char *qname, int flags)
+int
+resolver_lookup_mx(char ***dst, const char *src, int flags)
 {
 	union {
 		HEADER hdr;
@@ -379,17 +357,16 @@ resolver_lookup_mx(const char *qname, int flags)
     struct resource_rec *r;
     u_int ttl;
     char **res;
-
-#if TODO
     struct node *n;
+
     /* Check the cache */
-    n = cache_lookup_mx(qname);
-    if (n != NULL) {
-        log_warning("cache hit");
-        node_dump(n);
-        return (n->answer);
+    if ((n = cache_lookup(T_MX, src)) != NULL) {
+        *dst = n->val.name_list;
+        return (0);
+    } else if (flags & RES_NONBLOCK) {
+        *dst = NULL;
+        return (1);
     }
-#endif
 
 	/* Initialize variables */
 	memset(&buf, 0, sizeof(buf));
@@ -398,15 +375,14 @@ resolver_lookup_mx(const char *qname, int flags)
     ttl = 1;
 
 	/* Lookup the MX records for <domain> */
-	log_debug("looking up MX record for `%s'", qname);
-	pkt_len = res_query(qname, C_IN, T_MX, &response.buf[0], sizeof(response));
+	pkt_len = res_query(src, C_IN, T_MX, &response.buf[0], sizeof(response));
 	if (pkt_len < 0) {
-        dns_log_error(qname, "MX lookup failed");
-		return (NULL);
+        dns_log_error(src, "MX lookup failed");
+		return (-1);
     }
 	if ((unsigned long) pkt_len > sizeof(response)) {
         log_error("DNS response too large");
-        return (NULL);
+        return (-1);
     }
 
 	/* Move <cp> to the answer portion.. */
@@ -421,7 +397,7 @@ resolver_lookup_mx(const char *qname, int flags)
 	while (i > 0) {
 		if ((len = dn_skipname(cp, end)) < 0) {
 			log_error("bad hostname in question portion of dns packet");
-            return (NULL);
+            return (-1);
         }
 
 		cp += len + QFIXEDSZ;
@@ -432,13 +408,13 @@ resolver_lookup_mx(const char *qname, int flags)
 	ancount = ntohs((unsigned short)hp->ancount);
     if (ancount > 100) {
         log_error("too many answers");
-        return (NULL);
+        return (-1);
     }
     log_error("ancount=%d", ancount);
     r = calloc(ancount, sizeof(*r));
     if (r == NULL) {
         log_error("out of memory");
-        return (NULL);
+        return (-1);
     }
     for (i = 0; i < ancount; i++) {
         len = -1;
@@ -447,7 +423,7 @@ resolver_lookup_mx(const char *qname, int flags)
             log_error("error expanding hostname in answer portion");
             goto errout;
         }
-        if (strncmp(buf, qname, strlen(qname) + 1) != 0) {
+        if (strncmp(buf, src, strlen(src) + 1) != 0) {
             log_error("extraneous response");
             goto errout;
         }
@@ -510,12 +486,15 @@ resolver_lookup_mx(const char *qname, int flags)
     r -= ancount;
     free(r);
     
-#if TODO
     /* Cache the result */
-    n = cache_insert(qname, T_MX, r, ancount, ttl); //TODO: error checking
-#endif
+    n = cache_insert(T_MX, src, res, ttl);
+    if (n == NULL) {
+        free(res);
+        goto errout;
+    }
 
-    return (res);
+    *dst = n->val.name_list;
+    return (0);
 
 errout:
     while (ancount > 0) {
@@ -524,7 +503,7 @@ errout:
         r++;
     }
     free(r);
-    return (NULL);
+    return (-1);
 }
 
 
@@ -541,18 +520,22 @@ resolver_init(void)
     }
 
 #if DEADWOOD
+
 //self-testing
+
     char **ans;
     int i;
-    ans = resolver_lookup_mx("heily.com", 0);
+    if (resolver_lookup_mx(&ans, "heily.com", RES_NONBLOCK) != 1)
+        errx(1, "nonblocking resolver_lookup_mx() failed");
+    if (resolver_lookup_mx(&ans, "heily.com", 0) != 0)
+        errx(1, "resolver_lookup_mx() failed");
     for (i = 0; ans[i] != NULL; i++) {
         log_warning("%s", ans[i]);
     }
-    ans = resolver_lookup_mx("heily.com", 0);
-    for (i = 0; ans[i] != NULL; i++) {
-        log_warning("%s", ans[i]);
-    }
-    abort();
+    if (resolver_lookup_mx(&ans, "yahoo.com", 0) != 0)
+        errx(1, "resolver_lookup_mx() failed");
+    if (resolver_lookup_mx(&ans, "heily.com", RES_NONBLOCK) != 0)
+        errx(1, "nonblocking resolver_lookup_mx() failed (2)");
 
     char *name;
     in_addr_t addr;
@@ -562,14 +545,16 @@ resolver_init(void)
     if (resolver_lookup_addr(&addr, "www.recvmail.org", 0) < 0)
         errx(1, "resolver_lookup_addr() failed");
     if (resolver_lookup_addr(&addr, "www.recvmail.org", RES_NONBLOCK) != 0)
-        errx(1, "nonblocking resolver_lookup_addr() failed");
+        errx(1, "nonblocking resolver_lookup_addr() failed 2");
     if (resolver_lookup_name(&name, addr, RES_NONBLOCK) != 1)
         errx(1, "nonblocking resolver_lookup_name() failed");
     if (resolver_lookup_name(&name, addr, 0) < 0)
         errx(1, "resolver_lookup_name() failed");
     if (resolver_lookup_name(&name, addr, RES_NONBLOCK) != 0)
-        errx(1, "nonblocking resolver_lookup_name() failed");
+        errx(1, "nonblocking resolver_lookup_name() failed 2");
 
+    log_error("tests ok");
+    abort();
 #endif
 
     /* Set a timer to periodically purge the cache of expired entries */
