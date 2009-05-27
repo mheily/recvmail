@@ -144,6 +144,12 @@ errout:
     return (NULL);
 }
 
+static inline struct node *
+cache_insert_a(const char *dname, const in_addr_t *ans, u_int ttl)
+{
+    // TODO: support multiple addrs
+    return cache_insert(ns_t_a, dname, &ans, ttl);
+}
 
 static void
 node_free(struct node *n)
@@ -202,6 +208,11 @@ cache_lookup(int rec_type, const void *key)
     return (res);
 }
 
+static inline struct node *
+cache_lookup_name(int rec_type, const char *dname)
+{
+    return cache_lookup(rec_type, dname);
+}
 
 static void
 cache_expire_all(void *unused)
@@ -231,7 +242,7 @@ resolver_lookup_addr(in_addr_t *dst, const char *src, int flags)
     int rv;
 
     /* Check the cache */
-    if ((n = cache_lookup(T_A, src)) != NULL) {
+    if ((n = cache_lookup_name(T_A, src)) != NULL) {
         log_debug("cache hit");
         *dst = n->val.addr;
         return (0);
@@ -259,7 +270,7 @@ resolver_lookup_addr(in_addr_t *dst, const char *src, int flags)
     }
 
     /* Add the entry to the cache */
-    n = cache_insert(T_A, src, &sain->sin_addr.s_addr, DEFAULT_TTL);
+    n = cache_insert_a(src, dst, DEFAULT_TTL);
     if (n == NULL)
         return (-1);
 
