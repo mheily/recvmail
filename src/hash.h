@@ -1,4 +1,4 @@
-/*      $Id$      */
+/*          $Id$      */
 /*
  * Copyright (c) 2008-09 Mark Heily <mark@heily.com>
  *
@@ -22,10 +22,10 @@
 #include <sys/queue.h>
 
 /* 
- * A hash table contains 4096 buckets that uses 16K of memory 
+ * The default hash table size is 2048 buckets which uses 8K of memory 
  * on a 32-bit machine.
  */ 
-#define HASH_BITS	(12)
+#define HASH_BITS	(11)
 #define HASH_SIZE	(0x1 << HASH_BITS)
 
 /* Based on the public domain Jenkins one-at-a-time hashing algorithm. */
