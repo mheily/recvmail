@@ -101,7 +101,7 @@ dnsbl_query(struct work *wqa, void *udata)
 
     log_debug("query='%s' host=%d", (char *) fqdn, addr);
 
-    rv = resolver_lookup_addr(&addr, (char *) fqdn);
+    rv = resolver_lookup_addr(&addr, (char *) fqdn, 0);
     if (rv < 0) {
         wqa->retval = DNSBL_ERROR;
     } else if (rv == 0) {
@@ -136,6 +136,7 @@ dnsbl_submit(struct session *s)
 	/* Don't allow "early talkers" to send data prior to the greeting */
 	s->handler = dnsbl_reject_early_talker;
 	
+    /* TODO: check the cache */
     return wq_submit(d.wq, w);
 }
 

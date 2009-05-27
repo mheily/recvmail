@@ -20,8 +20,11 @@
 
 #include <netinet/in.h>
 
-int     resolver_lookup_addr(in_addr_t *, const char *);
-int     resolver_lookup_name(char **, const in_addr_t);
+#define RES_NONBLOCK    0x1 
+
+int     resolver_lookup_addr(in_addr_t *, const char *, int);
+int     resolver_lookup_name(char **, const in_addr_t, int);
+char ** resolver_lookup_mx(const char *, int);
 int     resolver_init(void);
 //TODO:void    resolver_atexit(void);
 

@@ -20,12 +20,15 @@
 
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <arpa/nameser.h>
 #include <netinet/in.h>
+#include <resolv.h>
 #include <stdio.h>
 #include <sys/socket.h>
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "tree.h"
 #include "poll.h"
@@ -33,6 +36,31 @@
 
 /* Cache DNS lookups for 60 minutes by default. */
 #define DEFAULT_TTL     (60 * 60)
+
+/* Structure loosely based on RFC 1035 */
+struct resource_rec {
+	u_short	rr_class;              /* IN (Internet */
+	u_short	rr_type;               /* T_MX, etc. */
+    u_int   rr_ttl;
+    u_short rr_len;                
+    u_short rr_pref;
+    union {
+        in_addr_t in_addr;
+        //TODO : in6_addr;
+        char *name;
+    } rr_rdata;
+};
+ 
+/* Compare two resource records for sorting on the 'pref' field */
+static int 
+rr_cmp(const void *elem1, const void *elem2)
+{
+    const struct resource_rec *rec1 = elem1;
+    const struct resource_rec *rec2 = elem2;
+
+    return (rec1->rr_pref > rec2->rr_pref);
+}
+
 
 struct node {
     RB_ENTRY(node)   entry;
@@ -55,8 +83,11 @@ name_cmp(struct node *e1, struct node *e2)
     return (strcmp(e1->name, e2->name));
 }
 
-RB_HEAD(a_tree, node) forward = RB_INITIALIZER(&forward);
+RB_HEAD(a_tree, node) a_cache = RB_INITIALIZER(&a_cache);
 RB_GENERATE(a_tree, node, entry, name_cmp);
+
+RB_HEAD(mx_tree, node) mx_cache = RB_INITIALIZER(&mx_cache);
+RB_GENERATE(mx_tree, node, entry, name_cmp);
 
 RB_HEAD(ptr_tree, node) reverse = RB_INITIALIZER(&reverse);
 RB_GENERATE(ptr_tree, node, entry, addr_cmp);
@@ -90,9 +121,23 @@ cache_lookup_addr(const char *name)
     struct node *res;
 
     query.name = (char *) name;
-    res = RB_FIND(a_tree, &forward, &query);
+    res = RB_FIND(a_tree, &a_cache, &query);
     return (res);
 }
+
+#if TODO
+// need add_mx()
+static struct node *
+cache_lookup_mx(const char *name)
+{
+    struct node  query;
+    struct node *res;
+
+    query.name = (char *) name;
+    res = RB_FIND(mx_tree, &mx_cache, &query);
+    return (res);
+}
+#endif
 
 static struct node *
 cache_lookup_name(in_addr_t addr)
@@ -113,7 +158,7 @@ cache_add_addr(const char *name, in_addr_t addr)
     if ((n = node_new(name, addr)) == NULL)
         return (-1);
 
-    RB_INSERT(a_tree, &forward, n);
+    RB_INSERT(a_tree, &a_cache, n);
 
     return (0);
 }
@@ -140,10 +185,10 @@ cache_expire_all(void *unused)
     now = time(NULL);
 
     /* Remove stale entries from the A record cache */
-    for (var = RB_MIN(a_tree, &forward); var != NULL; var = nxt) {
-        nxt = RB_NEXT(a_tree, &forward, var);
+    for (var = RB_MIN(a_tree, &a_cache); var != NULL; var = nxt) {
+        nxt = RB_NEXT(a_tree, &a_cache, var);
         if (now > var->expires) {
-            RB_REMOVE(a_tree, &forward, var);
+            RB_REMOVE(a_tree, &a_cache, var);
             node_free(var);
         }
     }
@@ -236,12 +281,229 @@ resolver_lookup_name(char **dst, const in_addr_t src)
     }
 }
 
+static int
+dns_log_error(const char *domain, const char *message)
+{
+	size_t sz = PATH_MAX;
+	char buf[PATH_MAX + 1];
+
+	memset(&buf, 0, sizeof(buf));
+
+	switch (h_errno) {
+		case HOST_NOT_FOUND:
+			(void) snprintf((char *) &buf, sz, "Host not found");
+			break;
+		case NO_DATA:
+			(void) snprintf((char *) &buf, sz, "No records found");
+			break;
+		case TRY_AGAIN:
+			(void) snprintf((char *) &buf, sz, "No response");
+			break;
+		default:
+			(void) snprintf((char *) &buf, sz, "Unknown error");
+		}
+
+	/* Print an error message to the system log */
+	log_error("%s: error: %s: %s\n", 
+			message, (char *) &buf, domain);
+
+    return (-1);
+}
+
+
+/* Based on the parsing techniques discussed at:
+        http://www.woodmann.com/fravia/DNS.htm
+ */
+char **
+resolver_lookup_mx(const char *qname, int flags)
+{
+	union {
+		HEADER hdr;
+		unsigned char buf[PACKETSZ];
+	} response;
+	HEADER	 	*hp;
+	int	 	pkt_len, len;
+	unsigned int	i, ancount;
+	char 		buf[MAXDNAME + 1];
+	unsigned char	*cp, *end;
+    struct resource_rec *r;
+    u_int ttl;
+    char **res;
+
+#if TODO
+    struct node *n;
+    /* Check the cache */
+    n = cache_lookup_mx(qname);
+    if (n != NULL) {
+        log_warning("cache hit");
+        node_dump(n);
+        return (n->answer);
+    }
+#endif
+
+	/* Initialize variables */
+	memset(&buf, 0, sizeof(buf));
+    r = NULL;
+    ancount = 0;
+    ttl = 1;
+
+	/* Lookup the MX records for <domain> */
+	log_debug("looking up MX record for `%s'", query);
+	pkt_len = res_query(qname, C_IN, T_MX, &response.buf[0], sizeof(response));
+	if (pkt_len < 0) {
+        dns_log_error(qname, "MX lookup failed");
+		return (NULL);
+    }
+	if ((unsigned long) pkt_len > sizeof(response)) {
+        log_error("DNS response too large");
+        return (NULL);
+    }
+
+	/* Move <cp> to the answer portion.. */
+	
+	/* Skip the header portion */
+	hp = (HEADER *) &response;
+	cp = (unsigned char *) &response + HFIXEDSZ;
+	end = (unsigned char *) &response + pkt_len;
+
+	/* Skip over each question */
+	i = ntohs((unsigned short)hp->qdcount);
+	while (i > 0) {
+		if ((len = dn_skipname(cp, end)) < 0) {
+			log_error("bad hostname in question portion of dns packet");
+            return (NULL);
+        }
+
+		cp += len + QFIXEDSZ;
+		i--;
+	}
+
+	/* Process each answer */
+	ancount = ntohs((unsigned short)hp->ancount);
+    if (ancount > 100) {
+        log_error("too many answers");
+        return (NULL);
+    }
+    log_error("ancount=%d", ancount);
+    r = calloc(ancount, sizeof(*r));
+    if (r == NULL) {
+        log_error("out of memory");
+        return (NULL);
+    }
+    for (i = 0; i < ancount; i++) {
+        len = -1;
+        len = dn_expand((unsigned char *) &response, end, cp, (char *) &buf, sizeof(buf) - 1);
+        if (len < 0) {
+            log_error("error expanding hostname in answer portion");
+            goto errout;
+        }
+        if (strncmp(buf, qname, strlen(qname) + 1) != 0) {
+            log_error("extraneous response");
+            goto errout;
+        }
+
+		/* Jump to the record type */
+		cp += len;
+		
+		/* Check the record type */
+		GETSHORT(r->rr_type, cp);
+		if (r->rr_type != T_MX) {
+			log_error("bad response record: expecting type MX");
+            goto errout;
+        }
+        GETSHORT(r->rr_class, cp);
+        GETLONG(r->rr_ttl, cp);
+		GETSHORT(r->rr_len, cp);
+		GETSHORT(r->rr_pref, cp);
+		//log_error("mx pref == %d", r->rec_pref);
+
+        /* Update the TTL */
+        if (r->rr_ttl > ttl)
+            ttl = r->rr_ttl;
+
+		/* Decode the MX hostname */
+		len = -1;
+		len = dn_expand((unsigned char *) &response, end, cp,
+				(char *) &buf, sizeof(buf) - 1);
+		if (len < 0) {
+			log_error("error decompressing RR");
+            goto errout;
+        }
+
+        r->rr_rdata.name = strdup(buf);
+        if (r->rr_rdata.name < 0) {
+            log_error("out of memory");
+            goto errout;
+        }
+        //log_warning("%s", buf);
+
+		/* Jump to the next record */
+		cp += len;
+        r++;
+	}
+
+    r -= ancount;
+
+	/* Sort the resulting MX list by priority */
+    qsort(r, ancount, sizeof(*r), rr_cmp);
+
+    /* TODO - lookup the A record as a fallback if there are no MX records */
+
+    /* Generate a NUL-terminated array of strings with the answer. */
+    res = calloc(ancount + 1, sizeof(char *));
+    for (i = 0; i < ancount; i++) {
+        res[i] = r->rr_rdata.name;
+    /* FIXME - perform an A record lookup on each returned name to ensure
+       that the name is cached. */
+        r++; // LAME
+    }
+    r -= ancount;
+    free(r);
+    
+#if TODO
+    /* Cache the result */
+    n = cache_insert(qname, T_MX, r, ancount, ttl); //TODO: error checking
+#endif
+
+    return (res);
+
+errout:
+    while (ancount > 0) {
+        ancount--;
+        free(r->rr_rdata.name);
+        r++;
+    }
+    free(r);
+    return (NULL);
+}
+
+
 int
 resolver_init(void)
 {
     struct addrinfo hints;
     struct addrinfo *ai;
     int rv;
+
+    if (res_init() < 0) {
+        log_errno("res_init()");
+        return (-1);
+    }
+
+#if DEADWOOD
+//testing
+    char **ans;
+    int i;
+    ans = resolver_lookup_mx("heily.com", 0);
+    for (i = 0; ans[i] != NULL; i++) {
+        log_warning("%s", ans[i]);
+    }
+    ans = resolver_lookup_mx("heily.com", 0);
+    for (i = 0; ans[i] != NULL; i++) {
+        log_warning("%s", ans[i]);
+    }
+    abort();
+#endif
 
     /* Set a timer to periodically purge the cache of expired entries */
     update_timer = poll_timer_new(DEFAULT_TTL, cache_expire_all, NULL);
