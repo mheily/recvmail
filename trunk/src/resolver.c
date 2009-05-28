@@ -83,19 +83,26 @@ struct node {
 static struct timer       *update_timer;
 
 static int
-node_cmp(struct node *e1, struct node *e2)
+node_cmp_name(struct node *e1, struct node *e2)
 {
-    if (e1->rec_type != e2->rec_type)
-        return (e1->rec_type > e2->rec_type ? 1 : -1);
-
-    if (e1->rec_type == T_PTR) 
-        return (memcmp(&e1->key.addr, &e2->key.addr, sizeof(e1->key.addr)));
-    else
-        return (strcmp(e1->key.name, e2->key.name));
+    return (strcmp(e1->key.name, e2->key.name));
 }
 
-RB_HEAD(dns_tree, node) dns_cache = RB_INITIALIZER(&dns_cache);
-RB_GENERATE(dns_tree, node, entry, node_cmp);
+static int
+node_cmp_addr(struct node *e1, struct node *e2)
+{
+    return (memcmp(&e1->key.addr, &e2->key.addr, sizeof(e1->key.addr)));
+}
+
+
+RB_HEAD(a_tree, node)  a_cache = RB_INITIALIZER(&a_cache);
+RB_GENERATE(a_tree, node, entry, node_cmp_name);
+
+RB_HEAD(ptr_tree, node)  ptr_cache = RB_INITIALIZER(&ptr_cache);
+RB_GENERATE(ptr_tree, node, entry, node_cmp_addr);
+
+RB_HEAD(mx_tree, node)  mx_cache = RB_INITIALIZER(&mx_cache);
+RB_GENERATE(mx_tree, node, entry, node_cmp_name);
 
 static struct node *
 cache_insert(int rec_type, const void *key, const void *val, u_int ttl)
@@ -113,6 +120,7 @@ cache_insert(int rec_type, const void *key, const void *val, u_int ttl)
                 goto errout;
             }
             memcpy(&n->val, val, sizeof(in_addr_t));
+            RB_INSERT(a_tree, &a_cache, n);
             break;
 
         case T_MX:   
@@ -121,6 +129,7 @@ cache_insert(int rec_type, const void *key, const void *val, u_int ttl)
                 goto errout;
             }
             n->val.name_list = (char **) val;
+            RB_INSERT(mx_tree, &mx_cache, n);
             break;
 
         case T_PTR:
@@ -129,6 +138,7 @@ cache_insert(int rec_type, const void *key, const void *val, u_int ttl)
                 log_error("out of memory");
                 goto errout;
             }
+            RB_INSERT(ptr_tree, &ptr_cache, n);
             break;
 
         default:
@@ -136,7 +146,6 @@ cache_insert(int rec_type, const void *key, const void *val, u_int ttl)
             goto errout;
     }
 
-    RB_INSERT(dns_tree, &dns_cache, n);
     return (n);
 
 errout:
@@ -190,20 +199,24 @@ cache_lookup(int rec_type, const void *key)
     query.rec_type = rec_type;
     switch (rec_type) {
         case T_A:   
+            query.key.name = (char *) key;
+            res = RB_FIND(a_tree, &a_cache, &query);
+            break;
+
         case T_MX:   
             query.key.name = (char *) key;
+            res = RB_FIND(mx_tree, &mx_cache, &query);
             break;
 
         case T_PTR:   
             query.key.addr = *((in_addr_t *) key);
+            res = RB_FIND(ptr_tree, &ptr_cache, &query);
             break;
 
         default:
             log_error("invalid node type");
             return (NULL);
     }
-
-    res = RB_FIND(dns_tree, &dns_cache, &query);
 
     return (res);
 }
@@ -223,10 +236,24 @@ cache_expire_all(void *unused)
     now = time(NULL);
 
     /* Remove stale entries from the DNS cache */
-    for (var = RB_MIN(dns_tree, &dns_cache); var != NULL; var = nxt) {
-        nxt = RB_NEXT(dns_tree, &dns_cache, var);
+    for (var = RB_MIN(a_tree, &a_cache); var != NULL; var = nxt) {
+        nxt = RB_NEXT(a_tree, &a_cache, var);
         if (now > var->expires) {
-            RB_REMOVE(dns_tree, &dns_cache, var);
+            RB_REMOVE(a_tree, &a_cache, var);
+            node_free(var);
+        }
+    }
+    for (var = RB_MIN(ptr_tree, &ptr_cache); var != NULL; var = nxt) {
+        nxt = RB_NEXT(ptr_tree, &ptr_cache, var);
+        if (now > var->expires) {
+            RB_REMOVE(ptr_tree, &ptr_cache, var);
+            node_free(var);
+        }
+    }
+    for (var = RB_MIN(mx_tree, &mx_cache); var != NULL; var = nxt) {
+        nxt = RB_NEXT(mx_tree, &mx_cache, var);
+        if (now > var->expires) {
+            RB_REMOVE(mx_tree, &mx_cache, var);
             node_free(var);
         }
     }
