@@ -21,6 +21,7 @@
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "options.h"
@@ -134,13 +135,32 @@ main(int argc, char *argv[])
     }
 
 */
-    if (server_init(argc, argv, &SMTP) < 0)
-        errx(1, "server initialization failed");
 
-    if (server_dispatch() < 0) {
-        if (!detached) 
-            fprintf(stderr, "Abnormal program termination.\n");
-        exit(EXIT_FAILURE);
+    pid_t pid;
+    int   status;
+
+    if ((pid = fork()) < 0)
+        err(1, "fork(2)");
+
+    if (pid > 0) {
+        /* Wait for the child to become a daemon and reap it. */
+        if (wait(&status) != pid)
+            err(1, "wait(2) %d", pid);
+
+        /* NOTE: not in POSIX */
+        if (daemon(0,0) < 0)
+            err(1, "daemon(3)");
+        
+        sleep(99999);
+    } else {
+        if (server_init(argc, argv, &SMTP) < 0)
+            errx(1, "server initialization failed");
+
+        if (server_dispatch() < 0) {
+            if (!detached) 
+                fprintf(stderr, "Abnormal program termination.\n");
+            exit(EXIT_FAILURE);
+        }
     }
 
     exit (EXIT_SUCCESS);
