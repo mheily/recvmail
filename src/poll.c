@@ -299,6 +299,10 @@ poll_dispatch(void)
         log_debug("waiting for event");
         events = poll(&pollset[0], ps_count, -1);
         if (events < 0) {
+            if (errno == EINTR) {
+                log_debug("eintr");
+                continue;
+            }
             log_debug("ps_count=%zu", ps_count);
             log_errno("poll(2)");
             return (-1);
@@ -325,6 +329,7 @@ poll_dispatch(void)
 }
 
 
+/* FIXME - deadwood */
 int
 poll_disable(int fd)
 {
@@ -334,7 +339,7 @@ poll_disable(int fd)
     for (i = 0; i < ps_count; i++) {
         if (pollset[i].fd != fd)
             continue;
-        pollset[i].fd = -1; 
+        pollset[i].events = 0;  //NOTE: this is not tested!
         return (0);
     }
 
@@ -368,6 +373,7 @@ poll_remove(int fd)
     log_error("fd %d not found", fd);
     return (-1);
 }
+
 int
 poll_signal(int signum, void(*cb)(void *, int), void *udata)
 {
@@ -381,7 +387,6 @@ poll_signal(int signum, void(*cb)(void *, int), void *udata)
 
     return (0);
 }
-
 
 int
 poll_enable(int fd, int events, void (*callback)(void *, int), void *udata)
