@@ -193,7 +193,7 @@ maildir_deliver(struct message *msg)
             goto errout;
         }
         if (snprintf((char *) &dest, sizeof(dest), "%s/new/%s,S=%zu",
-                    (char *) &prefix, msg->filename, sb.st_size) >= sizeof(dest)) {
+                    (char *) &prefix, msg->filename, (size_t) sb.st_size) >= sizeof(dest)) {
             log_error("path too long");
             goto errout;
         }
