@@ -176,6 +176,13 @@ maildir_deliver(struct message *msg)
     char prefix[PATH_MAX];
     char dest[PATH_MAX];
     struct mail_addr *ma;
+    struct stat sb;
+
+    /* Determine the size of the message file */
+    if (stat(msg->path, &sb) < 0) {
+        log_errno("stat(2) of `%s'", msg->path);
+        return (-1);
+    }
 
     /* Deliver to each SMTP recipient */
     LIST_FOREACH(ma, &msg->recipient, entries) {
@@ -185,8 +192,8 @@ maildir_deliver(struct message *msg)
             log_error("prefix too long");
             goto errout;
         }
-        if (snprintf((char *) &dest, sizeof(dest), "%s/new/%s",
-                    (char *) &prefix, msg->filename) >= sizeof(dest)) {
+        if (snprintf((char *) &dest, sizeof(dest), "%s/new/%s,S=%zu",
+                    (char *) &prefix, msg->filename, sb.st_size) >= sizeof(dest)) {
             log_error("path too long");
             goto errout;
         }
