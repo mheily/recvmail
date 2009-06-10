@@ -78,6 +78,7 @@ struct node {
         char      **name_list;
     } val;
     time_t           expires;
+    int              negative;
 };
 
 static struct timer       *update_timer;
@@ -113,13 +114,16 @@ cache_insert(int rec_type, const void *key, const void *val, u_int ttl)
             return (NULL);
     n->expires = time(NULL) + ttl;
     n->rec_type = rec_type;
+    if (val == NULL)
+        n->negative = 1;
     switch (rec_type) {
         case T_A:   
             if ((n->key.name = strdup((char *) key)) == NULL) {
                 log_error("out of memory");
                 goto errout;
             }
-            memcpy(&n->val, val, sizeof(in_addr_t));
+            if (!n->negative) 
+                memcpy(&n->val, val, sizeof(in_addr_t));
             RB_INSERT(a_tree, &a_cache, n);
             break;
 
@@ -128,13 +132,14 @@ cache_insert(int rec_type, const void *key, const void *val, u_int ttl)
                 log_error("out of memory");
                 goto errout;
             }
-            n->val.name_list = (char **) val;
+            if (!n->negative) 
+                n->val.name_list = (char **) val;
             RB_INSERT(mx_tree, &mx_cache, n);
             break;
 
         case T_PTR:
             memcpy(&n->key, key, sizeof(in_addr_t));
-            if ((n->val.name = strdup((char *) val)) == NULL) { 
+            if (!n->negative && (n->val.name = strdup((char *) val)) == NULL) { 
                 log_error("out of memory");
                 goto errout;
             }
@@ -153,12 +158,6 @@ errout:
     return (NULL);
 }
 
-static inline struct node *
-cache_insert_a(const char *dname, const in_addr_t *ans, u_int ttl)
-{
-    // TODO: support multiple addrs
-    return cache_insert(ns_t_a, dname, &ans, ttl);
-}
 
 static void
 node_free(struct node *n)
@@ -171,15 +170,18 @@ node_free(struct node *n)
             break;
 
         case T_PTR:   
-            free(n->val.name);
+            if (!n->negative)
+                free(n->val.name);
             break;
 
         case T_MX:   
             free(n->key.name);
-            p = n->val.name_list;
-            while (*p != NULL)
-                free(*p++);
-            free(n->val.name_list);
+            if (!n->negative) {
+                p = n->val.name_list;
+                while (*p != NULL)
+                    free(*p++);
+                free(n->val.name_list);
+            }
             break;
 
         default:
@@ -221,11 +223,6 @@ cache_lookup(int rec_type, const void *key)
     return (res);
 }
 
-static inline struct node *
-cache_lookup_name(int rec_type, const char *dname)
-{
-    return cache_lookup(rec_type, dname);
-}
 
 static void
 cache_expire_all(void *unused)
@@ -269,9 +266,12 @@ resolver_lookup_addr(in_addr_t *dst, const char *src, int flags)
     int rv;
 
     /* Check the cache */
-    if ((n = cache_lookup_name(T_A, src)) != NULL) {
-        log_debug("cache hit");
-        *dst = n->val.addr;
+    if ((n = cache_lookup(T_A, src)) != NULL) {
+        log_debug("cache hit: neg=%d", n->negative);
+        if (n->negative)
+            *dst = 0;
+        else
+            *dst = n->val.addr;
         return (0);
     } else if (flags & RES_NONBLOCK) {
         *dst = 0;
@@ -286,18 +286,17 @@ resolver_lookup_addr(in_addr_t *dst, const char *src, int flags)
     if (rv == 0) {
         sain = (struct sockaddr_in *) ai->ai_addr;
         *dst = sain->sin_addr.s_addr;
+        n = cache_insert(ns_t_a, src, dst, DEFAULT_TTL);
         freeaddrinfo(ai);
     } else if (rv == EAI_NONAME || rv == EAI_NODATA) {
-        /* Treat a negative response as one that returned 0.0.0.0 */
         log_debug("lookup failed: %s", src);
         *dst = 0;
+        n = cache_insert(ns_t_a, src, NULL, DEFAULT_TTL);
     } else {
         log_errno("getaddrinfo(3) of `%s' returned %d", src, rv);
         return (-1);
     }
 
-    /* Add the entry to the cache */
-    n = cache_insert_a(src, dst, DEFAULT_TTL);
     if (n == NULL)
         return (-1);
 
@@ -315,7 +314,10 @@ resolver_lookup_name(char **dst, const in_addr_t src, int flags)
 
     /* Check the cache */
     if ((n = cache_lookup(T_PTR, &src)) != NULL) {
-        *dst = n->val.name;
+        if (n->negative)
+            *dst = "";
+        else
+            *dst = n->val.name;
         return (0);
     } else if (flags & RES_NONBLOCK) {
         *dst = NULL;

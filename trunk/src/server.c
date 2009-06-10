@@ -540,6 +540,8 @@ option_parse(const char *arg)
             log_error("out of memory");
             goto errout;
         }
+    } else if (strcmp(key, "UseDNSBL") == 0) {
+        OPT.use_dnsbl = 1; // FIXME: temp workaround
     } else {
         log_error("Unrecognized option: `%s'", key);
         goto errout;

@@ -448,11 +448,16 @@ smtpd_greeting(struct session *s)
 int
 smtpd_accept(struct session *s)
 {
-    if (dnsbl_submit(s) < 0) {
-        log_error("dnsbl_submit() failed");
-        smtpd_fatal_error(s);
-        return (-1);
+    if (OPT.use_dnsbl) {
+        if (dnsbl_submit(s) < 0) {
+            log_error("dnsbl_submit() failed");
+            smtpd_fatal_error(s);
+            return (-1);
+        }
+    } else {
+        dnsbl_response_handler(s, DNSBL_NOT_FOUND);
     }
+ 
 
     return (0);
 }
@@ -560,13 +565,15 @@ smtpd_init(void)
     }
 
     /* Create the DNSBL thread */
-    if (dnsbl_new("zen.spamhaus.org", dnsbl_response_handler) < 0) {
-        log_error("dnsbl_new()");
-        return (-1);
-    }
-    if (pthread_create(&tid, NULL, dnsbl_dispatch, NULL) != 0) {
-        log_errno("pthread_create(3)");
-        return (-1);
+    if (OPT.use_dnsbl) {
+      if (dnsbl_new("zen.spamhaus.org", dnsbl_response_handler) < 0) {
+          log_error("dnsbl_new()");
+          return (-1);
+      }
+      if (pthread_create(&tid, NULL, dnsbl_dispatch, NULL) != 0) {
+          log_errno("pthread_create(3)");
+          return (-1);
+      }
     }
 
     return (0);
@@ -578,7 +585,8 @@ smtpd_shutdown(void)
     //TODO: wait for MDA to complete
     //TODO: wait for DNSBL to complete
     mda_free();
-    dnsbl_free();
+    if (OPT.use_dnsbl)
+        dnsbl_free();
     //TODO: shutdown the MDA and DNSBL threads
     return (0);
 }    

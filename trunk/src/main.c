@@ -38,6 +38,7 @@ struct options  OPT = {
     .log_ident = "recvmail",
     .log_level = LOG_INFO,
     .log_facility = LOG_MAIL,
+    .use_dnsbl = 0,
 };
 
 
@@ -147,11 +148,16 @@ main(int argc, char *argv[])
         if (wait(&status) != pid)
             err(1, "wait(2) %d", pid);
 
+#if TODO
+// maintain the chroot environment
         /* NOTE: not in POSIX */
         if (daemon(0,0) < 0)
             err(1, "daemon(3)");
         
+        //TODO: copy /etc/localtime to chroot
         sleep(99999);
+#endif
+       exit (0);
     } else {
         if (server_init(argc, argv, &SMTP) < 0)
             errx(1, "server initialization failed");

@@ -242,7 +242,8 @@ socket_poll_enable(struct socket *sock,
 int
 socket_poll_disable(struct socket *sock)
 {
-    return poll_disable(sock->fd);
+    /* TODO: fix poll_disable() and use it instead */
+    return poll_remove(sock->fd);
 }
 
 

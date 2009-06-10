@@ -58,8 +58,10 @@ session_read(struct session *s)
     char    *buf;
     ssize_t  len;
 
-    if (s->handler == NULL)
+    if (s->handler == NULL) {
+        log_debug("NULL handler");
         return (0);
+    }
 
     log_debug("reading data from client");
 
