@@ -29,6 +29,7 @@
 #define HOSTNAME_MAX    63
 #define ADDRESS_MAX     (DOMAIN_MAX + HOSTNAME_MAX + 1)
 
+
 /*
  * Take an RFC2822 email address (<foo@bar.com>) and validates it, returning
  * the canonical address or NULL if invalid.

@@ -137,6 +137,15 @@ main(int argc, char *argv[])
 
 */
 
+            if (server_init(argc, argv, &SMTP) < 0)
+            errx(1, "server initialization failed");
+
+        if (server_dispatch() < 0) {
+            if (!detached) 
+                fprintf(stderr, "Abnormal program termination.\n");
+            exit(EXIT_FAILURE);
+        }
+    
     pid_t pid;
     int   status;
 
@@ -148,6 +157,8 @@ main(int argc, char *argv[])
         if (wait(&status) != pid)
             err(1, "wait(2) %d", pid);
 
+    exit (EXIT_SUCCESS);
+        
 #if TODO
 // maintain the chroot environment
         /* NOTE: not in POSIX */
@@ -159,14 +170,7 @@ main(int argc, char *argv[])
 #endif
        exit (0);
     } else {
-        if (server_init(argc, argv, &SMTP) < 0)
-            errx(1, "server initialization failed");
 
-        if (server_dispatch() < 0) {
-            if (!detached) 
-                fprintf(stderr, "Abnormal program termination.\n");
-            exit(EXIT_FAILURE);
-        }
     }
 
     exit (EXIT_SUCCESS);
