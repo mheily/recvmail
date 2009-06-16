@@ -34,6 +34,7 @@
 #include "session.h"
 #include "protocol.h"
 #include "poll.h"
+#include "recipient.h"
 #include "socket.h"
 #include "smtp.h"
 #include "workqueue.h"
@@ -561,6 +562,12 @@ smtpd_init(void)
     }
     if (pthread_create(&tid, NULL, mda_dispatch, NULL) != 0) {
         log_errno("pthread_create(3)");
+        return (-1);
+    }
+
+    /* Create the recipient table manager thread */
+    if (recipient_table_init() < 0) {
+        log_error("recipient_table_init() failed");
         return (-1);
     }
 
