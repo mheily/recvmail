@@ -570,6 +570,9 @@ smtpd_init(void)
         log_error("recipient_table_init() failed");
         return (-1);
     }
+    //FIXME: testing
+    log_warning("1=%d", recipient_lookup("cool","nowhere.com"));
+    log_warning("0=%d", recipient_lookup("laem","nowhere.com"));
 
     /* Create the DNSBL thread */
     if (OPT.use_dnsbl) {
