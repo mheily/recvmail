@@ -17,6 +17,7 @@
  */
 
 #include <dirent.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -35,7 +36,7 @@ struct domain {
 struct domain *dlist;
 struct domain **rtable;
 
-static int filter_dotfiles(const struct dirent *ent);
+static int filter_dotfiles(struct dirent *ent);
 static int is_newer(const char *path, time_t *mtime);
 static void domain_update(struct domain *d);
 
@@ -83,7 +84,7 @@ domain_update(struct domain *d)
 }
 
 static int
-filter_dotfiles(const struct dirent *ent)
+filter_dotfiles(struct dirent *ent)
 {
     return (ent->d_name[0] != '.');
 }
@@ -117,7 +118,7 @@ recipient_update(void *unused)
 {
     int n;
 
-#error broken
+//XXX-FIXME #error broken
 // need to do this AND rebuild rtable at the same time
 // probably want to copy+paste fro domain_update() and add extra stuff
     domain_update(dlist);

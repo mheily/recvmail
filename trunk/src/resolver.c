@@ -21,6 +21,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
+#include <arpa/nameser_compat.h>
 #include <netinet/in.h>
 #include <resolv.h>
 #include <stdio.h>
@@ -41,7 +42,7 @@
 /* Structure loosely based on RFC 1035 */
 struct resource_rec {
 	u_short	rr_class;              /* IN (Internet */
-	u_short	rr_type;               /* T_MX, etc. */
+	u_short	rr_type;               /* ns_t_mx, etc. */
     u_int   rr_ttl;
     u_short rr_len;                
     u_short rr_pref;
@@ -117,7 +118,7 @@ cache_insert(int rec_type, const void *key, const void *val, u_int ttl)
     if (val == NULL)
         n->negative = 1;
     switch (rec_type) {
-        case T_A:   
+        case ns_t_a:   
             if ((n->key.name = strdup((char *) key)) == NULL) {
                 log_error("out of memory");
                 goto errout;
@@ -127,7 +128,7 @@ cache_insert(int rec_type, const void *key, const void *val, u_int ttl)
             RB_INSERT(a_tree, &a_cache, n);
             break;
 
-        case T_MX:   
+        case ns_t_mx:   
             if ((n->key.name = strdup((char *) key)) == NULL) { 
                 log_error("out of memory");
                 goto errout;
@@ -137,7 +138,7 @@ cache_insert(int rec_type, const void *key, const void *val, u_int ttl)
             RB_INSERT(mx_tree, &mx_cache, n);
             break;
 
-        case T_PTR:
+        case ns_t_ptr:
             memcpy(&n->key, key, sizeof(in_addr_t));
             if (!n->negative && (n->val.name = strdup((char *) val)) == NULL) { 
                 log_error("out of memory");
@@ -165,16 +166,16 @@ node_free(struct node *n)
     char **p;
 
     switch (n->rec_type) {
-        case T_A:   
+        case ns_t_a:   
             free(n->key.name);
             break;
 
-        case T_PTR:   
+        case ns_t_ptr:   
             if (!n->negative)
                 free(n->val.name);
             break;
 
-        case T_MX:   
+        case ns_t_mx:   
             free(n->key.name);
             if (!n->negative) {
                 p = n->val.name_list;
@@ -200,17 +201,17 @@ cache_lookup(int rec_type, const void *key)
 
     query.rec_type = rec_type;
     switch (rec_type) {
-        case T_A:   
+        case ns_t_a:   
             query.key.name = (char *) key;
             res = RB_FIND(a_tree, &a_cache, &query);
             break;
 
-        case T_MX:   
+        case ns_t_mx:   
             query.key.name = (char *) key;
             res = RB_FIND(mx_tree, &mx_cache, &query);
             break;
 
-        case T_PTR:   
+        case ns_t_ptr:   
             query.key.addr = *((in_addr_t *) key);
             res = RB_FIND(ptr_tree, &ptr_cache, &query);
             break;
@@ -266,7 +267,7 @@ resolver_lookup_addr(in_addr_t *dst, const char *src, int flags)
     int rv;
 
     /* Check the cache */
-    if ((n = cache_lookup(T_A, src)) != NULL) {
+    if ((n = cache_lookup(ns_t_a, src)) != NULL) {
         log_debug("cache hit: neg=%d", n->negative);
         if (n->negative)
             *dst = 0;
@@ -313,7 +314,7 @@ resolver_lookup_name(char **dst, const in_addr_t src, int flags)
     int rv;
 
     /* Check the cache */
-    if ((n = cache_lookup(T_PTR, &src)) != NULL) {
+    if ((n = cache_lookup(ns_t_ptr, &src)) != NULL) {
         if (n->negative)
             *dst = "";
         else
@@ -337,7 +338,7 @@ resolver_lookup_name(char **dst, const in_addr_t src, int flags)
     }
 
     /* Add the result to the cache */
-    n = cache_insert(T_PTR, &src, &host, DEFAULT_TTL);
+    n = cache_insert(ns_t_ptr, &src, &host, DEFAULT_TTL);
     if (n == NULL)
         goto errout;
 
@@ -400,7 +401,7 @@ resolver_lookup_mx(char ***dst, const char *src, int flags)
     struct node *n;
 
     /* Check the cache */
-    if ((n = cache_lookup(T_MX, src)) != NULL) {
+    if ((n = cache_lookup(ns_t_mx, src)) != NULL) {
         *dst = n->val.name_list;
         return (0);
     } else if (flags & RES_NONBLOCK) {
@@ -415,7 +416,7 @@ resolver_lookup_mx(char ***dst, const char *src, int flags)
     ttl = 1;
 
 	/* Lookup the MX records for <domain> */
-	pkt_len = res_query(src, C_IN, T_MX, &response.buf[0], sizeof(response));
+	pkt_len = res_query(src, C_IN, ns_t_mx, &response.buf[0], sizeof(response));
 	if (pkt_len < 0) {
         dns_log_error(src, "MX lookup failed");
 		return (-1);
@@ -473,7 +474,7 @@ resolver_lookup_mx(char ***dst, const char *src, int flags)
 		
 		/* Check the record type */
 		GETSHORT(r->rr_type, cp);
-		if (r->rr_type != T_MX) {
+		if (r->rr_type != ns_t_mx) {
 			log_error("bad response record: expecting type MX");
             goto errout;
         }
@@ -527,7 +528,7 @@ resolver_lookup_mx(char ***dst, const char *src, int flags)
     free(r);
     
     /* Cache the result */
-    n = cache_insert(T_MX, src, res, ttl);
+    n = cache_insert(ns_t_mx, src, res, ttl);
     if (n == NULL) {
         free(res);
         goto errout;
