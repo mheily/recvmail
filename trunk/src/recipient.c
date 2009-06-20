@@ -33,12 +33,15 @@ struct domain {
     struct dirent **dm_entry;
 };
 
-struct domain *dlist;
-struct domain **rtable;
+static struct domain *dlist;
+static struct domain **rtable;
+static size_t   rtable_cnt;
 
-static int filter_dotfiles(struct dirent *ent);
-static int is_newer(const char *path, time_t *mtime);
-static void domain_update(struct domain *d);
+static int      filter_dotfiles(struct dirent *ent);
+static int      is_newer(const char *path, time_t *mtime);
+static void     domain_update(struct domain *d);
+static void     domain_free(struct domain *d);
+static void     rtable_update(void);
 
 static struct domain *
 domain_new(const char *path)
@@ -60,6 +63,16 @@ domain_new(const char *path)
     return (d);
 }
 
+static void
+domain_free(struct domain *d)
+{
+    while (d->dm_count--)
+        free(d->dm_entry[d->dm_count]);
+    free(d->dm_entry);
+    free(d->dm_path);
+    free(d);
+}
+
 /* PORTABILITY: scandir(3) and alphasort(3) are not in POSIX */
 /* TODO: periodically force an update regardless of mtime */
 static void
@@ -72,6 +85,7 @@ domain_update(struct domain *d)
         return;
     
     n = scandir(d->dm_path, &names, filter_dotfiles, alphasort);
+    log_debug("got %d entries in %s", n, d->dm_path);
     if (n < 0) {
         log_errno("scandir(3)");
         return;
@@ -81,11 +95,49 @@ domain_update(struct domain *d)
     free(d->dm_entry);
     d->dm_entry = names;
     d->dm_count = n;
+
+    if (d == dlist) 
+        rtable_update();
+}
+
+static void
+rtable_update(void)
+{
+    struct domain **rt;
+    char path[PATH_MAX + 1];
+    int n;
+    
+    rt = calloc(dlist->dm_count, sizeof(struct domain));
+    if (rt == NULL) {
+        log_error("out of memory");
+        return;
+    }
+
+    memset(&path, 0, sizeof(path));
+    for (n = 0; n < dlist->dm_count; n++) {
+        snprintf(path, sizeof(path), "box/%s", 
+                 dlist->dm_entry[n]->d_name);
+        rt[n] = domain_new(path);
+        if (rt[n] == NULL) {
+            while (--n >= 0)
+                domain_free(rt[n]);
+            free(rt);
+            log_error("out of memory");
+            return;
+        }
+    }
+
+    for (n = 0; n < rtable_cnt; n++)
+        domain_free(rtable[n]);
+    free(rtable);
+    rtable = rt;
+    rtable_cnt = dlist->dm_count;
 }
 
 static int
 filter_dotfiles(struct dirent *ent)
 {
+    log_debug("? %s", ent->d_name);
     return (ent->d_name[0] != '.');
 }
 
@@ -100,7 +152,7 @@ is_newer(const char *path, time_t *mtime)
     struct stat sb;
     
     if (stat(path, &sb) < 0 ) {
-        log_errno("stat(3) of box/");
+        log_errno("stat(3) of `%s'", path);
         return (0);
     }
     if (sb.st_mtime > *mtime) {
@@ -110,17 +162,12 @@ is_newer(const char *path, time_t *mtime)
         return (0);
     }
 }
-
-    /* Rebuild the list of domains if necessary */
    
 static void
 recipient_update(void *unused)
 {
     int n;
 
-//XXX-FIXME #error broken
-// need to do this AND rebuild rtable at the same time
-// probably want to copy+paste fro domain_update() and add extra stuff
     domain_update(dlist);
      
     for (n = 0; n < dlist->dm_count; n++) 
@@ -128,25 +175,38 @@ recipient_update(void *unused)
 }
 
 int
+recipient_lookup(const char *local_part, const char *domain)
+{
+    int n;
+    void *p;
+
+            log_debug("domain count=%d", dlist->dm_count);
+    for (n = 0; n < dlist->dm_count; n++) {
+            log_debug("check `%s'", dlist->dm_entry[n]->d_name);
+        if (strcasecmp(domain, dlist->dm_entry[n]->d_name) == 0) {
+            log_debug("found domain `%s'", domain);
+            p = bsearch(local_part, rtable[n]->dm_entry, 
+                    rtable[n]->dm_count,
+                    sizeof(struct dirent),
+                    alphasort);
+            return (p != NULL);
+        }
+        return (0);
+    }
+
+    return (0);
+}
+
+int
 recipient_table_init(void)
 {
-    char path[PATH_MAX + 1];
-    int n;
-    
     dlist = domain_new("box");
     if (dlist == NULL)
         return (-1);
-    rtable = calloc(dlist->dm_count, sizeof(struct domain));
+
+    rtable_update();
     if (rtable == NULL)
         return (-1);
-    memset(&path, 0, sizeof(path));
-    for (n = 0; n < dlist->dm_count; n++) {
-        snprintf(path, sizeof(path), "box/%s", 
-                 dlist->dm_entry[n]->d_name);
-        rtable[n] = domain_new(path);
-    }
-    
-    recipient_update(NULL);
     
     /* Set a timer to periodically refresh the recipient list */
     if (poll_timer_new(60 * 5, recipient_update, NULL) == NULL)
