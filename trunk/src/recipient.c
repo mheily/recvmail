@@ -84,7 +84,12 @@ domain_update(struct domain *d)
     if (! is_newer(d->dm_path, &d->dm_mtime))
         return;
     
+   /* GNU changed the prototype of scandir(3) */
+#if __linux__
+    n = scandir(d->dm_path, &names, (int (*)(const struct dirent *)) filter_dotfiles, alphasort);
+#else
     n = scandir(d->dm_path, &names, filter_dotfiles, alphasort);
+#endif
     log_debug("got %d entries in %s", n, d->dm_path);
     if (n < 0) {
         log_errno("scandir(3)");
