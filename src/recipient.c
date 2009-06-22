@@ -16,6 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <assert.h>
 #include <dirent.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -28,7 +29,7 @@
 
 struct domain {
     char   *dm_path;
-    u_int   dm_count;
+    size_t  dm_count;
     time_t  dm_mtime;
     struct dirent **dm_entry;
 };
@@ -73,6 +74,20 @@ domain_free(struct domain *d)
     free(d);
 }
 
+void
+domain_dump(struct domain *d)
+{
+    int i;
+    struct dirent *ent;
+
+    log_debug("path=`%s'", d->dm_path);
+    log_debug("count=`%zu'", d->dm_count);
+    for (i = 0; i < d->dm_count; i++) {
+        ent = d->dm_entry[i];
+        log_debug("ent %d: %s", i, ent->d_name);
+    }
+}
+
 /* PORTABILITY: scandir(3) and alphasort(3) are not in POSIX */
 /* TODO: periodically force an update regardless of mtime */
 static void
@@ -90,7 +105,6 @@ domain_update(struct domain *d)
 #else
     n = scandir(d->dm_path, &names, filter_dotfiles, alphasort);
 #endif
-    log_debug("got %d entries in %s", n, d->dm_path);
     if (n < 0) {
         log_errno("scandir(3)");
         return;
@@ -112,7 +126,7 @@ rtable_update(void)
     char path[PATH_MAX + 1];
     int n;
     
-    rt = calloc(dlist->dm_count, sizeof(struct domain));
+    rt = calloc(dlist->dm_count, sizeof(struct domain *));
     if (rt == NULL) {
         log_error("out of memory");
         return;
@@ -142,7 +156,6 @@ rtable_update(void)
 static int
 filter_dotfiles(struct dirent *ent)
 {
-    log_debug("? %s", ent->d_name);
     return (ent->d_name[0] != '.');
 }
 
@@ -180,19 +193,32 @@ recipient_update(void *unused)
 }
 
 int
+recipient_domain_lookup(const char *domain)
+{
+    int n;
+
+    for (n = 0; n < dlist->dm_count; n++) {
+        if (strcasecmp(domain, dlist->dm_entry[n]->d_name) == 0) 
+            return (1);
+    }
+
+    return (0);
+}
+
+int
 recipient_lookup(const char *local_part, const char *domain)
 {
     int n;
+    struct dirent dent;
+    struct dirent *dentp = &dent;
     void *p;
 
-            log_debug("domain count=%d", dlist->dm_count);
     for (n = 0; n < dlist->dm_count; n++) {
-            log_debug("check `%s'", dlist->dm_entry[n]->d_name);
         if (strcasecmp(domain, dlist->dm_entry[n]->d_name) == 0) {
-            log_debug("found domain `%s'", domain);
-            p = bsearch(local_part, rtable[n]->dm_entry, 
+            strcpy(&dent.d_name[0], local_part); //FIXME: no length check
+            p = bsearch(&dentp, rtable[n]->dm_entry, 
                     rtable[n]->dm_count,
-                    sizeof(struct dirent),
+                    sizeof(struct dirent *),
                     alphasort);
             return (p != NULL);
         }

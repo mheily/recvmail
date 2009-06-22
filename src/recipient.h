@@ -22,6 +22,7 @@
 //int     resolver_lookup_addr(in_addr_t *, const char *, int);
 //int     resolver_lookup_name(char **, const in_addr_t, int);
 int     recipient_table_init(void);
+int     recipient_domain_lookup(const char *domain);
 int     recipient_lookup(const char *local_part, const char *domain);
 //TODO:void    recipient_atexit(void);
 
