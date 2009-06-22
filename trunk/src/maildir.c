@@ -32,21 +32,6 @@
 #include "socket.h"
 #include "log.h"
 
-static int
-path_exists(const char *path)
-{
-    if (access(path, W_OK) < 0) {
-        if (errno == ENOENT) {
-            return (0);
-        } else {
-            log_errno("access(2) of `%s'", path);
-            return (-1);
-        }
-    }
-
-    return (1);
-}
-
 static int 
 maildir_get_path(char *buf, size_t n, const struct mail_addr *ma)
 {
@@ -56,31 +41,6 @@ maildir_get_path(char *buf, size_t n, const struct mail_addr *ma)
     }
 
     return (0);
-}
-
-int
-domain_exists(const struct mail_addr *ma)
-{
-    char buf[PATH_MAX];
-
-    if (snprintf((char *) &buf, sizeof(buf), "box/%s",
-                ma->domain) >= sizeof(buf)) {
-        log_error("mailbox name too long");
-        return (-1);
-    }
-
-    return (path_exists((char *) &buf));
-}
-
-int
-maildir_exists(const struct mail_addr *ma)
-{
-    char buf[PATH_MAX];
-
-    if (maildir_get_path((char *) &buf, sizeof(buf), ma) != 0)
-        return (-1);
-
-    return (path_exists((char *) &buf));
 }
 
 /* Generate a unique ID suitable for delivery to a Maildir */

@@ -29,8 +29,6 @@ struct mail_addr {
     LIST_ENTRY(mail_addr) entries;
 };
 
-int             domain_exists(const struct mail_addr *);
-
 struct rfc2822_addr * 
     rfc2822_addr_new();
 

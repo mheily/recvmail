@@ -20,10 +20,8 @@
 
 struct message;
 struct session;
-struct mail_addr;
 
 int maildir_msg_open(struct message *, struct session *);
-int maildir_exists(const struct mail_addr *);
 int maildir_deliver(struct message *);
 
 #endif  /* _MAILDIR_H */

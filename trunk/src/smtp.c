@@ -154,7 +154,7 @@ smtpd_rcpt(struct session *s, char *line)
     /* Remove leading whitespace and '<' bracket */
     for (; *line == ' ' || *line == '<'; line++);  
 
-    buf = strdup(line); //fixme: errhandling
+    buf = strdup(line); //FIXME: errhandling
 
     /* Ignore any trailing whitespace and additional options */
     /* TODO - handle quoted whitespace */
@@ -169,33 +169,21 @@ smtpd_rcpt(struct session *s, char *line)
     }
 
     /* Check if we accept mail for this domain */
-    switch (domain_exists(ma)) {
-        case -1: 
-            smtpd_fatal_error(s);
-            goto errout;
-        case 0: 
-            session_println(s, "551 Relay access denied");
-            goto errout;
-            break;
+    if (!recipient_domain_lookup(ma->domain)) {
+        session_println(s, "551 Relay access denied");
+        goto errout;
     }
 
     /* Check if the mailbox exists */
-    switch (maildir_exists(ma)) {
-        case -1: 
-            session_println(s, "421 Internal error, closing connection");
-            s->smtp_state = SMTP_STATE_QUIT;
-            goto errout;
-            break;
-        case 0: 
-            session_println(s, "550 Mailbox does not exist");
-            goto errout;
-            break;
-        case 1:
-            LIST_INSERT_HEAD(&s->msg->recipient, ma, entries);
-            s->msg->recipient_count++;
-            session_println(s, "250 Ok");
-            break;
+    if (!recipient_lookup(ma->local_part, ma->domain)) {
+        session_println(s, "550 Mailbox does not exist");
+        goto errout;
     }
+
+    /* Add the recipient to the envelope */
+    LIST_INSERT_HEAD(&s->msg->recipient, ma, entries);
+    s->msg->recipient_count++;
+    session_println(s, "250 Ok");
 
     free(buf);
     return (0);
@@ -570,9 +558,6 @@ smtpd_init(void)
         log_error("recipient_table_init() failed");
         return (-1);
     }
-    //FIXME: testing
-    log_warning("1=%d", recipient_lookup("cool","nowhere.com"));
-    log_warning("0=%d", recipient_lookup("laem","nowhere.com"));
 
     /* Create the DNSBL thread */
     if (OPT.use_dnsbl) {
