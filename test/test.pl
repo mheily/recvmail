@@ -11,7 +11,7 @@ sub dbg { print STDERR $_[0], "\n" if $DEBUG }
 sub client_init() {
 
     my $sock = IO::Socket::INET->new(PeerAddr => $HOST, 
-            PeerPort => '1025',
+            PeerPort => '25',
             Proto    => 'tcp');
     die "$!" unless $sock;
 
