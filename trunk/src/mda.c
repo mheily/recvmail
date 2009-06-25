@@ -61,13 +61,18 @@ static void
 mda_deliver(struct work *wqa, void *udata)
 {
     struct message *msg;
-    
+
     msg = (struct message *) wqa->argv0.ptr;
-    message_fsync(msg); // TODO: error handling
-    maildir_deliver(msg);// TODO: error handling
-    log_info("delivered %s", msg->filename);
-    message_close(msg); // TODO: error handling
-    message_free(msg);
+    if (message_fsync(msg) < 0 ||
+            maildir_deliver(msg) < 0 ||
+            message_close(msg) < 0) 
+    {
+        message_free(msg);
+        wqa->retval = -1;
+    } else {
+        message_free(msg);
+        wqa->retval = 0;
+    }
 }
 
 
