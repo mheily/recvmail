@@ -19,10 +19,12 @@
 #include <assert.h>
 #include <dirent.h>
 #include <limits.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 #include "log.h"
 #include "poll.h"
@@ -37,6 +39,7 @@ struct domain {
 static struct domain *dlist;
 static struct domain **rtable;
 static size_t   rtable_cnt;
+static pthread_mutex_t rtable_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 static int      filter_dotfiles(struct dirent *ent);
 static int      is_newer(const char *path, time_t *mtime);
@@ -109,14 +112,15 @@ domain_update(struct domain *d)
         log_errno("scandir(3)");
         return;
     }
+    pthread_mutex_lock(&rtable_mtx);
     while (d->dm_count--)
         free(d->dm_entry[d->dm_count]);
     free(d->dm_entry);
     d->dm_entry = names;
     d->dm_count = n;
-
     if (d == dlist) 
         rtable_update();
+    pthread_mutex_unlock(&rtable_mtx);
 }
 
 static void
@@ -181,26 +185,19 @@ is_newer(const char *path, time_t *mtime)
     }
 }
    
-static void
-recipient_update(void *unused)
-{
-    int n;
-
-    domain_update(dlist);
-     
-    for (n = 0; n < dlist->dm_count; n++) 
-         domain_update(rtable[n]);  
-}
-
 int
 recipient_domain_lookup(const char *domain)
 {
     int n;
 
+    pthread_mutex_lock(&rtable_mtx);
     for (n = 0; n < dlist->dm_count; n++) {
-        if (strcasecmp(domain, dlist->dm_entry[n]->d_name) == 0) 
-            return (1);
+        if (strcasecmp(domain, dlist->dm_entry[n]->d_name) == 0) {
+            pthread_mutex_unlock(&rtable_mtx);
+            return (1); 
+        }
     }
+    pthread_mutex_unlock(&rtable_mtx);
 
     return (0);
 }
@@ -213,6 +210,7 @@ recipient_lookup(const char *local_part, const char *domain)
     struct dirent *dentp = &dent;
     void *p;
 
+    pthread_mutex_lock(&rtable_mtx);
     for (n = 0; n < dlist->dm_count; n++) {
         if (strcasecmp(domain, dlist->dm_entry[n]->d_name) == 0) {
             strcpy(&dent.d_name[0], local_part); //FIXME: no length check
@@ -220,17 +218,36 @@ recipient_lookup(const char *local_part, const char *domain)
                     rtable[n]->dm_count,
                     sizeof(struct dirent *),
                     alphasort);
+            pthread_mutex_unlock(&rtable_mtx);
             return (p != NULL);
         }
+        pthread_mutex_unlock(&rtable_mtx);
         return (0);
-    }
-
+     }
+    
+    pthread_mutex_unlock(&rtable_mtx);
     return (0);
+    
+}
+
+void *
+recipient_table_update(void *unused)
+{
+    int n;
+
+    for (;;) {
+        domain_update(dlist);
+        for (n = 0; n < dlist->dm_count; n++) 
+            domain_update(rtable[n]);  
+        sleep(60 * 5);
+    }
 }
 
 int
 recipient_table_init(void)
 {
+    pthread_t tid;
+    
     dlist = domain_new("box");
     if (dlist == NULL)
         return (-1);
@@ -238,10 +255,9 @@ recipient_table_init(void)
     rtable_update();
     if (rtable == NULL)
         return (-1);
-    
-    /* Set a timer to periodically refresh the recipient list */
-    if (poll_timer_new(60 * 5, recipient_update, NULL) == NULL)
-        return(-1);
-    
+
+    if (pthread_create(&tid, NULL, recipient_table_update, NULL) != 0) 
+        return (-1);
+        
     return (0);
 }
