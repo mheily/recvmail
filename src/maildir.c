@@ -183,6 +183,7 @@ errout:
     LIST_FOREACH(ma, &msg->recipient, entries) {
         log_warning("XXX-fixme todo");
     }
+    /* FIXME: delete the spoolfile */
     return (-1);
 }
 
