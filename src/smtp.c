@@ -74,10 +74,11 @@ smtp_mda_callback(struct session *s, int retval)
     s->handler = smtpd_parser;
     smtpd_session_reset(s);
 
-    //FIXME: check retval, delivery might have failed
-    
-    log_debug("callback");
-    session_println(s, "250 Message delivered");
+    if (retval == 0) {
+        session_println(s, "250 Message delivered");
+    } else {
+        session_println(s, "451 Requested action aborted: error in processing");
+    }
     session_resume(s);
 }
 

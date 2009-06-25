@@ -239,7 +239,9 @@ recipient_table_update(void *unused)
         domain_update(dlist);
         for (n = 0; n < dlist->dm_count; n++) 
             domain_update(rtable[n]);  
-        sleep(60 * 5);
+        /* TODO: convert to timed sleep on condition var so a
+           SIGHUP can force the rtable to be updated. */
+        sleep(60 * 5);      
     }
 }
 
