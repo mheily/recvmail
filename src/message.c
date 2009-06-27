@@ -55,8 +55,13 @@ message_free(struct message *msg)
     if (msg == NULL)
         return;
 
-    log_debug("freeing the message");
-    free(msg->path);
+    /* Delete the message from the spool/ directory */
+    if (msg->path != NULL) {
+        if (unlink(msg->path) != 0)
+            log_errno("unlink(2) of `%s'", msg->path);
+        free(msg->path);
+    }
+
     address_free(msg->sender);
     free(msg->filename);
 
