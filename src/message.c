@@ -72,5 +72,3 @@ message_free(struct message *msg)
     }
     free(msg);
 }
-
-

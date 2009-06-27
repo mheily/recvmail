@@ -168,14 +168,6 @@ maildir_deliver(struct message *msg)
         /* TODO - sync metadata */
     }
 
-    /* Delete the message from the spool/ directory */
-    if (unlink(msg->path) != 0) {
-            log_errno("unlink(2) of `%s'", msg->path);
-            goto errout;
-    }
-    free(msg->path);
-    msg->path = NULL;
-
     return (0);
 
 errout:
