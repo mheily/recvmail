@@ -5,8 +5,6 @@
 
 /* Configuration options */
 
-#define CHROOTDIR            "/srv/mail"
-
 struct options {
     u_short     port;
     bool        debugging;
