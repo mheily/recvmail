@@ -21,8 +21,6 @@
 #include <stdarg.h>
 #include <unistd.h>
 
-#include "tree.h"
-
 #include "log.h"
 #include "poll.h"
 #include "protocol.h"
@@ -31,11 +29,11 @@
 #include "message.h"
 #include "maildir.h"
 
-/** vasprintf(3) is a GNU extension and not universally visible */
-extern int      vasprintf(char **, const char *, va_list);
+static void session_table_expire(void *unused);
 
 /**
  * Session table.
+ * TODO: use a binary tree for faster searching
  */
 static LIST_HEAD(,session) st;
 static pthread_mutex_t     st_mtx;
@@ -44,13 +42,22 @@ static struct timer       *st_expiration_timer;
 /* defined in smtp.c */
 extern struct protocol SMTP;
 
+static void
+session_table_expire(void *unused)
+{
+    struct session *s, *s_next;
+    time_t now;
 
-/*
- *
- * PUBLIC FUNCTIONS
- *
- */
-
+    log_debug("expiring idle sessions");
+    now = time(NULL);
+    for (s = LIST_FIRST(&st); s != LIST_END(&st); s = s_next) {
+        s_next = LIST_NEXT(s, st_entries);
+        if (s->timeout < now) {
+            s->proto->timeout_hook(s);
+            session_close(s);
+        }
+    }
+}
 
 int
 session_read(struct session *s) 
@@ -86,9 +93,6 @@ session_read(struct session *s)
     return (0);
 }
 
-
-
-
 int
 session_vprintf(struct session *s, const char *format, va_list ap)
 {
@@ -108,7 +112,6 @@ session_vprintf(struct session *s, const char *format, va_list ap)
         return (rv);
 }
 
-
 int
 session_printf(struct session *s, const char *format, ...)
 {
@@ -122,13 +125,11 @@ session_printf(struct session *s, const char *format, ...)
     return (rv);
 }
 
-
 int
 session_println(struct session *s, const char *buf)
 {
-        return (session_printf(s, "%s\r\n", buf));
+    return (session_printf(s, "%s\r\n", buf));
 }
-
 
 struct session *
 session_new(int fd)
@@ -186,7 +187,6 @@ session_close(struct session *s)
     free(s);
 }
 
-
 void
 session_handler(void *sptr, int events)
 {
@@ -214,14 +214,12 @@ session_handler(void *sptr, int events)
 #endif
 }
 
-
 int
 session_suspend(struct session *s)
 {
     s->handler = NULL;
     return socket_poll_disable(s->sock);
 }
-
 
 int
 session_resume(struct session *s)
@@ -239,41 +237,23 @@ session_resume(struct session *s)
     return (0);
 }
 
-
 int
 session_table_lookup(struct session **sptr, unsigned long sid)
 {
     struct session *s;
    
-    // TODO: use a binary tree
-// FIXME -- called from workqueue, ergo needs mutex protection.   
+    pthread_mutex_lock(&st_mtx);
     LIST_FOREACH(s, &st, st_entries) {
         if (s->id == sid) {
             *sptr = s;
+            pthread_mutex_unlock(&st_mtx);
             return (0);
         }
     }
 
     *sptr = NULL;
+    pthread_mutex_unlock(&st_mtx);
     return (-1);
-}
-
-
-static void
-session_table_expire(void *unused)
-{
-    struct session *s, *s_next;
-    time_t now;
-
-    log_debug("expiring idle sessions");
-    now = time(NULL);
-    for (s = LIST_FIRST(&st); s != LIST_END(&st); s = s_next) {
-        s_next = LIST_NEXT(s, st_entries);
-        if (s->timeout < now) {
-            s->proto->timeout_hook(s);
-            session_close(s);
-        }
-    }
 }
 
 
