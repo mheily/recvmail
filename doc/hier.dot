@@ -1,0 +1,21 @@
+Digraph G {
+        "/" -> "var"
+        "var" -> "recvmail"
+        "recvmail" -> "box"
+        "box" -> "example.com"
+        "example.com" -> "user1"
+        "recvmail" -> "etc"
+        "recvmail" -> "spool"
+         mdir1a [label = "new"]
+         mdir1b [label = "cur"]
+         mdir1c [label = "tmp"]
+         mdir2a [label = "new"]
+         mdir2b [label = "cur"]
+         mdir2c [label = "tmp"]
+        "spool" -> mdir1a
+        "spool" -> mdir1b
+        "spool" -> mdir1c
+        "user1" -> mdir2a
+        "user1" -> mdir2b
+        "user1" -> mdir2c
+}

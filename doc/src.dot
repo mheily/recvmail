@@ -1,6 +1,5 @@
 Digraph G {
 
-main -> poll
 main -> server
 main -> smtp
 
@@ -8,12 +7,12 @@ server -> session
 server -> mda
 server -> poll
 server -> resolver
-server -> dnsbl
 server -> workqueue
 
 session -> socket
 session -> message
 session -> maildir
+session -> protocol
 
 mda -> session
 mda -> maildir
@@ -27,5 +26,7 @@ message -> address
 
 dnsbl -> workqueue
 
+smtp -> session
+smtp -> protocol
 
 }
