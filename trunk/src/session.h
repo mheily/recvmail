@@ -77,7 +77,7 @@ int     session_suspend(struct session *);
 int     session_resume(struct session *);
 void    session_handler(void *, int);
 
-void    session_table_init(void);
+int     session_table_init(void);
 int     session_table_lookup(struct session **, unsigned long);
 
 #endif /* _SESSION_H */

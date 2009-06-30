@@ -256,11 +256,11 @@ session_table_lookup(struct session **sptr, unsigned long sid)
     return (-1);
 }
 
-
-void
+int
 session_table_init(void)
 {
     LIST_INIT(&st);
     st_expiration_timer = poll_timer_new(60, session_table_expire, NULL);
     pthread_mutex_init(&st_mtx, NULL);
+    return (0);
 }

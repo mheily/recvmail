@@ -208,7 +208,8 @@ server_init(int argc, char *argv[], struct protocol *proto)
     memset(&srv, 0, sizeof(srv));
     srv.proto = proto;
     LIST_INIT(&srv.if_list);
-    session_table_init();
+    if (session_table_init() < 0)
+        return (-1);
 
     if (options_parse(argc, argv) < 0) {
         log_error("options_parse() failed");
