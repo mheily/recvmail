@@ -38,6 +38,7 @@
 #include "socket.h"
 #include "smtp.h"
 #include "workqueue.h"
+#include "util.h"
 
 static int sanity_check(void);
 
@@ -495,41 +496,13 @@ sanity_check(void)
 static int
 create_dirs(void)
 {
-    /* Create the spooldir, if necessary */
-    if (access("spool", F_OK) != 0) {
-        if (errno != ENOENT) {
-            log_errno("access(2) of `spool'");
-            return (-1);
-        }
-        if (mkdir("spool", 0770) != 0) {
-            log_errno("mkdir(2) of `spool'");
-            return (-1);
-        }
-        if (mkdir("spool/new", 0770) != 0) {
-            log_errno("mkdir(2) of `spool/new'");
-            return (-1);
-        }
-        if (mkdir("spool/cur", 0770) != 0) {
-            log_errno("mkdir(2) of `spool/cur'");
-            return (-1);
-        }
-        if (mkdir("spool/tmp", 0770) != 0) {
-            log_errno("mkdir(2) of `spool/tmp'");
-            return (-1);
-        }
-    }
-
-    /* Create the mailboxdir, if necessary */
-    if (access("box", F_OK) != 0) {
-        if (errno != ENOENT) {
-            log_errno("access(2) of `box'");
-            return (-1);
-        }
-
-        if (mkdir("box", 0770) != 0) {
-            log_errno("mkdir(2) of `box'");
-            return (-1);
-        }
+    if (!file_exists("spool") && maildir_create("spool") < 0)
+        return (-1);
+    if (!file_exists("queue") && maildir_create("queue") < 0)
+        return (-1);
+    if (!file_exists("box") && mkdir("box", 0770) != 0) {
+        log_errno("mkdir(2) of `box'");
+        return (-1);
     }
 
     return (0);

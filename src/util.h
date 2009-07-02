@@ -1,4 +1,4 @@
-/*		$Id$		*/
+/*		$Id: workqueue.h 241 2009-05-07 01:54:09Z mheily $		*/
 
 /*
  * Copyright (c) 2009 Mark Heily <devel@heily.com>
@@ -15,14 +15,9 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#ifndef _MAILDIR_H
-#define _MAILDIR_H
+#ifndef _UTIL_H
+#define _UTIL_H
 
-struct message;
-struct session;
+int  file_exists(const char *path);
 
-int maildir_msg_open(struct message *, struct session *);
-int maildir_deliver(struct message *);
-int maildir_create(const char *);
-
-#endif  /* _MAILDIR_H */
+#endif  /* _UTIL_H */
