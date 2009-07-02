@@ -1,4 +1,4 @@
-/*		$Id$		*/
+/*		$Id: workqueue.c 228 2009-04-28 02:59:31Z mheily $		*/
 
 /*
  * Copyright (c) 2009 Mark Heily <devel@heily.com>
@@ -15,14 +15,23 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#ifndef _MAILDIR_H
-#define _MAILDIR_H
 
-struct message;
-struct session;
+#include <errno.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
-int maildir_msg_open(struct message *, struct session *);
-int maildir_deliver(struct message *);
-int maildir_create(const char *);
+int
+file_exists(const char *path)
+{
+    struct stat sb;
 
-#endif  /* _MAILDIR_H */
+    if (stat(path, &sb) != 0) {
+        /* TODO: if (errno != ENOENT) abort ? hang and retry ? */
+        return (0);
+    }
+
+    return (1);
+}
+

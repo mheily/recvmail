@@ -179,6 +179,25 @@ errout:
     return (-1);
 }
 
+int
+maildir_create(const char *path)
+{
+    const char *fmt[] = { "%s", "%s/new", "%s/cur", "%s/tmp", NULL };
+    char **p;
+    char buf[PATH_MAX];
+
+    for (p = (char **) fmt; *p != NULL; p++) {
+        if (snprintf((char *) &buf, sizeof(buf), *p, path) >= sizeof(buf)) {
+            log_error("name too long");
+            return (-1);
+        }
+        if (mkdir(buf, 0770) != 0) {
+            log_errno("mkdir(2) of `%s'", buf);
+            return (-1);
+        }
+    }
+    return (0);
+}
 
 int
 message_close(struct message *msg)
