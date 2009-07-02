@@ -1,0 +1,68 @@
+Queue design
+------------
+
+qdir: /srv/mail/queue/{new,cur,tmp}
+
+each message contains the following SMTP header lines at the
+top:
+
+X-Recvmail-Version: 1
+X-Recieved-Time: 1246503073
+X-SMTP-Envelope: BEGIN
+X-SMTP-MAIL-FROM: address@domain.com
+X-SMTP-RCPT-TO: recipient1@other.domain.com
+X-SMTP-RCPT-TO: recipient2@other.domain.com
+X-SMTP-Envelope: END
+<original message follows>
+
+Queue ID
+===
+
+The queue ID is the maildir message filename.
+
+Aging / Retries
+===
+
+A separate linked list of 
+
+Dequeuing
+===
+
+When the program starts, each message in the queue will be processed.
+For each message in the queue
+
+ - Read the 1st line and check the API version
+ - Read the timestamp
+ - Parse the SMTP envelope 
+ - If the message is too old to retry, bounce it.
+ - Contact the remote MTA
+ 
+
+Bounces
+=======
+
+Recvmail avoids bouncing by keeping the client online until the message is 
+accepted by the remote MTA. E.g. a conversation might look like this:
+
+Client connects to mx1.foo.com and submits a message:
+
+                    HELO smtp.smith.com
+                    MAIL FROM:joe@smith.com
+                    RCPT TO:bob@foo.com
+                    DATA
+                    Subject: Hello
+                    .
+
+If mail for bob is forwarded to another system (e.g. bobfoo@gmail.com),
+Recvmail will connect to the remote MX and submit the message.
+
+        HELO mx1.foo.com
+        MAIL FROM:joe@smith.com
+        RCPT TO:bobfoo@gmail.com
+        DATA
+        Subject: Hello
+        .
+        QUIT
+
+If there is a temporary or permanent error from the remote host, 
+   Recvmail will return the error to the client.
