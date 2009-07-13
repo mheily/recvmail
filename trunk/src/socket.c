@@ -21,6 +21,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <openssl/ssl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -31,8 +32,11 @@
 #include "poll.h"
 #include "queue.h"
 #include "log.h"
+#include "util.h"
 
 static int socket_read(struct socket *sock);
+
+static SSL_CTX *ssl_ctx;
 
 /* The maximum line length (based on SMTP_LINE_MAX) */
 // TODO: don't need 2 identical constants
@@ -400,4 +404,24 @@ const char *
 socket_get_peername(struct socket *sock)
 {
     return ((const char *) &sock->peername);
+}
+
+int
+socket_init(void)
+{
+    /* OpenSSL transparently seeds the PRNG from /dev/urandom, if it
+       exists. Otherwise, it silently fails to seed the PRNG. */
+    if (!file_exists("/dev/urandom")) {
+        log_error("Unable to seed the PRNG");
+        return (-1);
+    }
+
+    if (SSL_library_init() < 0)
+        return (-1);
+    SSL_load_error_strings();
+    ssl_ctx = SSL_CTX_new(SSLv23_method());
+    if (ssl_ctx == NULL)
+        return (-1);
+
+    return (0);
 }
