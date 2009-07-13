@@ -3,6 +3,7 @@ Queue design
 
 qdir: /srv/mail/queue/{new,cur,tmp}
 
+each message in the queue is encapsulated with another set of headers.
 each message contains the following SMTP header lines at the
 top:
 
@@ -13,6 +14,7 @@ X-SMTP-MAIL-FROM: address@domain.com
 X-SMTP-RCPT-TO: recipient1@other.domain.com
 X-SMTP-RCPT-TO: recipient2@other.domain.com
 X-SMTP-Envelope: END
+<CRLF>
 <original message follows>
 
 Queue ID
@@ -31,9 +33,8 @@ Dequeuing
 When the program starts, each message in the queue will be processed.
 For each message in the queue
 
- - Read the 1st line and check the API version
- - Read the timestamp
- - Parse the SMTP envelope 
+ - Check the Recvmail API version
+ - Parse the headers 
  - If the message is too old to retry, bounce it.
  - Contact the remote MTA
  
@@ -66,3 +67,5 @@ Recvmail will connect to the remote MX and submit the message.
 
 If there is a temporary or permanent error from the remote host, 
    Recvmail will return the error to the client.
+
+This makes it basically an SMTP reverse proxy.
