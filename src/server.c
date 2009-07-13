@@ -47,6 +47,7 @@ struct net_interface {
     struct sockaddr_storage ss;
     socklen_t ss_len;
     int fd;
+    int use_tls;
     LIST_ENTRY(net_interface) entry;
 };
 
@@ -208,7 +209,8 @@ server_init(int argc, char *argv[], struct protocol *proto)
     memset(&srv, 0, sizeof(srv));
     srv.proto = proto;
     LIST_INIT(&srv.if_list);
-    if (session_table_init() < 0)
+    if ((session_table_init() < 0) ||
+        (socket_init() < 0))
         return (-1);
 
     if (options_parse(argc, argv) < 0) {

@@ -34,5 +34,6 @@ int      socket_poll_disable(struct socket *);
 int      socket_get_family(struct socket *);
 int      socket_get_peeraddr4(struct socket *);
 const char *   socket_get_peername(struct socket *);
+int      socket_init(void);
 
 #endif /* _SOCKET_H */
