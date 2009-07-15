@@ -30,6 +30,7 @@
 
 #include "socket.h"
 #include "poll.h"
+#include "options.h"
 #include "queue.h"
 #include "log.h"
 #include "util.h"
@@ -422,6 +423,16 @@ socket_init(void)
     ssl_ctx = SSL_CTX_new(SSLv23_method());
     if (ssl_ctx == NULL)
         return (-1);
+
+    /* TODO: print the SSL error strings with ERR_error_string(3SSL) */
+    if (SSL_CTX_use_certificate_chain_file(ssl_ctx, OPT.ssl_certfile) != 1) {
+        log_error("unable to load certificate `%s'", OPT.ssl_certfile);
+        return (-1);
+    }
+    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, OPT.ssl_keyfile, SSL_FILETYPE_PEM) != 1) {
+        log_error("unable to load private key from `%s'", OPT.ssl_keyfile);
+        return (-1);
+    }
 
     return (0);
 }

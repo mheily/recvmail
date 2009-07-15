@@ -209,8 +209,7 @@ server_init(int argc, char *argv[], struct protocol *proto)
     memset(&srv, 0, sizeof(srv));
     srv.proto = proto;
     LIST_INIT(&srv.if_list);
-    if ((session_table_init() < 0) ||
-        (socket_init() < 0))
+    if (session_table_init() < 0)
         return (-1);
 
     if (options_parse(argc, argv) < 0) {
@@ -218,6 +217,11 @@ server_init(int argc, char *argv[], struct protocol *proto)
         return (-1);
     }
     
+    if (socket_init() < 0) {
+        log_error("socket_init() failed");
+        return (-1);
+    }
+
     if (poll_init() < 0) {
         log_error("poll_init() failed");
         return (-1);
@@ -571,6 +575,11 @@ options_parse(int argc, char *argv[])
         return (-1);
     }
     OPT.hostname = strdup(&buf[0]);
+
+    /* Set the default SSL key/cert location */
+    /* XXX-FIXME: for testing only */
+    OPT.ssl_certfile = strdup("/etc/ssl/certs/ssl-cert-snakeoil.pem");
+    OPT.ssl_keyfile = strdup("/etc/ssl/private/ssl-cert-snakeoil.key");
 
     /* Get arguments from ARGV */
     while ((c = getopt(argc, argv, "fho:qu:v")) != -1) {
