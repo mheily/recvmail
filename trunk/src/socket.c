@@ -21,6 +21,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <openssl/bio.h>
 #include <openssl/ssl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,9 +55,11 @@ struct line {
 
 /* A socket buffer */
 struct socket {
-    int         fd;
+    int     fd;
     struct sockaddr_storage peer;
     char peername[INET6_ADDRSTRLEN];
+    int     tls;
+    BIO    *bio;
     STAILQ_HEAD(,line) input;
     STAILQ_HEAD(,line) output;  //TODO:not used yet
     struct line *input_tmp;
@@ -108,7 +111,6 @@ append_input(struct socket *sock, const char *buf, size_t len)
     return (0);
 }
 
-
 struct socket *
 socket_new(int fd)
 {
@@ -149,6 +151,7 @@ socket_new(int fd)
             log_errno("getpeername(3) of fd %d", fd);
             goto errout;
     }
+
     /* Generate a human-readable representation of the remote address */
     rv = getnameinfo((struct sockaddr *) &sock->peer, cli_len, 
                 &sock->peername[0], sizeof(sock->peername), NULL, 0, NI_NUMERICHOST);
@@ -157,14 +160,12 @@ socket_new(int fd)
             goto errout;
     }
 
-
     return (sock);
 
 errout:
     free(sock);
     return (NULL);
 }
-
 
 void
 socket_free(struct socket *sock)
@@ -195,9 +196,11 @@ socket_free(struct socket *sock)
         n1 = n2;
     }
 
+    if (sock->tls)
+        BIO_vfree(sock->bio);
+
     free(sock);
 }
-
 
 ssize_t
 socket_readln(char **dst, struct socket *sock)
@@ -233,7 +236,6 @@ socket_readln(char **dst, struct socket *sock)
     return (0);
 }
 
-
 int
 socket_poll_enable(struct socket *sock, 
         int events,
@@ -243,14 +245,12 @@ socket_poll_enable(struct socket *sock,
     return poll_enable(sock->fd, events, callback, udata);
 }
 
-
 int
 socket_poll_disable(struct socket *sock)
 {
     /* TODO: fix poll_disable() and use it instead */
     return poll_remove(sock->fd);
 }
-
 
 static int
 parse_lines(struct socket *sock, char *buf, size_t buf_len)
@@ -295,7 +295,6 @@ parse_lines(struct socket *sock, char *buf, size_t buf_len)
 
     return (0);
 }
-
 
 static int
 socket_read(struct socket *sock)
@@ -378,6 +377,25 @@ socket_write(struct socket *sock, const char *buf, size_t len)
     return (0);
 }
 
+int
+socket_starttls(struct socket *sock)
+{
+    sock->tls = 1;
+
+    /* Create the BIO */
+    sock->bio = BIO_new(BIO_s_socket());
+    if (sock->bio == NULL) {
+        log_errno("BIO_new() failed");
+        sock->tls = 0;
+        return (-1);
+    }
+    BIO_set_fd(sock->bio, sock->fd, BIO_NOCLOSE);
+
+/*XXX- FIXME SSL_accept()*/
+    return (-1);
+
+    return (0);
+}
 
 int
 socket_pending(struct socket *sock)
