@@ -68,6 +68,7 @@ static int smtpd_fatal_error(struct session *s);
 
 static int smtpd_quit(struct session *s);
 static int smtpd_rset(struct session *s);
+static int smtpd_starttls(struct session *s);
 
 void
 smtp_mda_callback(struct session *s, int retval)
@@ -83,7 +84,6 @@ smtp_mda_callback(struct session *s, int retval)
     session_resume(s);
 }
 
-
 static int
 smtpd_session_reset(struct session *s)
 {
@@ -98,7 +98,6 @@ smtpd_session_reset(struct session *s)
     return (0);
 }
 
-
 static int
 smtpd_helo(struct session *s, const char *arg)
 {
@@ -107,18 +106,38 @@ smtpd_helo(struct session *s, const char *arg)
     return (0);
 }
 
-
 static int
 smtpd_ehlo(struct session *s, const char *arg)
 {
     log_debug("EHLO=`%s'", arg);
     session_printf(s, "250-%s\r\n"
                     "250-PIPELINING\r\n"
+                    "250-STARTTLS\r\n"
                     "250 8BITMIME\r\n" 
                     , OPT.hostname);
     return (0);
 }
 
+/* See also: RFC 2487 */
+static int
+smtpd_starttls(struct session *s)
+{
+    session_println(s, "220 Ready to start TLS");
+
+    if (socket_starttls(s->sock) < 0) {
+        log_error("STARTTLS failed");
+        return (-1);
+    }
+
+    /* Throw away all client information including HELO */
+    if (smtpd_session_reset(s) != 0) {
+        log_error("reset failed");
+        return (-1);
+    }
+    s->smtp_state = SMTP_STATE_MAIL;
+
+    return (0);
+}
 
 static int
 smtpd_mail(struct session *s, const char *arg)
@@ -132,7 +151,6 @@ smtpd_mail(struct session *s, const char *arg)
     session_println(s, "250 Ok");
     return (0);
 }
-
 
 static int
 smtpd_rcpt(struct session *s, char *line)
@@ -196,7 +214,6 @@ errout:
     return (-1);
 }
 
-
 static int
 smtpd_data(struct session *s, const char *arg)
 {
@@ -214,7 +231,6 @@ smtpd_data(struct session *s, const char *arg)
     
     return (0);
 }
-
 
 static int
 smtpd_rset(struct session *s)
@@ -296,7 +312,6 @@ smtpd_parser(struct session *s)
     return (0);
 }
 
-
 static int
 smtpd_parse_command(struct session *s, char *src, size_t len)
 {
@@ -353,12 +368,14 @@ smtpd_parse_command(struct session *s, char *src, size_t len)
                   if (strcasecmp(src, "RSET") == 0)
                       return (smtpd_rset(s));
                   break;
+        case 'S': if (strcasecmp(src, "STARTTLS") == 0)
+                      return (smtpd_starttls(s));
+                  break;
     }
 
     session_println(s, "502 Error: invalid command");
     return (-1);
 }
-
 
 /*
  * parse_smtp_data(msg, src, len)
@@ -427,14 +444,12 @@ dnsbl_response_handler(struct session *s, int retval)
     }
 }
 
-
 static int
 smtpd_greeting(struct session *s)
 {
     session_println(s, "220 ESMTP server ready");
     return (0);
 }
-
 
 int
 smtpd_accept(struct session *s)
@@ -453,7 +468,6 @@ smtpd_accept(struct session *s)
     return (0);
 }
 
-
 void
 smtpd_timeout(struct session *s)
 {
@@ -461,13 +475,11 @@ smtpd_timeout(struct session *s)
     session_println(s, "421 Idle time limit exceeded, goodbye");
 }
 
-
 void
 smtpd_client_error(struct session *s)
 {
     session_println(s, "421 Too many errors");
 }
-
 
 void
 smtpd_close(struct session *s)
@@ -491,7 +503,6 @@ sanity_check(void)
 
    return (0);
 }
-
 
 static int
 create_dirs(void)
