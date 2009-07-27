@@ -234,13 +234,11 @@ poll_free(void)
     close(sc_pipefd[1]);
 }
 
-
 void
 poll_shutdown(void)
 {
     shutdown_flag = 1;
 }
-
 
 int
 poll_dispatch(void)
@@ -328,7 +326,6 @@ poll_dispatch(void)
     return (0);
 }
 
-
 /* FIXME - deadwood */
 int
 poll_disable(int fd)
@@ -346,7 +343,6 @@ poll_disable(int fd)
     log_error("fd %d not found", fd);
     return (-1);
 }
-
 
 /* TODO: duplicates poll_disable() */
 int
