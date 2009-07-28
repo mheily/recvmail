@@ -266,13 +266,13 @@ server_init(int argc, char *argv[], struct protocol *proto)
         limit.rlim_cur = 50000;
         limit.rlim_max = 50000;
         if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
-            err(1, "setrlimit failed");
+            err(1, "setrlimit(RLIMIT_NOFILE) failed");
     }
 
     /* Enable coredumps */
     limit.rlim_cur = limit.rlim_max = RLIM_INFINITY;
     if (setrlimit(RLIMIT_CORE, &limit) != 0)
-        err(1, "setrlimit failed");
+        err(1, "setrlimit(RLIMIT_CORE) failed");
 
     /* Drop root privilges and call chroot(2) */
     if (drop_privileges(OPT.uid) < 0)
@@ -373,8 +373,8 @@ server_bind_addr(struct sockaddr *sa)
     LIST_INSERT_HEAD(&srv.if_list, ni, entry);
 
     /* Monitor the server descriptor for new connections */
-    if (poll_enable(fd, POLLIN, server_accept, ni) < 0) { 
-        log_errno("poll_enable() (fd=%d)", fd);
+    if (poll_add(fd, POLLIN, server_accept, ni) == NULL) { 
+        log_error("poll_add() (fd=%d)", fd);
         goto errout;
     }
    
