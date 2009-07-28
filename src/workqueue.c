@@ -54,6 +54,7 @@ struct workqueue {
 
     /* poll(2) notification fd */
     int pfd[2];
+    struct watch *wd;
 };
 
 
@@ -82,8 +83,9 @@ wq_new( void (*bottom)(struct work *, void *),
     pthread_cond_init(&wq->req_pending, NULL);
     TAILQ_INIT(&wq->res);
 
-    if (poll_enable(wq->pfd[0], POLLIN, wq_retrieve_all, wq) < 0) { 
-        log_errno("poll_enable()");
+    wq->wd = poll_add(wq->pfd[0], POLLIN, wq_retrieve_all, wq);
+    if (wq->wd == NULL) {
+        log_errno("poll_add()");
         free(wq);
         return (NULL);
     }
@@ -91,13 +93,13 @@ wq_new( void (*bottom)(struct work *, void *),
     return (wq);
 }
 
-
 void
 wq_free(struct workqueue *wq)
 {
     /* TODO: wait for all response items to be retrieved */
     close(wq->pfd[0]);
     close(wq->pfd[1]);
+    poll_remove(wq->wd);
     free(wq);
 }
 

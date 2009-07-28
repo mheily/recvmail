@@ -35,6 +35,7 @@ struct watch {
     int     fd;
     void   *udata;
     void  (*callback)(void *, int);
+    LIST_ENTRY(watch) entries;
 };
 
 struct timer {
@@ -50,7 +51,8 @@ struct timer {
  * GLOBAL VARIABLES
  */
 struct pollfd        pollset[POLLSET_MAX];
-struct watch         watchlist[POLLSET_MAX];
+struct watch *       poll2watch[POLLSET_MAX];
+LIST_HEAD(,watch)    watchlist;
 size_t               ps_count;
 
 pthread_t            sig_catcher_tid;
@@ -215,6 +217,7 @@ int
 poll_init(void)
 {
     LIST_INIT(&timer_list); 
+    LIST_INIT(&watchlist); 
 
     return (0);
 }
@@ -262,9 +265,9 @@ poll_dispatch(void)
         log_errno("pthread_create(3)");
         return (-1);
     }
-    if (poll_enable(sc_pipefd[0], POLLIN, 
-                signal_handler, NULL) < 0) { 
-        log_errno("poll_enable()");
+    if (poll_add(sc_pipefd[0], POLLIN, 
+                signal_handler, NULL) == NULL) { 
+        log_errno("poll_add()");
         return (-1);
     }
 
@@ -278,8 +281,8 @@ poll_dispatch(void)
         log_errno("pthread_create(3)");
         return (-1);
     }
-    if (poll_enable(tk_pipefd[0], POLLIN, timer_handler, NULL) < 0) { 
-        log_errno("poll_enable()");
+    if (poll_add(tk_pipefd[0], POLLIN, timer_handler, NULL) == NULL) { 
+        log_errno("poll_add()");
         return (-1);
     }
 
@@ -313,7 +316,7 @@ poll_dispatch(void)
                 continue;
 
             if (pollset[i].revents)
-                watchlist[i].callback(watchlist[i].udata, pollset[i].revents);
+                poll2watch[i]->callback(poll2watch[i]->udata, pollset[i].revents);
 
             if (--events == 0)
                 break;
@@ -344,30 +347,19 @@ poll_disable(int fd)
     return (-1);
 }
 
-/* TODO: duplicates poll_disable() */
-int
-poll_remove(int fd)
+void
+poll_remove(struct watch *w)
 {
-    int i;
+    u_int i;
 
-    /* TODO: slow linear search, use a tree instead */
-    for (i = 0; i < ps_count; i++) {
-        if (pollset[i].fd != fd)
-            continue;
-
-        /* Backfill the free slot with the tail entry in the array */
-        ps_count--; 
-        if (ps_count > 1 && i < ps_count) {
-            memcpy(&pollset[i], &pollset[ps_count], sizeof(struct pollfd));
-            memcpy(&watchlist[i], &watchlist[ps_count], sizeof(struct watch));
-            watchlist[i].ps_ent = &pollset[i];
-        }
-
-        return (0);
+    /* Backfill the free slot with the tail entry in the array */
+    i = w->ps_ent - &pollset[0];
+    ps_count--; 
+    if (ps_count > 1 && i < ps_count) {
+        memcpy(&pollset[i], &pollset[ps_count], sizeof(struct pollfd));
+        poll2watch[i] = poll2watch[ps_count];
+        poll2watch[i]->ps_ent = &pollset[i];
     }
-
-    log_error("fd %d not found", fd);
-    return (-1);
 }
 
 int
@@ -384,23 +376,24 @@ poll_signal(int signum, void(*cb)(void *, int), void *udata)
     return (0);
 }
 
-int
-poll_enable(int fd, int events, void (*callback)(void *, int), void *udata)
+struct watch *
+poll_add(int fd, int events, void (*callback)(void *, int), void *udata)
 {
     struct watch *w;
 
-    if (fd == 0) {
-        log_debug("tried to watch fd 0");
-        abort();
-    }
-    
     /* TODO: make this dynamic */
     if (ps_count == POLLSET_MAX) {
         log_error("too many open file descriptors");
-        return (-1);
+        return (NULL);
     }
 
-    w = &watchlist[ps_count];
+    w = calloc(1, sizeof(*w));
+    if (w == NULL) {
+        log_errno("calloc(3)");
+        return (NULL);
+    }
+
+    poll2watch[ps_count] = w;
     w->ps_ent = &pollset[ps_count];
     w->ps_ent->fd = fd;
     w->ps_ent->events = events;
@@ -409,5 +402,7 @@ poll_enable(int fd, int events, void (*callback)(void *, int), void *udata)
     w->udata = udata;
     ps_count++;
 
-    return (0);
+    LIST_INSERT_HEAD(&watchlist, w, entries);
+
+    return (w);
 }

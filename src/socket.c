@@ -56,6 +56,7 @@ struct line {
 /* A socket buffer */
 struct socket {
     int     fd;
+    struct watch *wd;
     struct sockaddr_storage peer;
     char peername[INET6_ADDRSTRLEN];
     int     tls;
@@ -142,6 +143,7 @@ socket_new(int fd)
         return (NULL);
     }
     sock->fd = fd;
+    sock->wd = NULL;
     STAILQ_INIT(&sock->input);
     STAILQ_INIT(&sock->output);
     sock->input_tmp = NULL;
@@ -176,7 +178,8 @@ socket_free(struct socket *sock)
         log_error("double free");
         return;
     }
-    poll_remove(sock->fd);
+    if (sock->wd != NULL)
+        poll_remove(sock->wd);
     (void) close(sock->fd); 
 
     /* Destroy all items in the input buffer */
@@ -242,14 +245,25 @@ socket_poll_enable(struct socket *sock,
         void (*callback)(void *, int), 
         void *udata)
 {
-    return poll_enable(sock->fd, events, callback, udata);
+    if (sock->wd != NULL) {
+        log_error("multiple attempts to enable polling on a socket");
+        return (-1);
+    }
+    sock->wd = poll_add(sock->fd, events, callback, udata);
+    return ((sock->wd == NULL) ? -1 : 0);
 }
 
 int
 socket_poll_disable(struct socket *sock)
 {
+    if (sock->wd == NULL) {
+        log_error("cannot disable polling on this socket");
+        return (-1);
+    }
     /* TODO: fix poll_disable() and use it instead */
-    return poll_remove(sock->fd);
+    poll_remove(sock->wd);
+    sock->wd = NULL;
+    return (0);
 }
 
 static int
@@ -425,6 +439,37 @@ socket_get_peername(struct socket *sock)
     return ((const char *) &sock->peername);
 }
 
+
+static int
+socket_tls_init(void)
+{
+    if (SSL_library_init() < 0)
+        return (-1);
+    SSL_load_error_strings();
+    ssl_ctx = SSL_CTX_new(SSLv23_method());
+    if (ssl_ctx == NULL)
+        return (-1);
+
+    /* TODO: alert if the SSL cert doesn't exist. */
+    if (!file_exists(OPT.ssl_certfile))
+        return (0);
+
+    /* TODO: print the SSL error strings with ERR_error_string(3SSL) */
+    if (SSL_CTX_use_certificate_chain_file(ssl_ctx, OPT.ssl_certfile) != 1) {
+        log_error("unable to load certificate `%s'", OPT.ssl_certfile);
+        return (-1);
+    }
+    log_debug("loaded SSL certificate from `%s'", OPT.ssl_certfile);
+
+    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, OPT.ssl_keyfile, SSL_FILETYPE_PEM) != 1) {
+        log_error("unable to load private key from `%s'", OPT.ssl_keyfile);
+        return (-1);
+    }
+    log_debug("loaded SSL key from `%s'", OPT.ssl_keyfile);
+
+    return (0);
+}
+
 int
 socket_init(void)
 {
@@ -435,22 +480,8 @@ socket_init(void)
         return (-1);
     }
 
-    if (SSL_library_init() < 0)
+    if (socket_tls_init() < 0)
         return (-1);
-    SSL_load_error_strings();
-    ssl_ctx = SSL_CTX_new(SSLv23_method());
-    if (ssl_ctx == NULL)
-        return (-1);
-
-    /* TODO: print the SSL error strings with ERR_error_string(3SSL) */
-    if (SSL_CTX_use_certificate_chain_file(ssl_ctx, OPT.ssl_certfile) != 1) {
-        log_error("unable to load certificate `%s'", OPT.ssl_certfile);
-        return (-1);
-    }
-    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, OPT.ssl_keyfile, SSL_FILETYPE_PEM) != 1) {
-        log_error("unable to load private key from `%s'", OPT.ssl_keyfile);
-        return (-1);
-    }
 
     return (0);
 }

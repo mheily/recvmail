@@ -24,10 +24,11 @@
 #include "socket.h"
 
 struct timer;
+struct watch;
 
 int     poll_disable(int);
-int     poll_enable(int, int, void (*)(void *, int), void *);
-int     poll_remove(int);
+struct watch * poll_add(int, int, void (*)(void *, int), void *);
+void    poll_remove(struct watch *);
 int     poll_dispatch(void);
 void    poll_shutdown(void);
 int     poll_init(void);
