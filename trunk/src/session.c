@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdarg.h>
+#include <limits.h>
 #include <unistd.h>
 
 #include "log.h"
@@ -31,6 +32,22 @@
 
 static void session_table_expire(void *unused);
 
+/* A client session */
+struct session {
+    struct protocol *proto;
+
+    u_long      id;             /* Session ID */
+    struct socket *sock;
+    char       *buf;
+    size_t      buf_len;
+    time_t      timeout;  
+    void       *udata;
+
+    int (*handler)(struct session *); 
+    LIST_ENTRY(session)  st_entries;
+};
+
+   
 /**
  * Session table.
  * TODO: use a binary tree for faster searching
@@ -132,8 +149,9 @@ session_println(struct session *s, const char *buf)
 }
 
 struct session *
-session_new(int fd)
+session_new(int fd, struct protocol *proto, void (*handler)(void *, int))
 {
+    static unsigned long session_id = 0;
     struct session *s;
 
     /* Allocate memory for the structure */
@@ -141,26 +159,39 @@ session_new(int fd)
         log_errno("calloc(3)");
         return (NULL);
     }
-    s->proto = &SMTP;       /* FIXME: defined at the server level.. ? */
-    if ((s->msg = message_new()) == NULL) {
-        free(s);
-        log_errno("message_new()");
-        return (NULL);
-    }
-
+    s->proto = proto;
+  
     /* Initialize the socket object */
-    if ((s->sock = socket_new(fd)) == NULL) {
+    if ((s->sock = socket_new(fd, s)) == NULL) {
         log_error("socket_new()");
-        message_free(s->msg);
+        //FIXME: where is this done now? message_free(s->msg);
         free(s);
         return (NULL);
     }
 
+    /* TODO: Determine the reverse DNS name for the host */
+
+    /* Monitor the client socket for events */
+    /* FIXME: wait until the dnsbl is complete */
+    if (socket_poll_enable(s->sock, POLLIN, handler, s) < 0) {
+        log_error("poll_enable()");
+        socket_free(s->sock);
+        free(s);
+        return (NULL);
+    }
+
+    /* Generate a session ID (XXX-FIXME: use throttling to prevent unlimited wraparound) */
     /* Add to the session table */
     pthread_mutex_lock(&st_mtx);
+    if (session_id == ULONG_MAX)
+        s->id = session_id = 1;
+    else
+        s->id = ++session_id;
     LIST_INSERT_HEAD(&st, s, st_entries);
     pthread_mutex_unlock(&st_mtx);
 
+    log_info("accepted connection from %s", socket_get_peername(s->sock)); 
+ 
     return (s);
 }
 
@@ -183,20 +214,22 @@ session_close(struct session *s)
     pthread_mutex_unlock(&st_mtx);
 
     socket_free(s->sock);
-    message_free(s->msg);
     free(s);
 }
 
 void
-session_handler(void *sptr, int events)
+session_event_handler(struct session *s, int events)
 {
-    struct session *s = (struct session *) sptr;
-    
     if (events & POLLHUP) {
         log_debug("session %lu got EOF", s->id);
         session_close(s);
         return;       // FIXME: process the rest of the read buffer
     }
+
+    /* TODO: limit the max size of the input buffer */
+    if (s->handler == NULL)
+        return;
+
     if (events & POLLIN) {
         log_debug("session %lu is now readable", s->id);
         if (session_read(s) < 0) 
@@ -218,22 +251,34 @@ int
 session_suspend(struct session *s)
 {
     s->handler = NULL;
-    return socket_poll_disable(s->sock);
+    return (0);
 }
 
 int
 session_resume(struct session *s)
 {
-    /* Poll for read(2) readiness */
-    if (socket_poll_enable(s->sock, POLLIN, session_handler, s) < 0)
-        return (-1);
+    //XXX-XXX-XXX-FIXME BIGTIME s->handler = session_event_handler;
+    session_event_handler(s, POLLIN);
+    return (0);
+}
 
-    /* Process lines that are already in the read buffer */
-    if (socket_pending(s->sock)) {
-        if (session_read(s) < 0) 
-            session_close(s);
-    }
+//FIXME: stub
+int
+session_handler_push(struct session *s, int (*fp)(struct session *))
+{
+    if (s->handler != NULL)
+        abort();
+    s->handler = fp;
+    return (0);
+}
 
+//FIXME: stub
+int
+session_handler_pop(struct session *s)
+{
+    if (s->handler == NULL)
+        abort();
+    s->handler = NULL;
     return (0);
 }
 
@@ -263,4 +308,45 @@ session_table_init(void)
     st_expiration_timer = poll_timer_new(60, session_table_expire, NULL);
     pthread_mutex_init(&st_mtx, NULL);
     return (0);
+}
+
+/*
+ * Accessor methods
+ */
+
+const struct socket *
+session_get_socket(struct session *s)
+{
+    return (s->sock);
+}
+
+unsigned long
+session_get_id(struct session *s)
+{
+    return (s->id);
+}
+
+void *
+session_data_get(const struct session *s)
+{
+    return (s->udata);
+}
+
+void
+session_data_set(struct session *s, const void *udata)
+{
+    s->udata = (void *) udata;
+}
+
+void
+session_buffer_get(const struct session *s, char **buf, size_t *len)
+{
+    *buf = s->buf;
+    *len = s->buf_len;
+}
+
+void
+session_timeout_set(struct session *s, time_t interval)
+{
+    s->timeout = time(NULL) + interval;
 }

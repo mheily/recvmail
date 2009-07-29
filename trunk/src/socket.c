@@ -37,6 +37,7 @@
 #include "util.h"
 
 static int socket_read(struct socket *sock);
+static int socket_tls_read(struct socket *sock);
 
 static SSL_CTX *ssl_ctx;
 
@@ -59,14 +60,113 @@ struct socket {
     struct watch *wd;
     struct sockaddr_storage peer;
     char peername[INET6_ADDRSTRLEN];
-    int     tls;
-    BIO    *bio;
+    enum {
+        TLS_NOOP,
+        TLS_ACCEPT,
+        TLS_CONNECT,
+        TLS_READ,
+        TLS_WRITE,
+        TLS_SHUTDOWN,
+    } tls_op;
+    struct session *sess;
+    SSL    *ssl;
     STAILQ_HEAD(,line) input;
     STAILQ_HEAD(,line) output;  //TODO:not used yet
     struct line *input_tmp;
 };
 
 #define LINE_FRAGMENTED(x) ((x)->buf[(x)->len - 1] != '\n')
+
+static int
+tls_op_retry(struct socket *sock)
+{
+    int n, retval;
+
+    switch (sock->tls_op) {
+        case TLS_NOOP:
+            break;
+
+        case TLS_ACCEPT:
+            n = SSL_accept(sock->ssl);
+            break;
+
+        case TLS_CONNECT:
+            n = SSL_connect(sock->ssl);
+            break;
+
+        case TLS_READ:
+            return socket_tls_read(sock);
+            break;
+
+        case TLS_WRITE:
+            abort(); //TODO:fixme
+            break;
+
+        case TLS_SHUTDOWN:
+            n = SSL_shutdown(sock->ssl);
+            break;
+            
+        default:
+            log_error("invalid TLS opcode");
+            return (-1);
+    } 
+
+    switch (SSL_get_error(sock->ssl, n)) {
+        case SSL_ERROR_NONE:
+            sock->tls_op = TLS_NOOP;
+            retval = 0;
+            break;
+
+        case SSL_ERROR_ZERO_RETURN:
+            log_debug("cannot operate on a closed SSL session");
+            sock->tls_op = TLS_NOOP;
+            retval = -1;
+            break;
+
+        case SSL_ERROR_WANT_READ:
+        case SSL_ERROR_WANT_WRITE:
+            log_debug("EWOULDBLOCK");
+            retval = 1;
+            break;
+
+        default:
+            log_error("unhandled SSL error code");
+            /* TODO: dump code */
+            retval = -1;
+    }
+
+    return (retval);
+}
+
+int
+socket_event_handler(struct socket *sock, int events)
+{
+    if (events & POLLHUP) {
+        // FIXME: read any data remaining in the kernel buffer
+        return (0);
+    }
+
+    /* Attempt to retry any incomplete TLS operation */
+    if ((sock->ssl != NULL) && 
+            (sock->tls_op != TLS_NOOP) && 
+            (events & POLLIN || events & POLLOUT)) 
+    {
+        return (tls_op_retry(sock));
+    }
+
+#if TODO
+    // TODO: implement output buffreing
+    if (events & POLLOUT) {
+        if (s->fd < 0) 
+            log_debug("fd %d is writable (session terminated)", s->fd);
+        else
+            log_debug("fd %d is now writable", s->fd);
+        //TODO - flush output buffer, or do something
+    }
+#endif
+
+    return (0);
+}
 
 static int
 append_input(struct socket *sock, const char *buf, size_t len)
@@ -113,7 +213,7 @@ append_input(struct socket *sock, const char *buf, size_t len)
 }
 
 struct socket *
-socket_new(int fd)
+socket_new(int fd, struct session *sess)
 {
     struct socket *sock = NULL;
     const int bufsz = SOCK_BUF_SIZE;
@@ -121,11 +221,13 @@ socket_new(int fd)
     int rv;
 
     /* Set the kernel socket buffer size */
-    if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (char *)&bufsz, sizeof(bufsz)) < 0) {
+    if (setsockopt(fd, SOL_SOCKET, 
+                SO_SNDBUF, (char *)&bufsz, sizeof(bufsz)) < 0) {
         log_errno("setsockopt(2)");
         goto errout;
     }
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (char *)&bufsz, sizeof(bufsz)) < 0) {
+    if (setsockopt(fd, SOL_SOCKET, 
+                SO_RCVBUF, (char *)&bufsz, sizeof(bufsz)) < 0) {
         log_errno("setsockopt(2)");
         goto errout;
     }
@@ -143,6 +245,7 @@ socket_new(int fd)
         return (NULL);
     }
     sock->fd = fd;
+    sock->sess = sess;
     sock->wd = NULL;
     STAILQ_INIT(&sock->input);
     STAILQ_INIT(&sock->output);
@@ -156,7 +259,8 @@ socket_new(int fd)
 
     /* Generate a human-readable representation of the remote address */
     rv = getnameinfo((struct sockaddr *) &sock->peer, cli_len, 
-                &sock->peername[0], sizeof(sock->peername), NULL, 0, NI_NUMERICHOST);
+            &sock->peername[0], sizeof(sock->peername), 
+            NULL, 0, NI_NUMERICHOST);
     if (rv != 0) {
             log_errno("getnameinfo(3): %s", gai_strerror(rv));
             goto errout;
@@ -199,8 +303,8 @@ socket_free(struct socket *sock)
         n1 = n2;
     }
 
-    if (sock->tls)
-        BIO_vfree(sock->bio);
+    if (sock->ssl != NULL)
+        SSL_free(sock->ssl);
 
     free(sock);
 }
@@ -311,10 +415,44 @@ parse_lines(struct socket *sock, char *buf, size_t buf_len)
 }
 
 static int
+socket_tls_read(struct socket *sock)
+{
+    char buf[SOCK_BUF_SIZE];
+    int n;
+
+    n = SSL_read(sock->ssl, &buf[0], sizeof(buf));
+/*FIXME error handling*/
+    if (n <= 0) {
+        switch (SSL_get_error(sock->ssl, n)) {
+            case SSL_ERROR_ZERO_RETURN:
+                log_debug("zero return");
+                abort(); //FIXME
+                break;
+
+            case SSL_ERROR_WANT_READ:
+            case SSL_ERROR_WANT_WRITE:
+                log_debug("EWOULDBLOCK");
+                abort(); //FIXME
+                break;
+
+            default:
+                log_debug("invalid retval n=%d", n);
+                abort(); //FIXME
+                break;
+        }
+    }
+
+    return parse_lines(sock, buf, (size_t) n);
+}
+
+static int
 socket_read(struct socket *sock)
 {
     char buf[SOCK_BUF_SIZE];
     ssize_t n;
+
+    if (sock->ssl != NULL)
+        return (socket_tls_read(sock));
 
     /* Read as much as possible from the kernel socket buffer. */
     n = recv(sock->fd, &buf[0], sizeof(buf), 0);
@@ -342,7 +480,6 @@ socket_read(struct socket *sock)
 
     return parse_lines(sock, buf, (size_t) n);
 } 
-
 
 static int
 socket_buffer_write(struct socket *sock, const char *buf, size_t len)
@@ -394,16 +531,12 @@ socket_write(struct socket *sock, const char *buf, size_t len)
 int
 socket_starttls(struct socket *sock)
 {
-    sock->tls = 1;
-
-    /* Create the BIO */
-    sock->bio = BIO_new(BIO_s_socket());
-    if (sock->bio == NULL) {
-        log_errno("BIO_new() failed");
-        sock->tls = 0;
+    if ((sock->ssl = SSL_new(ssl_ctx)) == NULL) {
+        log_errno("SSL_new() failed");
         return (-1);
     }
-    BIO_set_fd(sock->bio, sock->fd, BIO_NOCLOSE);
+    SSL_set_fd(sock->ssl, sock->fd);
+    /* FIXME: set BIO_NOCLOSE on the underlying BIO or there will be multiple close(2) calls */
 
 /*XXX- FIXME SSL_accept()*/
     return (-1);
@@ -412,29 +545,26 @@ socket_starttls(struct socket *sock)
 }
 
 int
-socket_pending(struct socket *sock)
+socket_pending(const struct socket *sock)
 {
     return (STAILQ_EMPTY(&sock->input));
 }
 
-
 int
-socket_get_family(struct socket *sock)
+socket_get_family(const struct socket *sock)
 {
     return (sock->peer.ss_family);
 }
 
-
 int
-socket_get_peeraddr4(struct socket *sock)
+socket_get_peeraddr4(const struct socket *sock)
 {
     struct sockaddr_in *sain = (struct sockaddr_in *) &sock->peer;
     return (sain->sin_addr.s_addr);
 }
 
-
 const char *
-socket_get_peername(struct socket *sock)
+socket_get_peername(const struct socket *sock)
 {
     return ((const char *) &sock->peername);
 }

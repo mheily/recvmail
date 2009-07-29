@@ -116,7 +116,7 @@ dnsbl_submit(struct session *s)
     struct work w;
 
     /* TODO: Find out if there are IPv6 DNSBLs */
-    if (socket_get_family(s->sock) == AF_INET6) {
+    if (socket_get_family(session_get_socket(s)) == AF_INET6) {
         d.handler(s, DNSBL_NOT_FOUND);
         return (0);
     }
@@ -129,12 +129,12 @@ dnsbl_submit(struct session *s)
     }
     */
 
-    w.sid = s->id;
+    w.sid = session_get_id(s);
     w.argc = 1;
-    w.argv0.u_i = socket_get_peeraddr4(s->sock);
+    w.argv0.u_i = socket_get_peeraddr4(session_get_socket(s));
 
 	/* Don't allow "early talkers" to send data prior to the greeting */
-	s->handler = dnsbl_reject_early_talker;
+	session_handler_push(s, dnsbl_reject_early_talker);
 	
     /* TODO: check the cache */
     return wq_submit(d.wq, w);

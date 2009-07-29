@@ -22,19 +22,21 @@
 #include "queue.h"
 
 struct socket;
+struct session;
 
-struct socket * socket_new(int);
+struct socket * socket_new(int, struct session *);
 void            socket_free(struct socket *);
 
-int      socket_pending(struct socket *);
+int      socket_pending(const struct socket *);
 ssize_t  socket_readln(char **, struct socket *);
 int      socket_write(struct socket *, const char *, size_t);
 int      socket_poll_enable(struct socket *, int, void (*)(void *, int), void *);
 int      socket_poll_disable(struct socket *);
-int      socket_get_family(struct socket *);
+int      socket_event_handler(struct socket *, int);
+int      socket_get_family(const struct socket *);
 int      socket_starttls(struct socket *);
-int      socket_get_peeraddr4(struct socket *);
-const char *   socket_get_peername(struct socket *);
+int      socket_get_peeraddr4(const struct socket *);
+const char *   socket_get_peername(const struct socket *);
 int      socket_init(void);
 
 #endif /* _SOCKET_H */
