@@ -45,6 +45,7 @@ struct server srv;
 struct net_interface {
     char name[INET6_ADDRSTRLEN];
     struct sockaddr_storage ss;
+    struct protocol *proto;
     socklen_t ss_len;
     int fd;
     int use_tls;
@@ -164,14 +165,12 @@ drop_privileges(const char *user)
     return (0);
 }
 
-
 static void
 server_restart(void *unused, int events)
 {
     log_error("STUB");
     sleep(1);
 }
-
 
 static void
 server_shutdown(void *unused, int events)
@@ -193,10 +192,6 @@ server_shutdown(void *unused, int events)
 
     poll_shutdown();
 }
-
-/* ------------------- Public functions ----------------------- */
-
-
 
 /* Initialization routines common to all servers */
 int
@@ -282,9 +277,8 @@ server_init(int argc, char *argv[], struct protocol *proto)
     return srv.proto->init_hook();
 }
 
-
 static int
-server_bind_addr(struct sockaddr *sa)
+server_bind_addr(struct sockaddr *sa, struct protocol *proto)
 {
     u_int port;
     struct sockaddr_in sain;
@@ -366,6 +360,7 @@ server_bind_addr(struct sockaddr *sa)
 		log_errno("calloc(3)");
         goto errout;
     }
+    ni->proto = proto;
     ni->fd = fd;
     memcpy(&ni->ss, sa, sa_len);
     memcpy(&ni->name, sa_name, sizeof(ni->name));
@@ -387,7 +382,6 @@ errout:
     return (-1);
 }
 
-
 int
 server_bind(void)
 {
@@ -405,7 +399,7 @@ server_bind(void)
             continue;
             
         if (sa->sa_family == AF_INET || sa->sa_family == AF_INET6) {
-            if (server_bind_addr(sa) < 0)
+            if (server_bind_addr(sa, srv.proto) < 0)
                 goto errout;
         }
     } 
@@ -418,6 +412,20 @@ errout:
     return (-1);
 }
 
+/* FIXME: I don't think this needs to be void, void * anymore.
+
+static int
+client_event_handler(struct session *s, int events)
+
+   */
+static void
+client_event_handler(void *sptr, int events)
+{
+    struct session *s = (struct session *) sptr;
+
+    if (socket_event_handler((struct socket *) session_get_socket(s), events) == 0)
+        session_event_handler(s, events);
+}
 
 static void
 server_accept(void *if_ptr, int events)
@@ -442,28 +450,11 @@ server_accept(void *if_ptr, int events)
     log_debug("accept(2) created fd %d", fd);
 
     /* Create a new session */
-    if ((s = session_new(fd)) == NULL) 
+    if ((s = session_new(fd, ni->proto, client_event_handler)) == NULL) 
         return;
 
-    /* Generate a session ID */
-    if (srv.next_sid == ULONG_MAX)
-        s->id = srv.next_sid = 1;
-    else
-        s->id = ++srv.next_sid;
-
-    log_info("accepted connection from %s", socket_get_peername(s->sock)); 
-   
-    /* TODO: Determine the reverse DNS name for the host */
-
-    /* Monitor the client socket for events */
-    /* FIXME: wait until the dnsbl is complete */
-    if (socket_poll_enable(s->sock, POLLIN, session_handler, s) < 0) {
-        log_error("poll_enable()");
-        goto errout;
-    }
-
     /* Run the protocol specific accept(2) hook */
-    if (srv.proto->accept_hook(s) < 0) {
+    if (ni->proto->accept_hook(s) < 0) {
         goto errout;
     }
 
@@ -475,7 +466,6 @@ errout:
         session_close(s);
     }
 }
-
 
 int
 server_dispatch(void)
@@ -561,7 +551,6 @@ errout:
 	free(buf);
     return (-1);
 }
-
 
 int
 options_parse(int argc, char *argv[])

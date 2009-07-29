@@ -52,6 +52,21 @@ struct protocol SMTP = {
     .shutdown_hook  = smtpd_shutdown,
 };
 
+struct smtp_session {
+    struct message *msg;
+    enum {
+        SMTP_STATE_HELO,
+        SMTP_STATE_MAIL,
+        SMTP_STATE_RCPT,
+        SMTP_STATE_DATA,
+        SMTP_STATE_FSYNC,
+        SMTP_STATE_QUIT,
+    } smtp_state;
+    unsigned int    errors;	    /* The number of protocol errors */
+};
+
+#define smtp_session(s)     ((struct smtp_session *) session_data_get((s)))
+
 #define RECIPIENT_MAX		100
 
 /* Maximum line length (excluding trailing NUL) */
@@ -73,7 +88,7 @@ static int smtpd_starttls(struct session *s);
 void
 smtp_mda_callback(struct session *s, int retval)
 {
-    s->handler = smtpd_parser;
+    session_handler_push(s, smtpd_parser);
     smtpd_session_reset(s);
 
     if (retval == 0) {
@@ -87,13 +102,15 @@ smtp_mda_callback(struct session *s, int retval)
 static int
 smtpd_session_reset(struct session *s)
 {
-    message_free(s->msg);
-    s->msg = message_new();
-    if (s->msg == NULL) {
+    struct smtp_session *sd = smtp_session(s);
+
+    message_free(sd->msg);
+    sd->msg = message_new();
+    if (sd->msg == NULL) {
         log_errno("calloc(3)");
         return (-1);
     }
-    s->smtp_state = SMTP_STATE_MAIL;
+    sd->smtp_state = SMTP_STATE_MAIL;
     
     return (0);
 }
@@ -122,9 +139,11 @@ smtpd_ehlo(struct session *s, const char *arg)
 static int
 smtpd_starttls(struct session *s)
 {
+    struct smtp_session *sd = smtp_session(s);
+
     session_println(s, "220 Ready to start TLS");
 
-    if (socket_starttls(s->sock) < 0) {
+    if (socket_starttls((struct socket *) session_get_socket(s)) < 0) {
         log_error("STARTTLS failed");
         return (-1);
     }
@@ -134,7 +153,7 @@ smtpd_starttls(struct session *s)
         log_error("reset failed");
         return (-1);
     }
-    s->smtp_state = SMTP_STATE_MAIL;
+    sd->smtp_state = SMTP_STATE_MAIL;
 
     return (0);
 }
@@ -142,9 +161,11 @@ smtpd_starttls(struct session *s)
 static int
 smtpd_mail(struct session *s, const char *arg)
 {
-    if (s->msg->sender != NULL)
-        free(s->msg->sender);
-    if ((s->msg->sender = address_parse(arg)) == NULL) {
+    struct smtp_session *sd = smtp_session(s);
+
+    if (sd->msg->sender != NULL)
+        free(sd->msg->sender);
+    if ((sd->msg->sender = address_parse(arg)) == NULL) {
         session_println(s, "501 Malformed address");
         return (-1);
     }
@@ -158,15 +179,16 @@ smtpd_rcpt(struct session *s, char *line)
     char *p;
     char *buf = NULL;
     struct mail_addr *ma = NULL;
+    struct smtp_session *sd = smtp_session(s);
 
     /* Limit the number of recipients per envelope */
-    if (s->msg->recipient_count > RECIPIENT_MAX) {
+    if (sd->msg->recipient_count > RECIPIENT_MAX) {
         session_println(s, "503 Error: Too many recipients");
         goto errout;
     }
 
     /* Require 'MAIL FROM' before 'RCPT TO' */
-    if (s->msg->sender == NULL) {
+    if (sd->msg->sender == NULL) {
         session_println(s, "503 Error: need MAIL command first");
         goto errout;
     }
@@ -201,8 +223,8 @@ smtpd_rcpt(struct session *s, char *line)
     }
 
     /* Add the recipient to the envelope */
-    LIST_INSERT_HEAD(&s->msg->recipient, ma, entries);
-    s->msg->recipient_count++;
+    LIST_INSERT_HEAD(&sd->msg->recipient, ma, entries);
+    sd->msg->recipient_count++;
     session_println(s, "250 Ok");
 
     free(buf);
@@ -217,17 +239,19 @@ errout:
 static int
 smtpd_data(struct session *s, const char *arg)
 {
-    if (s->msg->recipient_count == 0) {
+    struct smtp_session *sd = smtp_session(s);
+
+    if (sd->msg->recipient_count == 0) {
         session_println(s, "503 Error: need one or more recipients first");
         return (-1);
     }
-    if (maildir_msg_open(s->msg, s)) {
+    if (maildir_msg_open(sd->msg, s)) {
         session_println(s, "421 Error creating message");
-        s->smtp_state = SMTP_STATE_QUIT;
+        sd->smtp_state = SMTP_STATE_QUIT;
         return (-1);
     }
     session_println(s, "354 End data with <CR><LF>.<CR><LF>");
-    s->smtp_state = SMTP_STATE_DATA;
+    sd->smtp_state = SMTP_STATE_DATA;
     
     return (0);
 }
@@ -235,9 +259,11 @@ smtpd_data(struct session *s, const char *arg)
 static int
 smtpd_rset(struct session *s)
 {
+    struct smtp_session *sd = smtp_session(s);
+
     if (smtpd_session_reset(s) != 0) {
         session_println(s, "421 Reset failed");
-        s->smtp_state = SMTP_STATE_QUIT;
+        sd->smtp_state = SMTP_STATE_QUIT;
         return (-1);
     }
     session_println(s, "250 Ok");
@@ -255,16 +281,20 @@ smtpd_noop(struct session *s)
 static int
 smtpd_quit(struct session *s)
 {
+    struct smtp_session *sd = smtp_session(s);
+
     session_println(s, "221 Bye");
-    s->smtp_state = SMTP_STATE_QUIT;
+    sd->smtp_state = SMTP_STATE_QUIT;
     return (0);
 }
 
 static int
 smtpd_fatal_error(struct session *s)
 {
+    struct smtp_session *sd = smtp_session(s);
+
     session_println(s, "421 Fatal error, closing connection");
-    s->smtp_state = SMTP_STATE_QUIT;
+    sd->smtp_state = SMTP_STATE_QUIT;
     return (0);
 }
 
@@ -275,18 +305,18 @@ smtpd_parser(struct session *s)
     char *buf;
     size_t len;
     int rv;
+    struct smtp_session *sd = smtp_session(s);
 
-    buf = s->buf;
-    len = s->buf_len;
+    session_buffer_get(s, &buf, &len);
 
     if (len == 0 || len > SMTP_LINE_MAX) {
         log_error("invalid line length %zu", len);
         return (-1);
     }
 
-    s->timeout = time(NULL) + SMTP_COMMAND_TIMEOUT;
+    session_timeout_set(s, SMTP_COMMAND_TIMEOUT);
 
-    if (s->smtp_state != SMTP_STATE_DATA) {
+    if (sd->smtp_state != SMTP_STATE_DATA) {
 
         /* Replace LF with NUL */
         memset(buf + len - 1, 0, 1);     
@@ -297,14 +327,14 @@ smtpd_parser(struct session *s)
         rv = smtpd_parse_data(s, buf, len);
     }
 
-    if (s->smtp_state == SMTP_STATE_QUIT) 
+    if (sd->smtp_state == SMTP_STATE_QUIT) 
         return (-1);
 
     if (rv != 0) 
-        s->errors++;
+        sd->errors++;
 
     /* Terminate the session after too many errors */
-    if (s->errors > 10) {
+    if (sd->errors > 10) {
         smtpd_client_error(s);
         return (-1);
     }
@@ -389,19 +419,21 @@ smtpd_parse_command(struct session *s, char *src, size_t len)
 static int
 smtpd_parse_data(struct session *s, char *src, size_t len)
 {
+    struct smtp_session *sd = smtp_session(s);
+
     /* If the line is '.', end the data stream */
     if ((len == 2) && strncmp(src, ".\n", 2) == 0) {
 
         /* Submit to the MDA workqueue for processing */
         session_suspend(s);
-        if (mda_submit(s->id, s->msg) < 0) {
+        if (mda_submit(session_get_id(s), sd->msg) < 0) {
             log_error("mda_submit()");
             goto error;
         }
 
         /* After submitting the message, the 'msg' object becomes 
          * property of the MDA thread. */
-        s->msg = NULL;
+        sd->msg = NULL;
 
         return (0);
     }
@@ -414,7 +446,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 
     /* TODO: use writev(2) to write multiple lines in one syscall. */
     /* Write the line to the file */
-    if (write(s->msg->fd, src, len) < len) {
+    if (write(sd->msg->fd, src, len) < len) {
         log_errno("write(2)");
         goto error;
     }
@@ -423,7 +455,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
 
   error:
     session_println(s, "452 Error spooling message, try again later");
-    s->smtp_state = SMTP_STATE_QUIT;
+    sd->smtp_state = SMTP_STATE_QUIT;
     return (-1);
 }
 
@@ -435,9 +467,12 @@ dnsbl_response_handler(struct session *s, int retval)
         session_println(s, "421 ESMTP access denied");
         session_close(s);
     } else if (retval == DNSBL_NOT_FOUND || retval == DNSBL_ERROR) {
-        log_debug("client is not in a DNSBL");
-        s->handler = smtpd_parser;
-        s->timeout = time(NULL) + SMTP_COMMAND_TIMEOUT;
+        if (OPT.use_dnsbl) {
+            log_debug("client is not in a DNSBL");
+            session_handler_pop(s);
+        }
+        session_handler_push(s, smtpd_parser);
+        session_timeout_set(s, SMTP_COMMAND_TIMEOUT);
         smtpd_greeting(s);
         if (session_read(s) < 0)
             session_close(s);
@@ -454,6 +489,24 @@ smtpd_greeting(struct session *s)
 int
 smtpd_accept(struct session *s)
 {
+    struct smtp_session *sd;
+
+    sd = calloc(1, sizeof(*sd));
+    if (sd == NULL) {
+        log_errno("calloc");
+        return (-1);
+    }
+
+    sd->msg = message_new();
+    if (sd->msg == NULL) {
+        free(sd);
+        free(s);
+        log_errno("message_new()");
+        return (-1);
+    }
+
+    session_data_set(s, sd);
+
     if (OPT.use_dnsbl) {
         if (dnsbl_submit(s) < 0) {
             log_error("dnsbl_submit() failed");
@@ -463,7 +516,6 @@ smtpd_accept(struct session *s)
     } else {
         dnsbl_response_handler(s, DNSBL_NOT_FOUND);
     }
- 
 
     return (0);
 }
@@ -484,8 +536,12 @@ smtpd_client_error(struct session *s)
 void
 smtpd_close(struct session *s)
 {
-    message_free(s->msg);
-    s->msg = NULL;
+    struct smtp_session *sd;
+
+    sd = session_data_get(s);
+    message_free(sd->msg);
+    free(sd);
+    session_data_set(s, NULL);          /* paranoia */
 }
 
 static int

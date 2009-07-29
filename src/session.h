@@ -30,42 +30,7 @@ struct socket;
 struct session;
 struct protocol;
 
-/* A client session */
-struct session {
-   /* 
-    * Callback function when data is ready. 
-    * This MUST be the first element in the structure.
-    */ 
-    int (*handler)(struct session *); 
-    struct protocol *proto;
-
-    u_long      id;             /* Session ID */
-    struct socket *sock;
-    char       *buf;
-    size_t      buf_len;
-    time_t          timeout;  
-
-    /* ---------- protocol specific members ------------ */
-
-    struct message *msg;
-
-    /* The state determines which SMTP commands are valid */
-    enum {
-        SMTP_STATE_HELO,
-        SMTP_STATE_MAIL,
-        SMTP_STATE_RCPT,
-        SMTP_STATE_DATA,
-        SMTP_STATE_FSYNC,
-        SMTP_STATE_QUIT,
-    } smtp_state;
-    unsigned int    errors;	    /* The number of protocol errors */
-
-    /* ---------- end protocol specific members ---------- */
-
-    LIST_ENTRY(session)  st_entries;
-};
-    
-struct session * session_new(int);
+struct session * session_new(int, struct protocol *, void (*)(void *, int));
 void             session_free(struct session *s);
 
 int     session_read(struct session *);
@@ -75,9 +40,20 @@ int     session_println(struct session *, const char *);
 void    session_close(struct session *);
 int     session_suspend(struct session *);
 int     session_resume(struct session *);
-void    session_handler(void *, int);
+void    session_event_handler(struct session *, int);
 
 int     session_table_init(void);
 int     session_table_lookup(struct session **, unsigned long);
+
+int     session_handler_push(struct session *, int (*)(struct session *));
+int     session_handler_pop(struct session *);
+
+void *  session_data_get(const struct session *);
+void    session_data_set(struct session *, const void *);
+void    session_buffer_get(const struct session *, char **, size_t *);
+void    session_timeout_set(struct session *, time_t);
+
+const struct socket * session_get_socket(struct session *);
+unsigned long session_get_id(struct session *);
 
 #endif /* _SESSION_H */

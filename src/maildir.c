@@ -107,7 +107,7 @@ maildir_msg_open(struct message *msg, struct session *s)
                    "Received: from %s ([%s])\n"
                    "        by %s (recvmail) on %s",
                    address_get(ma_addr, sizeof(ma_addr), msg->sender),
-                   socket_get_peername(s->sock),
+                   socket_get_peername(session_get_socket(s)),
                    OPT.hostname,
                    timestr);
     if (len < 0) {

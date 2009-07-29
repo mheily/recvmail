@@ -30,7 +30,6 @@ struct net_interface;
 
 struct server {
     struct protocol  *proto;
-    unsigned long     next_sid;     /* Next available Session-ID */
     LIST_HEAD(,net_interface) if_list;
 };
 
