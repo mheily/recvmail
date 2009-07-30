@@ -247,21 +247,6 @@ session_event_handler(struct session *s, int events)
 #endif
 }
 
-int
-session_suspend(struct session *s)
-{
-    s->handler = NULL;
-    return (0);
-}
-
-int
-session_resume(struct session *s)
-{
-    //XXX-XXX-XXX-FIXME BIGTIME s->handler = session_event_handler;
-    session_event_handler(s, POLLIN);
-    return (0);
-}
-
 //FIXME: stub
 int
 session_handler_push(struct session *s, int (*fp)(struct session *))

@@ -360,6 +360,8 @@ poll_remove(struct watch *w)
         poll2watch[i] = poll2watch[ps_count];
         poll2watch[i]->ps_ent = &pollset[i];
     }
+
+    free(w);
 }
 
 int
