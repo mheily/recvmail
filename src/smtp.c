@@ -559,15 +559,14 @@ sanity_check(void)
    return (0);
 }
 
+/* FIXME: should be called "check_dirs()" and create_dirs() should be
+   somewhere else.
+   */
 static int
 create_dirs(void)
 {
-    if (!file_exists("spool") && maildir_create("spool") < 0)
-        return (-1);
-    if (!file_exists("queue") && maildir_create("queue") < 0)
-        return (-1);
-    if (!file_exists("box") && mkdir("box", 0770) != 0) {
-        log_errno("mkdir(2) of `box'");
+    if (!file_exists("spool") || !file_exists("box"))  {
+        log_error("A required spool/ or box/ directory does not exist.");
         return (-1);
     }
 
