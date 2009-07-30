@@ -96,7 +96,6 @@ smtp_mda_callback(struct session *s, int retval)
     } else {
         session_println(s, "451 Requested action aborted: error in processing");
     }
-    session_resume(s);
 }
 
 static int
@@ -425,7 +424,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
     if ((len == 2) && strncmp(src, ".\n", 2) == 0) {
 
         /* Submit to the MDA workqueue for processing */
-        session_suspend(s);
+        session_handler_pop(s);
         if (mda_submit(session_get_id(s), sd->msg) < 0) {
             log_error("mda_submit()");
             goto error;

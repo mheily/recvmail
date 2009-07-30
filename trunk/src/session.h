@@ -38,8 +38,6 @@ int     session_readln(struct session *s);
 int     session_printf(struct session *, const char *, ...);
 int     session_println(struct session *, const char *);
 void    session_close(struct session *);
-int     session_suspend(struct session *);
-int     session_resume(struct session *);
 void    session_event_handler(struct session *, int);
 
 int     session_table_init(void);

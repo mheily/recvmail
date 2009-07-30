@@ -239,17 +239,15 @@ socket_new(int fd, struct session *sess)
     }
 
     /* Initialize the object */
-    sock = malloc(sizeof(*sock));
+    sock = calloc(1, sizeof(*sock));
     if (sock == NULL) {
         log_errno("malloc(3)");
         return (NULL);
     }
     sock->fd = fd;
     sock->sess = sess;
-    sock->wd = NULL;
     STAILQ_INIT(&sock->input);
     STAILQ_INIT(&sock->output);
-    sock->input_tmp = NULL;
 
     /* Get the peer socket address */
     if (getpeername(fd, (struct sockaddr *) &sock->peer, &cli_len) < 0) {
@@ -573,6 +571,13 @@ socket_get_peername(const struct socket *sock)
 static int
 socket_tls_init(void)
 {
+    /* OpenSSL transparently seeds the PRNG from /dev/urandom, if it
+       exists. Otherwise, it silently fails to seed the PRNG. */
+    if (!file_exists("/dev/urandom")) {
+        log_error("Unable to seed the PRNG without /dev/urandom.");
+        return (-1);
+    }
+
     if (SSL_library_init() < 0)
         return (-1);
     SSL_load_error_strings();
@@ -603,14 +608,7 @@ socket_tls_init(void)
 int
 socket_init(void)
 {
-    /* OpenSSL transparently seeds the PRNG from /dev/urandom, if it
-       exists. Otherwise, it silently fails to seed the PRNG. */
-    if (!file_exists("/dev/urandom")) {
-        log_error("Unable to seed the PRNG");
-        return (-1);
-    }
-
-    if (socket_tls_init() < 0)
+    if (OPT.ssl_enabled && socket_tls_init() < 0)
         return (-1);
 
     return (0);

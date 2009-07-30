@@ -15,6 +15,7 @@ struct options {
     int         log_level;	    /* The level used by setlogmask(3) */
     char       *uid;            /* The user ID to run under */
     int         use_dnsbl;      /* If true, check the DNSBL */
+    int         ssl_enabled; 
     char       *ssl_certfile;   /* SSL certificate */
     char       *ssl_keyfile;    /* SSL private key */
 };
