@@ -23,6 +23,7 @@
 #include <netdb.h>
 #include <pwd.h>
 #include <pthread.h>
+#include <stdio.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -258,7 +259,7 @@ server_init(int argc, char *argv[], struct protocol *proto)
 
     /* Increase the allowable number of file descriptors */
     if (getuid() == 0) {
-        limit.rlim_cur = limit.rlim_max = OPEN_MAX;
+        limit.rlim_cur = limit.rlim_max = sysconf(_SC_OPEN_MAX);
         if (setrlimit(RLIMIT_NOFILE, &limit) != 0) {
             log_errno("setrlimit(RLIMIT_NOFILE)");
             abort();
