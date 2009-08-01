@@ -6,7 +6,6 @@
 /* Configuration options */
 
 struct options {
-    u_short     port;
     bool        debugging;
     char       *hostname;
     bool        daemon;	        /* Run as daemon ? */
