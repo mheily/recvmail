@@ -22,7 +22,8 @@
 struct session;
 
 struct protocol {
-    int     (*getopt_hook)(void);
+    int     (*getopt_hook)(const char *, const char *);
+    int     (*sanity_hook)(void);
     int     (*init_hook)(void); /* FIXME - server startup */
     int     (*shutdown_hook)(void);             /* server shutdown */
     int     (*reload_hook)(void); /* TODO - Reload configuration files */

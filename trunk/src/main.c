@@ -38,9 +38,7 @@ struct options  OPT = {
     .log_ident = "recvmail",
     .log_level = LOG_INFO,
     .log_facility = LOG_MAIL,
-    .use_dnsbl = 0,
 };
-
 
 int
 main(int argc, char *argv[])
