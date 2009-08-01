@@ -31,7 +31,6 @@
 
 /* TODO: eliminate this struct */
 struct options  OPT = {
-    .port = 25,
     .debugging = 0,
     .daemon = 1,
     .uid = "recvmail",

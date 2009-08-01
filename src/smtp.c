@@ -42,12 +42,14 @@
 
 static int sanity_check(void);
 static int smtpd_getopt(const char *, const char *);
+static int smtpd_bind(const struct sockaddr *, const char *);
 
 static int use_dnsbl = 0;      /* If true, check the DNSBL */
 
 struct protocol SMTP = {
     .getopt_hook    = smtpd_getopt,
     .sanity_hook    = sanity_check,
+    .bind_hook      = smtpd_bind,
     .accept_hook    = smtpd_accept,
     .timeout_hook   = smtpd_timeout,
     .abort_hook     = NULL,		// fixme
@@ -557,6 +559,18 @@ smtpd_getopt(const char * key, const char * val)
     }
 
     return (0);
+}
+
+static int
+smtpd_bind(const struct sockaddr *sa, const char *sa_name)
+{
+    /* Don't listen on the loopback address (127.0.0.1 or ::1) */
+    if (strcmp(&sa_name[0], "127.0.0.1") == 0 
+            || strcmp(&sa_name[0], "::1") == 0) {
+        return (-1);
+    }
+
+    return (25);
 }
 
 static int

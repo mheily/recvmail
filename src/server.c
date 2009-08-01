@@ -258,16 +258,19 @@ server_init(int argc, char *argv[], struct protocol *proto)
 
     /* Increase the allowable number of file descriptors */
     if (getuid() == 0) {
-        limit.rlim_cur = 50000;
-        limit.rlim_max = 50000;
-        if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
-            err(1, "setrlimit(RLIMIT_NOFILE) failed");
+        limit.rlim_cur = limit.rlim_max = OPEN_MAX;
+        if (setrlimit(RLIMIT_NOFILE, &limit) != 0) {
+            log_errno("setrlimit(RLIMIT_NOFILE)");
+            abort();
+        }
     }
 
     /* Enable coredumps */
     limit.rlim_cur = limit.rlim_max = RLIM_INFINITY;
-    if (setrlimit(RLIMIT_CORE, &limit) != 0)
-        err(1, "setrlimit(RLIMIT_CORE) failed");
+    if (setrlimit(RLIMIT_CORE, &limit) != 0) {
+        log_errno("setrlimit(RLIMIT_CORE)");
+        abort();
+    }
 
     /* Drop root privilges and call chroot(2) */
     if (drop_privileges(OPT.uid) < 0)
@@ -290,22 +293,6 @@ server_bind_addr(struct sockaddr *sa, struct protocol *proto)
     int             fd = -1;
     int rv;
 
-    port = OPT.port;
-
-    /* Setup the protocol-specific socket structure */
-    if (sa->sa_family == AF_INET) {
-        memcpy(&sain, sa, sizeof(sain));
-        memset(&sain6, 0, sizeof(sain6));
-        sa_len = sizeof(sain);
-    } else if (sa->sa_family == AF_INET6) {
-        memset(&sain, 0, sizeof(sain));
-        memcpy(&sain6, sa, sizeof(sain6));
-        sa_len = sizeof(sain6);
-    } else {
-        log_error("unsupported family %d", sa->sa_family);
-        return (-1);
-    }
-
     /* Generate a human-readable representation of the socket address */
     rv = getnameinfo(sa, sa_len, &sa_name[0], sizeof(sa_name), NULL, 0, NI_NUMERICHOST);
     if (rv != 0) {
@@ -313,19 +300,30 @@ server_bind_addr(struct sockaddr *sa, struct protocol *proto)
             goto errout;
     }
 
-	/* Adjust the port number for non-privileged processes */
-	if (getuid() > 0 && port < 1024)
-		port += 1000;
-    if (sa->sa_family == AF_INET) {
-        sain.sin_port = htons(port);
-    } else {
-        sain6.sin6_port = htons(port);
-    }
-
-    /* Don't listen on the loopback address (127.0.0.1 or ::1) */
-    if (strcmp(&sa_name[0], "127.0.0.1") == 0 
-            || strcmp(&sa_name[0], "::1") == 0) {
+    /* Determine if this interface should be used, and what port
+       number to bind to.
+     */
+    rv = srv.proto->bind_hook(sa, sa_name);
+    if (rv < 0)
         return (0);
+    if (rv > USHRT_MAX)
+        return (-1);
+    port = (unsigned short) rv;
+
+    /* Setup the protocol-specific socket structure */
+    if (sa->sa_family == AF_INET) {
+        memcpy(&sain, sa, sizeof(sain));
+        memset(&sain6, 0, sizeof(sain6));
+        sain.sin_port = htons(port);
+        sa_len = sizeof(sain);
+    } else if (sa->sa_family == AF_INET6) {
+        memset(&sain, 0, sizeof(sain));
+        memcpy(&sain6, sa, sizeof(sain6));
+        sain6.sin6_port = htons(port);
+        sa_len = sizeof(sain6);
+    } else {
+        log_error("unsupported family %d", sa->sa_family);
+        return (-1);
     }
 
 	/* Create the socket and bind(2) to it */
@@ -376,7 +374,7 @@ server_bind_addr(struct sockaddr *sa, struct protocol *proto)
     return (0);
 
 errout:
-    log_error("unable to bind(2) to %s", &sa_name[0]);
+    log_error("unable to bind(2) to %s port %d", &sa_name[0], port);
     if (fd >= 0)
         close(fd);
     return (-1);
