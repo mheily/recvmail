@@ -564,8 +564,10 @@ smtpd_getopt(const char * key, const char * val)
 static int
 smtpd_bind(const struct sockaddr *sa, const char *sa_name)
 {
-    /* Don't listen on the loopback address (127.0.0.1 or ::1) */
+    /* TODO - Support relaying mail from localhost
+       For now, Don't listen on the loopback address */
     if (strcmp(&sa_name[0], "127.0.0.1") == 0 
+            || strncmp(&sa_name[0], "fe80::1", 7) == 0
             || strcmp(&sa_name[0], "::1") == 0) {
         return (-1);
     }
