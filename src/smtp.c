@@ -41,9 +41,13 @@
 #include "util.h"
 
 static int sanity_check(void);
+static int smtpd_getopt(const char *, const char *);
+
+static int use_dnsbl = 0;      /* If true, check the DNSBL */
 
 struct protocol SMTP = {
-    .getopt_hook    = sanity_check,
+    .getopt_hook    = smtpd_getopt,
+    .sanity_hook    = sanity_check,
     .accept_hook    = smtpd_accept,
     .timeout_hook   = smtpd_timeout,
     .abort_hook     = NULL,		// fixme
@@ -466,7 +470,7 @@ dnsbl_response_handler(struct session *s, int retval)
         session_println(s, "421 ESMTP access denied");
         session_close(s);
     } else if (retval == DNSBL_NOT_FOUND || retval == DNSBL_ERROR) {
-        if (OPT.use_dnsbl) {
+        if (use_dnsbl) {
             log_debug("client is not in a DNSBL");
             session_handler_pop(s);
         }
@@ -506,7 +510,7 @@ smtpd_accept(struct session *s)
 
     session_data_set(s, sd);
 
-    if (OPT.use_dnsbl) {
+    if (use_dnsbl) {
         if (dnsbl_submit(s) < 0) {
             log_error("dnsbl_submit() failed");
             smtpd_fatal_error(s);
@@ -541,6 +545,18 @@ smtpd_close(struct session *s)
     message_free(sd->msg);
     free(sd);
     session_data_set(s, NULL);          /* paranoia */
+}
+
+static int
+smtpd_getopt(const char * key, const char * val)
+{
+    if (strcmp(key, "UseDNSBL") == 0) {
+        use_dnsbl = 1; // FIXME: temp workaround
+    } else {
+        return (1);
+    }
+
+    return (0);
 }
 
 static int
@@ -599,7 +615,7 @@ smtpd_init(void)
     }
 
     /* Create the DNSBL thread */
-    if (OPT.use_dnsbl) {
+    if (use_dnsbl) {
       if (dnsbl_new("zen.spamhaus.org", dnsbl_response_handler) < 0) {
           log_error("dnsbl_new()");
           return (-1);
@@ -619,7 +635,7 @@ smtpd_shutdown(void)
     //TODO: wait for MDA to complete
     //TODO: wait for DNSBL to complete
     mda_free();
-    if (OPT.use_dnsbl)
+    if (use_dnsbl)
         dnsbl_free();
     //TODO: shutdown the MDA and DNSBL threads
     return (0);

@@ -513,6 +513,7 @@ option_parse(const char *arg)
 {
 	char *p;
 	char *buf, *key, *val;
+    int rv;
 
 	if ((buf = strdup(arg)) == NULL) {
         log_error("out of memory");
@@ -530,18 +531,21 @@ option_parse(const char *arg)
 
 	log_debug("key=%s val=%s\n", key, val);
 
-    /* Update the OPT structure with the key/value */
     if (strcmp(key, "ServerName") == 0) {
         free(OPT.hostname);
         if ((OPT.hostname = strdup(val)) == NULL) {
             log_error("out of memory");
+            return (-1);
+        }
+    } else {
+        rv = srv.proto->getopt_hook(key, val);
+        if (rv < 0) {
+            log_error("Failed to parse option `%s'", key);
+            goto errout;
+        } else if (rv > 0) {
+            log_error("Unrecognized configuration option `%s'", key);
             goto errout;
         }
-    } else if (strcmp(key, "UseDNSBL") == 0) {
-        OPT.use_dnsbl = 1; // FIXME: temp workaround
-    } else {
-        log_error("Unrecognized option: `%s'", key);
-        goto errout;
     }
 
 	free(buf);
@@ -601,5 +605,5 @@ options_parse(int argc, char *argv[])
         }
     }
 
-    return srv.proto->getopt_hook();
+    return srv.proto->sanity_hook();
 }
