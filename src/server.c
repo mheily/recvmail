@@ -294,6 +294,16 @@ server_bind_addr(struct sockaddr *sa, struct protocol *proto)
     int             fd = -1;
     int rv;
 
+    /* Calculate sa_len */
+    if (sa->sa_family == AF_INET) {
+        sa_len = sizeof(sain);
+    } else if (sa->sa_family == AF_INET6) {
+        sa_len = sizeof(sain6);
+    } else {
+        log_error("unsupported family %d", sa->sa_family);
+        return (-1);
+    }
+
     /* Generate a human-readable representation of the socket address */
     rv = getnameinfo(sa, sa_len, &sa_name[0], sizeof(sa_name), NULL, 0, NI_NUMERICHOST);
     if (rv != 0) {
@@ -316,12 +326,10 @@ server_bind_addr(struct sockaddr *sa, struct protocol *proto)
         memcpy(&sain, sa, sizeof(sain));
         memset(&sain6, 0, sizeof(sain6));
         sain.sin_port = htons(port);
-        sa_len = sizeof(sain);
     } else if (sa->sa_family == AF_INET6) {
         memset(&sain, 0, sizeof(sain));
         memcpy(&sain6, sa, sizeof(sain6));
         sain6.sin6_port = htons(port);
-        sa_len = sizeof(sain6);
     } else {
         log_error("unsupported family %d", sa->sa_family);
         return (-1);
