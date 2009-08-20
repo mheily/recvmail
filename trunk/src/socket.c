@@ -403,7 +403,6 @@ socket_poll_disable(struct socket *sock)
         log_error("cannot disable polling on this socket");
         return (-1);
     }
-    /* TODO: fix poll_disable() and use it instead */
     poll_remove(sock->wd);
     sock->wd = NULL;
     return (0);

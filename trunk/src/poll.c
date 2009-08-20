@@ -329,24 +329,6 @@ poll_dispatch(void)
     return (0);
 }
 
-/* FIXME - deadwood */
-int
-poll_disable(int fd)
-{
-    int i;
-
-    /* TODO: slow linear search, use a tree instead */
-    for (i = 0; i < ps_count; i++) {
-        if (pollset[i].fd != fd)
-            continue;
-        pollset[i].events = 0;  //NOTE: this is not tested!
-        return (0);
-    }
-
-    log_error("fd %d not found", fd);
-    return (-1);
-}
-
 void
 poll_remove(struct watch *w)
 {

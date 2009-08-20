@@ -26,7 +26,6 @@
 struct timer;
 struct watch;
 
-int     poll_disable(int);
 struct watch * poll_add(int, int, void (*)(void *, int), void *);
 void    poll_remove(struct watch *);
 int     poll_dispatch(void);
