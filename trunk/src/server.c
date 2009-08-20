@@ -429,8 +429,13 @@ static void
 client_event_handler(void *sptr, int events)
 {
     struct session *s = (struct session *) sptr;
+    struct socket *sock = (struct socket *) session_get_socket(s);
+    int rv;
 
-    if (socket_event_handler((struct socket *) session_get_socket(s), events) == 0)
+    rv = socket_event_handler(sock, events);
+    if (rv < 0) 
+        socket_close(sock); /* KLUDGE - lame way to kill the connection. */
+    if (rv == 0)
         session_event_handler(s, events);
 }
 
@@ -544,6 +549,9 @@ option_parse(const char *arg)
             log_error("out of memory");
             return (-1);
         }
+    } else if (strcmp(key, "UseSSL") == 0) {
+        log_debug("SSL enabled");
+        OPT.ssl_enabled = 1;        /* XXX-FIXME for testing only */
     } else {
         rv = srv.proto->getopt_hook(key, val);
         if (rv < 0) {
@@ -582,7 +590,7 @@ options_parse(int argc, char *argv[])
     OPT.ssl_keyfile = strdup("/etc/ssl/private/ssl-cert-snakeoil.key");
 
     /* Get arguments from ARGV */
-    while ((c = getopt(argc, argv, "fho:qu:v")) != -1) {
+    while ((c = getopt(argc, argv, "vfho:qu:")) != -1) {
         switch (c) {
             case 'f':
                 OPT.daemon = 0;

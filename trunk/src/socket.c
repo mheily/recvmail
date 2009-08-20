@@ -78,11 +78,11 @@ struct socket {
 #define LINE_FRAGMENTED(x) ((x)->buf[(x)->len - 1] != '\n')
 
 static int
-tls_op_retry(struct socket *sock)
+tls_operation(struct socket *sock, int op)
 {
-    int n, retval;
+    int n, retval, events;
 
-    switch (sock->tls_op) {
+    switch (op) {
         case TLS_NOOP:
             break;
 
@@ -124,14 +124,35 @@ tls_op_retry(struct socket *sock)
             break;
 
         case SSL_ERROR_WANT_READ:
-        case SSL_ERROR_WANT_WRITE:
-            log_debug("EWOULDBLOCK");
+            log_debug("SSL_WANT_READ");
+            sock->tls_op = op;
+            events = socket_poll_get(sock);
+            events |= POLLIN;
+            socket_poll_set(sock, events);
             retval = 1;
+            break;
+
+        case SSL_ERROR_WANT_WRITE:
+            log_debug("SSL_WANT_WRITE");
+            sock->tls_op = op;
+            events = socket_poll_get(sock);
+            events |= POLLOUT;
+            socket_poll_set(sock, events);
+            retval = 1;
+            break;
+
+        case SSL_ERROR_SYSCALL:
+            log_error("SSL syscall error");
+            /* Fall through */
+        case SSL_ERROR_SSL:
+            log_error("SSL protocol error");
+            retval = -1;
             break;
 
         default:
             log_error("unhandled SSL error code");
             /* TODO: dump code */
+            abort(); //XXX-BAD BAD BAD
             retval = -1;
     }
 
@@ -151,7 +172,7 @@ socket_event_handler(struct socket *sock, int events)
             (sock->tls_op != TLS_NOOP) && 
             (events & POLLIN || events & POLLOUT)) 
     {
-        return (tls_op_retry(sock));
+        return (tls_operation(sock, sock->tls_op));
     }
 
 #if TODO
@@ -271,6 +292,25 @@ errout:
     return (NULL);
 }
 
+int
+socket_close(struct socket *sock)
+{
+    if (sock->fd < 0) {
+        log_error("attempt to close a socket multiple times");
+        return (0);
+    }
+    if (sock->wd != NULL) {
+        poll_remove(sock->wd);
+        sock->wd = NULL;
+    }
+    if (close(sock->fd) < 0) {
+        log_errno("close(3) of fd %d", sock->fd);
+        return (-1);
+    }
+    sock->fd = -1;
+    return (0);
+}
+
 void
 socket_free(struct socket *sock)
 {
@@ -282,7 +322,8 @@ socket_free(struct socket *sock)
     }
     if (sock->wd != NULL)
         poll_remove(sock->wd);
-    (void) close(sock->fd); 
+    if (sock->fd >= 0)
+        (void) close(sock->fd); 
 
     /* Destroy all items in the input buffer */
     n1 = STAILQ_FIRST(&sock->input);
@@ -416,7 +457,7 @@ static int
 socket_tls_read(struct socket *sock)
 {
     char buf[SOCK_BUF_SIZE];
-    int n;
+    int n, rv, events;
 
     n = SSL_read(sock->ssl, &buf[0], sizeof(buf));
 /*FIXME error handling*/
@@ -424,23 +465,34 @@ socket_tls_read(struct socket *sock)
         switch (SSL_get_error(sock->ssl, n)) {
             case SSL_ERROR_ZERO_RETURN:
                 log_debug("zero return");
-                abort(); //FIXME
+                rv = -1;
                 break;
 
             case SSL_ERROR_WANT_READ:
+                events = socket_poll_get(sock);
+                events |= POLLIN;
+                socket_poll_set(sock, events);
+                log_debug("WANT_READ returned");
+                rv = 1;
+                break;
+
             case SSL_ERROR_WANT_WRITE:
-                log_debug("EWOULDBLOCK");
-                abort(); //FIXME
+                events = socket_poll_get(sock);
+                events |= POLLOUT;
+                socket_poll_set(sock, events);
+                log_debug("WANT_WRITE returned");
+                rv = 1;
                 break;
 
             default:
                 log_debug("invalid retval n=%d", n);
-                abort(); //FIXME
+                rv = -1;
                 break;
         }
+        return (rv);
+    } else {
+        return (parse_lines(sock, buf, (size_t) n));
     }
-
-    return parse_lines(sock, buf, (size_t) n);
 }
 
 static int
@@ -536,10 +588,7 @@ socket_starttls(struct socket *sock)
     SSL_set_fd(sock->ssl, sock->fd);
     /* FIXME: set BIO_NOCLOSE on the underlying BIO or there will be multiple close(2) calls */
 
-/*XXX- FIXME SSL_accept()*/
-    return (-1);
-
-    return (0);
+    return (tls_operation(sock, TLS_ACCEPT));
 }
 
 int
@@ -567,10 +616,24 @@ socket_get_peername(const struct socket *sock)
     return ((const char *) &sock->peername);
 }
 
+void
+socket_poll_set(struct socket *s, int flags)
+{
+    poll_modify(s->wd, flags);
+}
+
+int
+socket_poll_get(const struct socket *s)
+{
+    return (poll_events_get(s->wd));
+}
 
 static int
 socket_tls_init(void)
 {
+    if (!OPT.ssl_enabled)
+        return (0);
+
     /* OpenSSL transparently seeds the PRNG from /dev/urandom, if it
        exists. Otherwise, it silently fails to seed the PRNG. */
     if (!file_exists("/dev/urandom")) {
@@ -585,22 +648,18 @@ socket_tls_init(void)
     if (ssl_ctx == NULL)
         return (-1);
 
-    /* TODO: alert if the SSL cert doesn't exist. */
-    if (!file_exists(OPT.ssl_certfile))
-        return (0);
-
     /* TODO: print the SSL error strings with ERR_error_string(3SSL) */
     if (SSL_CTX_use_certificate_chain_file(ssl_ctx, OPT.ssl_certfile) != 1) {
         log_error("unable to load certificate `%s'", OPT.ssl_certfile);
         return (-1);
     }
-    log_debug("loaded SSL certificate from `%s'", OPT.ssl_certfile);
+    log_notice("loaded SSL certificate from `%s'", OPT.ssl_certfile);
 
     if (SSL_CTX_use_PrivateKey_file(ssl_ctx, OPT.ssl_keyfile, SSL_FILETYPE_PEM) != 1) {
         log_error("unable to load private key from `%s'", OPT.ssl_keyfile);
         return (-1);
     }
-    log_debug("loaded SSL key from `%s'", OPT.ssl_keyfile);
+    log_notice("loaded SSL key from `%s'", OPT.ssl_keyfile);
 
     return (0);
 }
@@ -608,8 +667,10 @@ socket_tls_init(void)
 int
 socket_init(void)
 {
-    if (OPT.ssl_enabled && socket_tls_init() < 0)
+    if (socket_tls_init() < 0) {
+        log_error("unable to initialize TLS subsystem");
         return (-1);
+    }
 
     return (0);
 }
