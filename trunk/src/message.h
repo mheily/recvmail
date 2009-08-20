@@ -27,7 +27,7 @@ struct message {
     int     fd;		            /* File descriptor of the spoolfile */
     char   *path;	            /* The path to the spoolfile */
     size_t  recipient_count;
-    size_t  size;
+    size_t  msg_size;
     char   *filename;	        /* The Maildir message-ID */
     struct mail_addr *sender;	/* The envelope sender */
     LIST_HEAD(,mail_addr) recipient;    /* All recipients */

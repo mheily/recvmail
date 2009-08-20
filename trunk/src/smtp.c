@@ -456,6 +456,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
         log_errno("write(2)");
         goto error;
     }
+    sd->msg->msg_size += len;
 
     return (0);
 
