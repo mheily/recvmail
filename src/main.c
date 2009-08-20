@@ -42,132 +42,13 @@ struct options  OPT = {
 int
 main(int argc, char *argv[])
 {
-/* TODO: seperate, non-chroot process
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <stdio.h>
-#include <err.h>
-#include <fcntl.h>
-#include <unistd.h>
+    if (server_init(argc, argv, &SMTP) < 0)
+        errx(1, "server initialization failed");
 
-int
-main(int argc, char *argv[])
-{
-    struct stat sb;
-    time_t      mtime;
-    FILE       *pd;
-    int         fd, rv;
-    size_t      cnt;
-    char        buf[1024];
-
-    memset(buf, 0, sizeof(buf));
-
-    for (;;) {
-       if (stat("/etc/passwd", &sb) < 0)
-        err(1, "stat(2)");
-       if (mtime < sb.st_mtime) {
-         mtime = sb.st_mtime;
-
-         fd = open("/srv/mail/etc/passwd", O_WRONLY | O_CREAT, 644);
-         if (fd < 0)
-            err(1, "open(2)");
-    //FIXME - obtain a lock 
-    //          see http://www.ecst.csuchico.edu/~beej/guide/ipc/flock.html
-         if (lseek(fd, 0, SEEK_SET) < 0)
-            err(1, "lseek(2)");
-         if (ftruncate(fd, 0) < 0)
-            err(1, "ftruncate(2)");
-
-         pd = popen("cat /etc/passwd|cut -f1 -d:|sort|uniq", "r");
-         if (pd == NULL)
-            err(1, "popen(3)");
-         while (fgets(buf, sizeof(buf) - 1, fp) != NULL) {
-            cnt = strlen(buf);
-            if (cnt == 0)
-                errx(1, "empty string");
-            if (buf[cnt] == '\n')
-                buf[cnt] == '\0';
-            else
-                errx(1, "unterminated line");
-            if (write(fd, buf, cnt) < 0)
-                err(1, "write(2)");
-         }
-         rv = pclose(fp);
-         if (rv == -1) {
-            err(1, "pclose(3)");
-        } else {
-            // check rv using wait(2) macros
-        }
-}
-
-
-
-       }
-    }
-}
-
- --------------------------
- TODO: periodic event inside recvmail:
-
-     #include <sys/types.h>
-     #include <sys/stat.h>
-
-    struct stat sb;
-    time_t      mtime;
-
-    for (;;) {
-       if (stat("/etc/passwd", &sb) < 0)
-        err(1, "stat(2)");
-       if (mtime < sb.st_mtime) {
-         mtime = sb.st_mtime;
-    //FIXME - obtain a lock 
-    //          see http://www.ecst.csuchico.edu/~beej/guide/ipc/flock.html
-
-         // Read the contents of /etc/passwd
-         // use strtok to split into tokens
-         // insert into RECIPIENT tree
-
-    //FIXME - release the lock 
-    //          see http://www.ecst.csuchico.edu/~beej/guide/ipc/flock.html
-       }
-    }
-
-*/
-
-            if (server_init(argc, argv, &SMTP) < 0)
-            errx(1, "server initialization failed");
-
-        if (server_dispatch() < 0) {
-            if (!detached) 
-                fprintf(stderr, "Abnormal program termination.\n");
-            exit(EXIT_FAILURE);
-        }
-    
-    pid_t pid;
-    int   status;
-
-    if ((pid = fork()) < 0)
-        err(1, "fork(2)");
-
-    if (pid > 0) {
-        /* Wait for the child to become a daemon and reap it. */
-        if (wait(&status) != pid)
-            err(1, "wait(2) %d", pid);
-
-    exit (EXIT_SUCCESS);
-        
-#if TODO
-// maintain the chroot environment
-        /* NOTE: not in POSIX */
-        if (daemon(0,0) < 0)
-            err(1, "daemon(3)");
-        
-        //TODO: copy /etc/localtime to chroot
-        sleep(99999);
-#endif
-       exit (0);
-    } else {
-
+    if (server_dispatch() < 0) {
+        if (!detached) 
+            fprintf(stderr, "Abnormal program termination.\n");
+        exit(EXIT_FAILURE);
     }
 
     exit (EXIT_SUCCESS);
