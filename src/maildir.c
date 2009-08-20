@@ -120,7 +120,7 @@ maildir_msg_open(struct message *msg, struct session *s)
         log_errno("write(2)");
         goto errout;
     }
-    msg->size += len;
+    msg->msg_size += len;
 
     free(buf);
     return (0);
@@ -130,32 +130,44 @@ errout:
     return (-1);
 }
 
+/* Generate the full path to the destination message file for
+   a delivery. */
+static int
+mkdestpath(char *buf, 
+        size_t len, 
+        const struct mail_addr *ma, 
+        const struct message *msg)
+{
+    char prefix[PATH_MAX];
+
+    /* Generate the path to the mailbox root */
+    if (maildir_get_path((char *) &prefix, sizeof(prefix), ma) != 0) {
+        log_error("prefix too long");
+        return (-1);
+    }
+
+    /* Generate the path to the new/ message */
+    if (snprintf(buf, len, "%s/new/%s,S=%zu",
+                (char *) &prefix, msg->filename, msg->msg_size) >= len) {
+        log_error("path too long");
+        return (-1);
+    }
+
+    return (0);
+}
 
 int
 maildir_deliver(struct message *msg)
 {
-    char prefix[PATH_MAX];
     char dest[PATH_MAX];
     struct mail_addr *ma;
-    struct stat sb;
-
-    /* Determine the size of the message file */
-    if (stat(msg->path, &sb) < 0) {
-        log_errno("stat(2) of `%s'", msg->path);
-        return (-1);
-    }
-
+  
     /* Deliver to each SMTP recipient */
     LIST_FOREACH(ma, &msg->recipient, entries) {
-        
-        /* Generate the path to the new/ message */
-        if (maildir_get_path((char *) &prefix, sizeof(prefix), ma) != 0) {
-            log_error("prefix too long");
-            goto errout;
-        }
-        if (snprintf((char *) &dest, sizeof(dest), "%s/new/%s,S=%zu",
-                    (char *) &prefix, msg->filename, (size_t) sb.st_size) >= sizeof(dest)) {
-            log_error("path too long");
+      
+        /* Generate the destination path */
+        if (mkdestpath(&dest[0], sizeof(dest), ma, msg) < 0) {
+            log_error("mkdestpath failed");
             goto errout;
         }
 
@@ -165,7 +177,7 @@ maildir_deliver(struct message *msg)
             goto errout;
         }
         
-        /* TODO - sync metadata */
+        /* TODO - flush dentry metadata to stable storage */
     }
 
     return (0);
@@ -173,9 +185,12 @@ maildir_deliver(struct message *msg)
 errout:
     /* Try to "undeliver" the message */
     LIST_FOREACH(ma, &msg->recipient, entries) {
-        log_warning("XXX-fixme todo");
+        if (mkdestpath(&dest[0], sizeof(dest), ma, msg) == 0) {
+            (void) unlink(dest);
+        } else {
+            return (-1);
+        }
     }
-    /* FIXME: delete the spoolfile */
     return (-1);
 }
 
