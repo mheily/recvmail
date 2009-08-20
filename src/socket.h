@@ -29,9 +29,12 @@ void            socket_free(struct socket *);
 
 int      socket_pending(const struct socket *);
 ssize_t  socket_readln(char **, struct socket *);
+int      socket_close(struct socket *);
 int      socket_write(struct socket *, const char *, size_t);
 int      socket_poll_enable(struct socket *, int, void (*)(void *, int), void *);
 int      socket_poll_disable(struct socket *);
+void     socket_poll_set(struct socket *, int);
+int      socket_poll_get(const struct socket *);
 int      socket_event_handler(struct socket *, int);
 int      socket_get_family(const struct socket *);
 int      socket_starttls(struct socket *);

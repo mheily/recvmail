@@ -364,6 +364,18 @@ poll_remove(struct watch *w)
     free(w);
 }
 
+void
+poll_modify(struct watch *w, short events)
+{
+    w->ps_ent->events = events;
+}
+
+short   
+poll_events_get(struct watch *w)
+{
+    return (w->ps_ent->events);
+}
+
 int
 poll_signal(int signum, void(*cb)(void *, int), void *udata)
 {

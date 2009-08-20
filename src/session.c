@@ -221,12 +221,13 @@ void
 session_event_handler(struct session *s, int events)
 {
     if (events & POLLHUP) {
-        log_debug("session %lu got EOF", s->id);
+        log_notice("session %lu got EOF", s->id);
         session_close(s);
         return;       // FIXME: process the rest of the read buffer
     }
 
     /* TODO: limit the max size of the input buffer */
+    //FIXME: turn off polling.
     if (s->handler == NULL)
         return;
 
