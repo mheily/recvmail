@@ -560,7 +560,7 @@ static int
 smtpd_getopt(const char * key, const char * val)
 {
     if (strcmp(key, "UseDNSBL") == 0) {
-        use_dnsbl = 1;
+        use_dnsbl = 1;          /* TODO: allow "no" as a val */
     } else if (strcmp(key, "Port") == 0) {
         port = atoi(val);
     } else {
