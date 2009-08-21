@@ -559,6 +559,11 @@ socket_write(struct socket *sock, const char *buf, size_t len)
     /* TODO: use a status flag instead of checking for -1 */
     if (sock->fd < 0)
         return (0);
+
+#if FIXME
+    if (!sock->can_write)
+        return socket_buffer_write(sock, buf, len);
+#endif
     
     n = send(sock->fd, buf, len, 0);
     if (n < 0) {
@@ -585,7 +590,7 @@ socket_starttls(struct socket *sock)
         return (-1);
     }
     SSL_set_fd(sock->ssl, sock->fd);
-    /* FIXME: set BIO_NOCLOSE on the underlying BIO or there will be multiple close(2) calls */
+    /* SSL-FIXME: set BIO_NOCLOSE on the underlying BIO or there will be multiple close(2) calls */
 
     return (tls_operation(sock, TLS_ACCEPT));
 }

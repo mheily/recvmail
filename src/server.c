@@ -455,7 +455,7 @@ errout:
     return (-1);
 }
 
-/* FIXME: I don't think this needs to be void, void * anymore.
+/* TODO: I don't think this needs to be void, void * anymore.
 
 static int
 client_event_handler(struct session *s, int events)
