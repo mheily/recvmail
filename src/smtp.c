@@ -43,6 +43,7 @@
 static int sanity_check(void);
 static int smtpd_getopt(const char *, const char *);
 static int smtpd_bind(const struct sockaddr *, const char *);
+static void smtpd_abort(struct session *s);
 
 static int      use_dnsbl = 0;
 static u_short  port = 25;
@@ -53,7 +54,7 @@ struct protocol SMTP = {
     .bind_hook      = smtpd_bind,
     .accept_hook    = smtpd_accept,
     .timeout_hook   = smtpd_timeout,
-    .abort_hook     = NULL,		// fixme
+    .abort_hook     = smtpd_abort,
     .close_hook     = smtpd_close,
     .init_hook      = smtpd_init,
     .shutdown_hook  = smtpd_shutdown,
@@ -86,7 +87,6 @@ static int smtpd_greeting(struct session *s);
 static int smtpd_parse_command(struct session *, char *, size_t);
 static int smtpd_parse_data(struct session *, char *, size_t);
 static int smtpd_session_reset(struct session *);
-static int smtpd_fatal_error(struct session *s);
 
 static int smtpd_quit(struct session *s);
 static int smtpd_rset(struct session *s);
@@ -206,7 +206,7 @@ smtpd_rcpt(struct session *s, char *line)
     /* TODO - eliminate this extra copy */
     if ((buf = strdup(line)) == NULL) {
         log_errno("strdup(3)");
-        smtpd_fatal_error(s);
+        smtpd_abort(s);
         goto errout;
     }
 
@@ -300,14 +300,13 @@ smtpd_quit(struct session *s)
     return (0);
 }
 
-static int
-smtpd_fatal_error(struct session *s)
+static void
+smtpd_abort(struct session *s)
 {
     struct smtp_session *sd = smtp_session(s);
 
     session_println(s, "421 Fatal error, closing connection");
     sd->smtp_state = SMTP_STATE_QUIT;
-    return (0);
 }
 
 
@@ -523,7 +522,7 @@ smtpd_accept(struct session *s)
     if (use_dnsbl) {
         if (dnsbl_submit(s) < 0) {
             log_error("dnsbl_submit() failed");
-            smtpd_fatal_error(s);
+            smtpd_abort(s);
             return (-1);
         }
     } else {
