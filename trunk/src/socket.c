@@ -175,7 +175,7 @@ socket_event_handler(struct socket *sock, int events)
         return (tls_operation(sock, sock->tls_op));
     }
 
-#if TODO
+#if FIXME
     // TODO: implement output buffreing
     if (events & POLLOUT) {
         if (s->fd < 0) 
@@ -560,10 +560,11 @@ socket_write(struct socket *sock, const char *buf, size_t len)
     if (sock->fd < 0)
         return (0);
 
-#if FIXME
-    if (!sock->can_write)
+    /* If there is anything in the output buffer,
+     * assume that the socket is not ready for writing.
+     */
+    if (!STAILQ_EMPTY(&sock->output))
         return socket_buffer_write(sock, buf, len);
-#endif
     
     n = send(sock->fd, buf, len, 0);
     if (n < 0) {
