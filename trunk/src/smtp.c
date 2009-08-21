@@ -44,8 +44,8 @@ static int sanity_check(void);
 static int smtpd_getopt(const char *, const char *);
 static int smtpd_bind(const struct sockaddr *, const char *);
 
-static int use_dnsbl = 0;      /* If true, check the DNSBL */
-static unsigned short port = 25;
+static int      use_dnsbl = 0;
+static u_short  port = 25;
 
 struct protocol SMTP = {
     .getopt_hook    = smtpd_getopt,
@@ -561,7 +561,7 @@ static int
 smtpd_getopt(const char * key, const char * val)
 {
     if (strcmp(key, "UseDNSBL") == 0) {
-        use_dnsbl = 1; // FIXME: temp workaround
+        use_dnsbl = 1;
     } else if (strcmp(key, "Port") == 0) {
         port = atoi(val);
     } else {
