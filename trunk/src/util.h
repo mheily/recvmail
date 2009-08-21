@@ -18,6 +18,7 @@
 #ifndef _UTIL_H
 #define _UTIL_H
 
-int  file_exists(const char *path);
+int  file_exists(const char *);
+ssize_t file_read(char **, const char *);
 
 #endif  /* _UTIL_H */

@@ -37,6 +37,7 @@
 #include "resolver.h"
 #include "server.h"
 #include "session.h"
+#include "util.h"
 #include "workqueue.h"
 
 static void server_accept(void *if_ptr, int events);
@@ -53,6 +54,33 @@ struct net_interface {
     LIST_ENTRY(net_interface) entry;
 };
 
+static int
+pidfile_check(void)
+{
+    char *buf;
+    size_t len;
+    pid_t pid;
+    char *pidfile;
+
+    if (asprintf(&pidfile, "/var/run/%s.pid", OPT.log_ident) < 0)
+        err(1, "out of memory");
+
+    if (file_exists(pidfile)) {
+        if ((len = file_read(&buf, pidfile)) < 0)
+            err(1, "unable to read pidfile");
+        pid = atoi(buf);
+        if (kill(pid, 0) == 0) {
+            free(pidfile);
+            log_error("another %s is already running with pid # %d", 
+                 OPT.log_ident, pid);
+            return (-1);
+        }
+    }
+
+    free(pidfile);
+    return (0);
+}
+
 static void
 pidfile_create(void)
 {
@@ -60,20 +88,24 @@ pidfile_create(void)
     char *pidstr;
     int fd;
 
-    if (asprintf(&pidfile, "/var/run/%s.pid", OPT.log_ident) < 0)
+    /* Generate the path and output buffer */
+    if ((asprintf(&pidfile, "/var/run/%s.pid", OPT.log_ident) < 0) ||
+            (asprintf(&pidstr, "%d", getpid()) < 0)) 
         err(1, "out of memory");
-    if (asprintf(&pidstr, "%d", getpid()) < 0)
-        err(1, "out of memory");
-
-    /* FIXME: check for an existing pidfile */
 
     fd = open(pidfile, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-    if (fd < 0) 
-        err(1, "open(2) of %s", pidfile);
-    if (write(fd, pidstr, strlen(pidstr)) < strlen(pidstr))
-        err(1, "write(2) to %s", pidfile);
-    if (close(fd) < 0)
-        err(1, "close(2) of %s", pidfile);
+    if (fd < 0) {
+        log_errno("open(2) of %s", pidfile);
+        abort();
+    }
+    if (write(fd, pidstr, strlen(pidstr)) < strlen(pidstr)) {
+        log_errno("write(2) to %s", pidfile);
+        abort();
+    }
+    if (close(fd) < 0) {
+        log_errno("close(2) of %s", pidfile);
+        abort();
+    }
 
     free(pidfile);
     free(pidstr);
@@ -202,6 +234,9 @@ server_init(int argc, char *argv[], struct protocol *proto)
     pid_t           pid,
                     sid;
 
+    if (pidfile_check() < 0)
+        err(1, "another process is running");
+
     memset(&srv, 0, sizeof(srv));
     srv.proto = proto;
     LIST_INIT(&srv.if_list);
@@ -238,6 +273,8 @@ server_init(int argc, char *argv[], struct protocol *proto)
         if (pid > 0)
             exit(0);
 
+        pidfile_create();
+
         /* Create a new session and become the session leader */
         if ((sid = setsid()) < 0)
             err(1, "setsid(2)");
@@ -247,7 +284,6 @@ server_init(int argc, char *argv[], struct protocol *proto)
         close(1);
         close(2);
 
-        pidfile_create();
         detached = 1;
     }
 
@@ -551,7 +587,7 @@ option_parse(const char *arg)
         }
     } else if (strcmp(key, "UseSSL") == 0) {
         log_debug("SSL enabled");
-        OPT.ssl_enabled = 1;        /* XXX-FIXME for testing only */
+        OPT.ssl_enabled = 1;        /* TODO: allow No as a value */
     } else {
         rv = srv.proto->getopt_hook(key, val);
         if (rv < 0) {

@@ -17,10 +17,14 @@
  */
 
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include "log.h"
 
 int
 file_exists(const char *path)
@@ -35,3 +39,45 @@ file_exists(const char *path)
     return (1);
 }
 
+ssize_t
+file_read(char **bufp, const char *path)
+{
+    struct stat sb;
+    char *buf;
+    int fd;
+
+    if ((fd = open(path, O_RDONLY)) < 0) {
+        log_errno("open(2) of `%s'", path);
+        goto errout;
+    }
+    if (stat(path, &sb) != 0) {
+        log_errno("stat(2) of `%s'", path);
+        goto errout;
+    }
+    if (sb.st_size >= (INT_MAX - 1)) {
+        log_error("file %s is too large", path);
+        goto errout;
+    }
+    if ((buf = malloc(sb.st_size)) == NULL) {
+        log_errno("malloc(3)");
+        goto errout;
+    }
+    if (read(fd, buf, sb.st_size) < sb.st_size) {
+        log_errno("read(2)");
+        free(buf);
+        goto errout;
+    }
+    if (close(fd) < 0) {
+        log_errno("close(2)");
+        free(buf);
+        goto errout;
+    }
+
+    buf[sb.st_size] = '\0';
+    *bufp = buf;
+    return (sb.st_size);
+
+errout:
+    *bufp = NULL;
+    return (-1);
+}
