@@ -202,7 +202,13 @@ smtpd_rcpt(struct session *s, char *line)
     /* Remove leading whitespace and '<' bracket */
     for (; *line == ' ' || *line == '<'; line++);  
 
-    buf = strdup(line); //FIXME: errhandling
+    /* Duplicate the line */
+    /* TODO - eliminate this extra copy */
+    if ((buf = strdup(line)) == NULL) {
+        log_errno("strdup(3)");
+        smtpd_fatal_error(s);
+        goto errout;
+    }
 
     /* Ignore any trailing whitespace and additional options */
     /* TODO - handle quoted whitespace */
