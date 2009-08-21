@@ -208,12 +208,20 @@ recipient_lookup(const char *local_part, const char *domain)
     int n;
     struct dirent dent;
     struct dirent *dentp = &dent;
+    size_t lplen;
     void *p;
+
+    lplen = strlen(local_part);
+    if (lplen > sizeof(dent.d_name)) {
+        log_error("local_part too long");
+        return (-1);
+    }
 
     pthread_mutex_lock(&rtable_mtx);
     for (n = 0; n < dlist->dm_count; n++) {
         if (strcasecmp(domain, dlist->dm_entry[n]->d_name) == 0) {
-            strcpy(&dent.d_name[0], local_part); //FIXME: no length check
+            strncpy(&dent.d_name[0], local_part, sizeof(dent.d_name));
+            dent.d_name[lplen] = '\0';
             p = bsearch(&dentp, rtable[n]->dm_entry, 
                     rtable[n]->dm_count,
                     sizeof(struct dirent *),
