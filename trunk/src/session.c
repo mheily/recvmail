@@ -164,7 +164,6 @@ session_new(int fd, struct protocol *proto, void (*handler)(void *, int))
     /* Initialize the socket object */
     if ((s->sock = socket_new(fd, s)) == NULL) {
         log_error("socket_new()");
-        //FIXME: where is this done now? message_free(s->msg);
         free(s);
         return (NULL);
     }
@@ -172,7 +171,6 @@ session_new(int fd, struct protocol *proto, void (*handler)(void *, int))
     /* TODO: Determine the reverse DNS name for the host */
 
     /* Monitor the client socket for events */
-    /* FIXME: wait until the dnsbl is complete */
     if (socket_poll_enable(s->sock, POLLIN, handler, s) < 0) {
         log_error("poll_enable()");
         socket_free(s->sock);
@@ -180,7 +178,7 @@ session_new(int fd, struct protocol *proto, void (*handler)(void *, int))
         return (NULL);
     }
 
-    /* Generate a session ID (XXX-FIXME: use throttling to prevent unlimited wraparound) */
+    /* Generate a session ID (TODO: use connection throttling to prevent unlimited wraparound) */
     /* Add to the session table */
     pthread_mutex_lock(&st_mtx);
     if (session_id == ULONG_MAX)
