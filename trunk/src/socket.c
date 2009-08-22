@@ -38,6 +38,10 @@
 
 static int socket_read(struct socket *sock);
 static int socket_tls_read(struct socket *sock);
+static int buf_drain(struct socket *sock);
+static int buf_append(struct socket *sock, const char *buf, size_t len);
+
+static struct line * line_new(const char *buf, size_t len);
 
 static SSL_CTX *ssl_ctx;
 
@@ -50,8 +54,9 @@ static SSL_CTX *ssl_ctx;
 
 struct line {
     STAILQ_ENTRY(line) entry;
-    size_t len;
-    char buf[];
+    size_t  off, 
+            len;
+    char    buf[];
 };
 
 /* A socket buffer */
@@ -71,16 +76,39 @@ struct socket {
     struct session *sess;
     SSL    *ssl;
     STAILQ_HEAD(,line) input;
-    STAILQ_HEAD(,line) output;  //TODO:not used yet
+    STAILQ_HEAD(,line) output;
     struct line *input_tmp;
 };
 
-#define LINE_FRAGMENTED(x) ((x)->buf[(x)->len - 1] != '\n')
+#define LINE_IS_FRAGMENTED(x) ((x)->buf[(x)->len - 1] != '\n')
+
+static struct line *
+line_new(const char *buf, size_t len)
+{
+    struct line *x;
+    size_t cnt;
+
+    if (len > 1024)                     /* FIXME: too small */
+        return (NULL);
+    cnt = sizeof(*x) + len + 1;
+    x = malloc(cnt);
+    if (x == NULL) {
+        log_errno("malloc(3) unable to alloc %zu bytes", cnt);
+        return (NULL);
+    }
+    memset(x, 0, sizeof(*x));
+    memcpy(&x->buf, buf, len);
+    x->buf[len] = '\0';
+    x->len = len;
+    
+    return (x);
+}
 
 static int
 tls_operation(struct socket *sock, int op)
 {
-    int n, retval, events;
+    struct pollfd *pfd;
+    int n, retval;
 
     switch (op) {
         case TLS_NOOP:
@@ -126,18 +154,16 @@ tls_operation(struct socket *sock, int op)
         case SSL_ERROR_WANT_READ:
             log_debug("SSL_WANT_READ");
             sock->tls_op = op;
-            events = socket_poll_get(sock);
-            events |= POLLIN;
-            socket_poll_set(sock, events);
+            pfd = socket_get_pollfd(sock);
+            pfd->events |= POLLIN;
             retval = 1;
             break;
 
         case SSL_ERROR_WANT_WRITE:
             log_debug("SSL_WANT_WRITE");
             sock->tls_op = op;
-            events = socket_poll_get(sock);
-            events |= POLLOUT;
-            socket_poll_set(sock, events);
+            pfd = socket_get_pollfd(sock);
+            pfd->events |= POLLOUT;
             retval = 1;
             break;
 
@@ -167,6 +193,8 @@ socket_event_handler(struct socket *sock, int events)
         return (0);
     }
 
+    //FIXME: WHEREis POLLIN?
+    
     /* Attempt to retry any incomplete TLS operation */
     if ((sock->ssl != NULL) && 
             (sock->tls_op != TLS_NOOP) && 
@@ -175,16 +203,10 @@ socket_event_handler(struct socket *sock, int events)
         return (tls_operation(sock, sock->tls_op));
     }
 
-#if FIXME
-    // TODO: implement output buffreing
     if (events & POLLOUT) {
-        if (s->fd < 0) 
-            log_debug("fd %d is writable (session terminated)", s->fd);
-        else
-            log_debug("fd %d is now writable", s->fd);
-        //TODO - flush output buffer, or do something
+        log_debug("fd %d ready for writing", sock->fd);
+        return (buf_drain(sock));
     }
-#endif
 
     return (0);
 }
@@ -200,7 +222,7 @@ append_input(struct socket *sock, const char *buf, size_t len)
     }
 
     tail = STAILQ_LAST(&sock->input, line, entry);
-    if (tail != NULL && LINE_FRAGMENTED(tail)) {
+    if (tail != NULL && LINE_IS_FRAGMENTED(tail)) {
         STAILQ_REMOVE(&sock->input, tail, line, entry);
 
         /* Create a new line large enough to contain both fragments */
@@ -369,7 +391,7 @@ socket_readln(char **dst, struct socket *sock)
     if (! STAILQ_EMPTY(&sock->input) ) {
         x = STAILQ_FIRST(&sock->input);
         log_debug("x=%p len=%zu buf=`%s'", x, x->len, x->buf);
-        if (LINE_FRAGMENTED(x)) {
+        if (LINE_IS_FRAGMENTED(x)) {
             log_debug("fragmented line");
             return (0);
         }
@@ -455,8 +477,9 @@ parse_lines(struct socket *sock, char *buf, size_t buf_len)
 static int
 socket_tls_read(struct socket *sock)
 {
+    struct pollfd *pfd;
     char buf[SOCK_BUF_SIZE];
-    int n, rv, events;
+    int n, rv;
 
     n = SSL_read(sock->ssl, &buf[0], sizeof(buf));
 /*FIXME error handling*/
@@ -468,17 +491,15 @@ socket_tls_read(struct socket *sock)
                 break;
 
             case SSL_ERROR_WANT_READ:
-                events = socket_poll_get(sock);
-                events |= POLLIN;
-                socket_poll_set(sock, events);
+                pfd = socket_get_pollfd(sock);
+                pfd->events |= POLLIN;
                 log_debug("WANT_READ returned");
                 rv = 1;
                 break;
 
             case SSL_ERROR_WANT_WRITE:
-                events = socket_poll_get(sock);
-                events |= POLLOUT;
-                socket_poll_set(sock, events);
+                pfd = socket_get_pollfd(sock);
+                pfd->events |= POLLOUT;
                 log_debug("WANT_WRITE returned");
                 rv = 1;
                 break;
@@ -531,22 +552,65 @@ socket_read(struct socket *sock)
 } 
 
 static int
-socket_buffer_write(struct socket *sock, const char *buf, size_t len)
+line_send(struct socket *sock, struct line *ent)
+{
+    ssize_t n;
+
+    n = send(sock->fd, ent->buf + ent->off, ent->len, 0);
+    if (n < 0) {
+        if (errno == EAGAIN) {
+            socket_get_pollfd(sock)->events |= POLLOUT;
+            return (1);
+        }
+
+        /* TODO: if (errno == ECONNRESET) ... */
+        log_errno("send(2)");
+        return (-1);
+    }
+    if (n < ent->len) {
+        ent->off += n;
+        ent->len -= n;
+        socket_get_pollfd(sock)->events |= POLLOUT;
+        return (1);
+    }
+   
+    return (0);        
+}
+
+static int
+buf_drain(struct socket *sock)
+{
+    struct line *cur, *nxt;
+    int rv;
+
+    cur = STAILQ_FIRST(&sock->output); 
+    while (cur != NULL) {
+        nxt = STAILQ_NEXT(cur, entry);   
+        rv = line_send(sock, cur);
+        if (rv < 0)
+            return (-1);
+        if (rv == 1)
+            return (0);
+        free(cur);
+        cur = nxt;
+    }
+    
+    STAILQ_INIT(&sock->output);
+    socket_get_pollfd(sock)->events ^= POLLOUT;
+    
+    return (0);
+}
+
+static int
+buf_append(struct socket *sock, const char *buf, size_t len)
 {
     struct line *x;
 
-    /* Copy the buffer to a <line> object */
-    x = malloc(sizeof(*x) + len + 1);
-    if (x == NULL) {
-        log_errno("malloc(3)");
+    if ((x = line_new(buf, len)) == NULL) 
         return (-1);
-    }
-    memcpy(&x->buf, buf, len);
-    x->buf[len] = '\0';
-    x->len = len;
-
+    socket_get_pollfd(sock)->events |= POLLOUT;
     STAILQ_INSERT_TAIL(&sock->output, x, entry);
-    /* FIXME: enable poll() for POLLOUT */
+
     return (0);
 }
 
@@ -564,20 +628,21 @@ socket_write(struct socket *sock, const char *buf, size_t len)
      * assume that the socket is not ready for writing.
      */
     if (!STAILQ_EMPTY(&sock->output))
-        return socket_buffer_write(sock, buf, len);
-    
+        return buf_append(sock, buf, len);
+
     n = send(sock->fd, buf, len, 0);
     if (n < 0) {
-        if (errno == EAGAIN) 
-            return socket_buffer_write(sock, buf, len);
+        if (errno == EAGAIN) {
+            socket_get_pollfd(sock)->events |= POLLOUT;
+            return (buf_append(sock, buf, len));
+        }
         /* TODO: if (errno == ECONNRESET) ... */
         log_errno("send(2)");
         return (-1);
     }
     if (n < len) {
-        /* TODO: this is probably impossible for sockets */
-        log_errno("send(2) - short write");
-        return (-1);
+        socket_get_pollfd(sock)->events |= POLLOUT;
+        return (buf_append(sock, buf + n, len - n));
     }
 
     return (0);
@@ -621,16 +686,10 @@ socket_get_peername(const struct socket *sock)
     return ((const char *) &sock->peername);
 }
 
-void
-socket_poll_set(struct socket *s, int flags)
+struct pollfd * 
+socket_get_pollfd(struct socket *sock)
 {
-    poll_modify(s->wd, flags);
-}
-
-int
-socket_poll_get(const struct socket *s)
-{
-    return (poll_events_get(s->wd));
+    return (poll_get(sock->wd));
 }
 
 static int

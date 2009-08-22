@@ -346,16 +346,11 @@ poll_remove(struct watch *w)
     free(w);
 }
 
-void
-poll_modify(struct watch *w, short events)
+struct pollfd * 
+poll_get(struct watch *w) 
 {
-    w->ps_ent->events = events;
-}
+    return (w->ps_ent);
 
-short   
-poll_events_get(struct watch *w)
-{
-    return (w->ps_ent->events);
 }
 
 int
