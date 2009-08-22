@@ -32,8 +32,8 @@ int     poll_dispatch(void);
 void    poll_shutdown(void);
 int     poll_init(void);
 void    poll_free(void);
-void    poll_modify(struct watch *, short);
-short   poll_events_get(struct watch *);
+struct pollfd * 
+        poll_get(struct watch *);
 int     poll_signal(int, void(*)(void *, int), void *);
 
 struct timer *
