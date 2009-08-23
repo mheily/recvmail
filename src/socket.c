@@ -19,6 +19,7 @@
 #include <arpa/inet.h>
 #include <assert.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <openssl/bio.h>
@@ -45,9 +46,8 @@ static struct line * line_new(const char *buf, size_t len);
 
 static SSL_CTX *ssl_ctx;
 
-/* The maximum line length (based on SMTP_LINE_MAX) */
-// TODO: don't need 2 identical constants
-#define SOCK_LINE_MAX   1000
+/* The maximum length of a single line (32 MB) */
+static const size_t SOCK_LINE_MAX = (INT_MAX >> 6);
 
 /* The buffer size of a socket */
 #define SOCK_BUF_SIZE   16384
@@ -88,8 +88,10 @@ line_new(const char *buf, size_t len)
     struct line *x;
     size_t cnt;
 
-    if (len > 1024)                     /* FIXME: too small */
+    if (len > SOCK_LINE_MAX) {
+        log_error("line too long");
         return (NULL);
+    }
     cnt = sizeof(*x) + len + 1;
     x = malloc(cnt);
     if (x == NULL) {
