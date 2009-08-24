@@ -90,7 +90,7 @@ static int smtpd_session_reset(struct session *);
 
 static int smtpd_quit(struct session *s);
 static int smtpd_rset(struct session *s);
-static int smtpd_starttls(struct session *s);
+/* TODO: static int smtpd_starttls(struct session *s); */
 
 void
 smtp_mda_callback(struct session *s, int retval)
@@ -141,6 +141,7 @@ smtpd_ehlo(struct session *s, const char *arg)
     return (0);
 }
 
+#if TODO
 /* See also: RFC 2487 */
 static int
 smtpd_starttls(struct session *s)
@@ -163,6 +164,7 @@ smtpd_starttls(struct session *s)
 
     return (0);
 }
+#endif
 
 static int
 smtpd_mail(struct session *s, const char *arg)
@@ -409,9 +411,11 @@ smtpd_parse_command(struct session *s, char *src, size_t len)
                   if (strcasecmp(src, "RSET") == 0)
                       return (smtpd_rset(s));
                   break;
+#if TODO
         case 'S': if (strcasecmp(src, "STARTTLS") == 0)
                       return (smtpd_starttls(s));
                   break;
+#endif
     }
 
     session_println(s, "502 Error: invalid command");

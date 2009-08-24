@@ -36,9 +36,7 @@ int      socket_poll_disable(struct socket *);
 struct pollfd * socket_get_pollfd(struct socket *);
 int      socket_event_handler(struct socket *, int);
 int      socket_get_family(const struct socket *);
-int      socket_starttls(struct socket *);
 int      socket_get_peeraddr4(const struct socket *);
 const char *   socket_get_peername(const struct socket *);
-int      socket_init(void);
 
 #endif /* _SOCKET_H */

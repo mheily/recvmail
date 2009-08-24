@@ -247,11 +247,12 @@ server_init(int argc, char *argv[], struct protocol *proto)
         log_error("options_parse() failed");
         return (-1);
     }
-    
-    if (socket_init() < 0) {
-        log_error("socket_init() failed");
+#if TODO
+    if (tls_init() < 0) {
+        log_error("tls_init() failed");
         return (-1);
     }
+#endif
 
     if (poll_init() < 0) {
         log_error("poll_init() failed");
