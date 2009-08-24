@@ -22,8 +22,6 @@
 #include <limits.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <openssl/bio.h>
-#include <openssl/ssl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -38,13 +36,9 @@
 #include "util.h"
 
 static int socket_read(struct socket *sock);
-static int socket_tls_read(struct socket *sock);
 static int buf_drain(struct socket *sock);
 static int buf_append(struct socket *sock, const char *buf, size_t len);
-
 static struct line * line_new(const char *buf, size_t len);
-
-static SSL_CTX *ssl_ctx;
 
 /* The maximum length of a single line (32 MB) */
 static const size_t SOCK_LINE_MAX = (INT_MAX >> 6);
@@ -65,16 +59,8 @@ struct socket {
     struct watch *wd;
     struct sockaddr_storage peer;
     char peername[INET6_ADDRSTRLEN];
-    enum {
-        TLS_NOOP,
-        TLS_ACCEPT,
-        TLS_CONNECT,
-        TLS_READ,
-        TLS_WRITE,
-        TLS_SHUTDOWN,
-    } tls_op;
+    /* TODO: struct tls_state *tls; */
     struct session *sess;
-    SSL    *ssl;
     STAILQ_HEAD(,line) input;
     STAILQ_HEAD(,line) output;
     struct line *input_tmp;
@@ -106,87 +92,6 @@ line_new(const char *buf, size_t len)
     return (x);
 }
 
-static int
-tls_operation(struct socket *sock, int op)
-{
-    struct pollfd *pfd;
-    int n, retval;
-
-    switch (op) {
-        case TLS_NOOP:
-            break;
-
-        case TLS_ACCEPT:
-            n = SSL_accept(sock->ssl);
-            break;
-
-        case TLS_CONNECT:
-            n = SSL_connect(sock->ssl);
-            break;
-
-        case TLS_READ:
-            return socket_tls_read(sock);
-            break;
-
-        case TLS_WRITE:
-            abort(); //TODO:fixme
-            break;
-
-        case TLS_SHUTDOWN:
-            n = SSL_shutdown(sock->ssl);
-            break;
-            
-        default:
-            log_error("invalid TLS opcode");
-            return (-1);
-    } 
-
-    switch (SSL_get_error(sock->ssl, n)) {
-        case SSL_ERROR_NONE:
-            sock->tls_op = TLS_NOOP;
-            retval = 0;
-            break;
-
-        case SSL_ERROR_ZERO_RETURN:
-            log_debug("cannot operate on a closed SSL session");
-            sock->tls_op = TLS_NOOP;
-            retval = -1;
-            break;
-
-        case SSL_ERROR_WANT_READ:
-            log_debug("SSL_WANT_READ");
-            sock->tls_op = op;
-            pfd = socket_get_pollfd(sock);
-            pfd->events |= POLLIN;
-            retval = 1;
-            break;
-
-        case SSL_ERROR_WANT_WRITE:
-            log_debug("SSL_WANT_WRITE");
-            sock->tls_op = op;
-            pfd = socket_get_pollfd(sock);
-            pfd->events |= POLLOUT;
-            retval = 1;
-            break;
-
-        case SSL_ERROR_SYSCALL:
-            log_error("SSL syscall error");
-            /* Fall through */
-        case SSL_ERROR_SSL:
-            log_error("SSL protocol error");
-            retval = -1;
-            break;
-
-        default:
-            log_error("unhandled SSL error code");
-            /* TODO: dump code */
-            abort(); //XXX-BAD BAD BAD
-            retval = -1;
-    }
-
-    return (retval);
-}
-
 int
 socket_event_handler(struct socket *sock, int events)
 {
@@ -196,7 +101,8 @@ socket_event_handler(struct socket *sock, int events)
     }
 
     //FIXME: WHEREis POLLIN?
-    
+
+#if TODO
     /* Attempt to retry any incomplete TLS operation */
     if ((sock->ssl != NULL) && 
             (sock->tls_op != TLS_NOOP) && 
@@ -204,6 +110,7 @@ socket_event_handler(struct socket *sock, int events)
     {
         return (tls_operation(sock, sock->tls_op));
     }
+#endif
 
     if (events & POLLOUT) {
         log_debug("fd %d ready for writing", sock->fd);
@@ -366,8 +273,10 @@ socket_free(struct socket *sock)
         n1 = n2;
     }
 
+#ifdef TODO
     if (sock->ssl != NULL)
-        SSL_free(sock->ssl);
+        tls_free(sock->tls);
+#endif
 
     free(sock);
 }
@@ -377,12 +286,11 @@ socket_readln(char **dst, struct socket *sock)
 {
     struct line *x;
 
-    *dst = NULL;
-
     /* Read data from the socket*/
     if (socket_read(sock) < 0) {
-            log_error("socket_read() failed");
-            return (-1);
+        log_error("socket_read() failed");
+        *dst = NULL;
+        return (-1);
     } 
 
     /* Destroy the previous line */
@@ -395,6 +303,7 @@ socket_readln(char **dst, struct socket *sock)
         log_debug("x=%p len=%zu buf=`%s'", x, x->len, x->buf);
         if (LINE_IS_FRAGMENTED(x)) {
             log_debug("fragmented line");
+            *dst = NULL;
             return (0);
         }
         STAILQ_REMOVE_HEAD(&sock->input, entry);
@@ -477,55 +386,16 @@ parse_lines(struct socket *sock, char *buf, size_t buf_len)
 }
 
 static int
-socket_tls_read(struct socket *sock)
-{
-    struct pollfd *pfd;
-    char buf[SOCK_BUF_SIZE];
-    int n, rv;
-
-    n = SSL_read(sock->ssl, &buf[0], sizeof(buf));
-/*FIXME error handling*/
-    if (n <= 0) {
-        switch (SSL_get_error(sock->ssl, n)) {
-            case SSL_ERROR_ZERO_RETURN:
-                log_debug("zero return");
-                rv = -1;
-                break;
-
-            case SSL_ERROR_WANT_READ:
-                pfd = socket_get_pollfd(sock);
-                pfd->events |= POLLIN;
-                log_debug("WANT_READ returned");
-                rv = 1;
-                break;
-
-            case SSL_ERROR_WANT_WRITE:
-                pfd = socket_get_pollfd(sock);
-                pfd->events |= POLLOUT;
-                log_debug("WANT_WRITE returned");
-                rv = 1;
-                break;
-
-            default:
-                log_debug("invalid retval n=%d", n);
-                rv = -1;
-                break;
-        }
-        return (rv);
-    } else {
-        return (parse_lines(sock, buf, (size_t) n));
-    }
-}
-
-static int
 socket_read(struct socket *sock)
 {
     char buf[SOCK_BUF_SIZE];
     ssize_t n;
 
+#if TODO
     if (sock->ssl != NULL)
         return (socket_tls_read(sock));
-
+#endif
+    
     /* Read as much as possible from the kernel socket buffer. */
     n = recv(sock->fd, &buf[0], sizeof(buf), 0);
     if (n < 0) { 
@@ -651,19 +521,6 @@ socket_write(struct socket *sock, const char *buf, size_t len)
 }
 
 int
-socket_starttls(struct socket *sock)
-{
-    if ((sock->ssl = SSL_new(ssl_ctx)) == NULL) {
-        log_errno("SSL_new() failed");
-        return (-1);
-    }
-    SSL_set_fd(sock->ssl, sock->fd);
-    /* SSL-FIXME: set BIO_NOCLOSE on the underlying BIO or there will be multiple close(2) calls */
-
-    return (tls_operation(sock, TLS_ACCEPT));
-}
-
-int
 socket_pending(const struct socket *sock)
 {
     return (STAILQ_EMPTY(&sock->input));
@@ -692,51 +549,4 @@ struct pollfd *
 socket_get_pollfd(struct socket *sock)
 {
     return (poll_get(sock->wd));
-}
-
-static int
-socket_tls_init(void)
-{
-    if (!OPT.ssl_enabled)
-        return (0);
-
-    /* OpenSSL transparently seeds the PRNG from /dev/urandom, if it
-       exists. Otherwise, it silently fails to seed the PRNG. */
-    if (!file_exists("/dev/urandom")) {
-        log_error("Unable to seed the PRNG without /dev/urandom.");
-        return (-1);
-    }
-
-    if (SSL_library_init() < 0)
-        return (-1);
-    SSL_load_error_strings();
-    ssl_ctx = SSL_CTX_new(SSLv23_method());
-    if (ssl_ctx == NULL)
-        return (-1);
-
-    /* TODO: print the SSL error strings with ERR_error_string(3SSL) */
-    if (SSL_CTX_use_certificate_chain_file(ssl_ctx, OPT.ssl_certfile) != 1) {
-        log_error("unable to load certificate `%s'", OPT.ssl_certfile);
-        return (-1);
-    }
-    log_notice("loaded SSL certificate from `%s'", OPT.ssl_certfile);
-
-    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, OPT.ssl_keyfile, SSL_FILETYPE_PEM) != 1) {
-        log_error("unable to load private key from `%s'", OPT.ssl_keyfile);
-        return (-1);
-    }
-    log_notice("loaded SSL key from `%s'", OPT.ssl_keyfile);
-
-    return (0);
-}
-
-int
-socket_init(void)
-{
-    if (socket_tls_init() < 0) {
-        log_error("unable to initialize TLS subsystem");
-        return (-1);
-    }
-
-    return (0);
 }

@@ -26,7 +26,7 @@ recvmail_SOURCES = address.c poll.c dnsbl.c \
             recipient.c util.c \
 		   log.c mda.c resolver.c socket.c message.c maildir.c session.c \
 		   smtp.c server.c throttle.c workqueue.c main.c
-recvmail_LDADD   = -lpthread -lresolv -lssl -lcrypto
+recvmail_LDADD   = -lpthread -lresolv
 recvmail_HEADERS = address.h  hash.h  mda.h poll.h server.h socket.h    \
     config.h   log.h      message.h  queue.h     session.h  throttle.h  \
     tree.h     protocol.h util.h                                        \
