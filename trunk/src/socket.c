@@ -132,9 +132,7 @@ append_input(struct socket *sock, const char *buf, size_t len)
 
     tail = STAILQ_LAST(&sock->input, line, entry);
     if (tail != NULL && LINE_IS_FRAGMENTED(tail)) {
-        STAILQ_REMOVE(&sock->input, tail, line, entry);
-
-        /* Create a new line large enough to contain both fragments */
+         /* Create a new line large enough to contain both fragments */
         x = malloc(sizeof(*x) + len + tail->len + 1);
         if (x == NULL) {
             log_errno("malloc(3)");
@@ -146,16 +144,13 @@ append_input(struct socket *sock, const char *buf, size_t len)
         memcpy(&x->buf, tail->buf, tail->len);
         memcpy(&x->buf[tail->len], buf, len);
         x->buf[x->len] = '\0';
-
+        
+        STAILQ_REMOVE(&sock->input, tail, line, entry);
     } else {
-        x = malloc(sizeof(*x) + len + 1);
-        if (x == NULL) {
+        if ((x = line_new(buf, len)) == NULL) {
             log_errno("malloc(3)");
             return (-1);
         }
-        memcpy(&x->buf, buf, len);
-        x->buf[len] = '\0';
-        x->len = len;
     }
 
     STAILQ_INSERT_TAIL(&sock->input, x, entry);
