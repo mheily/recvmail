@@ -58,7 +58,7 @@ file_read(char **bufp, const char *path)
         log_error("file %s is too large", path);
         goto errout;
     }
-    if ((buf = malloc(sb.st_size)) == NULL) {
+    if ((buf = malloc(sb.st_size + 1)) == NULL) {
         log_errno("malloc(3)");
         goto errout;
     }
