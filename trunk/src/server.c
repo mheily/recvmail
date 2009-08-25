@@ -71,6 +71,7 @@ pidfile_check(void)
         pid = atoi(buf);
         if (kill(pid, 0) == 0) {
             free(pidfile);
+            free(buf);
             log_error("another %s is already running with pid # %d", 
                  OPT.log_ident, pid);
             return (-1);
@@ -78,6 +79,7 @@ pidfile_check(void)
     }
 
     free(pidfile);
+    free(buf);
     return (0);
 }
 
