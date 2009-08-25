@@ -329,23 +329,6 @@ poll_dispatch(void)
     return (0);
 }
 
-void
-poll_remove(struct watch *w)
-{
-    u_int i;
-
-    /* Backfill the free slot with the tail entry in the array */
-    i = w->ps_ent - &pollset[0];
-    ps_count--; 
-    if (ps_count > 1 && i < ps_count) {
-        memcpy(&pollset[i], &pollset[ps_count], sizeof(struct pollfd));
-        poll2watch[i] = poll2watch[ps_count];
-        poll2watch[i]->ps_ent = &pollset[i];
-    }
-
-    free(w);
-}
-
 struct pollfd * 
 poll_get(struct watch *w) 
 {
@@ -396,4 +379,22 @@ poll_add(int fd, int events, void (*callback)(void *, int), void *udata)
     LIST_INSERT_HEAD(&watchlist, w, entries);
 
     return (w);
+}
+
+void
+poll_remove(struct watch *w)
+{
+    u_int i;
+
+    /* Backfill the free slot with the tail entry in the array */
+    i = w->ps_ent - &pollset[0];
+    ps_count--; 
+    if (ps_count > 1 && i < ps_count) {
+        memcpy(&pollset[i], &pollset[ps_count], sizeof(struct pollfd));
+        poll2watch[i] = poll2watch[ps_count];
+        poll2watch[i]->ps_ent = &pollset[i];
+    }
+    
+    LIST_REMOVE(w, entries);
+    free(w);
 }
