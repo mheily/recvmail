@@ -191,8 +191,10 @@ smtpd_mail(struct session *s, const char *arg)
 
     if (sd->msg->sender != NULL)
         free(sd->msg->sender);
-    if ((sd->msg->sender = address_parse(arg)) == NULL) {
-        session_println(s, "501 Malformed address");
+    /* TODO: validate sender syntax */
+    if ((sd->msg->sender = strdup(arg)) == NULL) {
+        log_errno("strdup(3)");
+        smtpd_abort(s);
         return (-1);
     }
     session_println(s, "250 Ok");

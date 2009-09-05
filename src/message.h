@@ -29,7 +29,7 @@ struct message {
     size_t  recipient_count;
     size_t  msg_size;
     char   *filename;	        /* The Maildir message-ID */
-    struct mail_addr *sender;	/* The envelope sender */
+    char   *sender;     	    /* The "MAIL FROM:" sender */
     LIST_HEAD(,mail_addr) recipient;    /* All recipients */
 };
 

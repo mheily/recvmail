@@ -58,21 +58,23 @@ address_parse(const char *src)
     if ((p = strchr(src, '>')) != NULL) 
             *p = ' ';
 
-    /* Split the string into two parts */
-    /* TODO - need to accept backslash-escaped and quoted strings */
-    i = sscanf(src, " %63[a-zA-Z0-9_.+=%#?~^-]@%63[a-zA-Z0-9_.-] ", 
-            local_part, domain);
-    if (i < 2 || i == EOF) {
-        log_debug("unable to parse address");
-        goto errout;
+    /* Special case: allow an empty address <> */
+    if (p == src) {
+        local_part[0] = '\0';
+        domain[0] = '\0';
+    } else {
+        /* Split the string into two parts */
+        /* TODO - need to accept backslash-escaped and quoted strings */
+        i = sscanf(src, " %63[a-zA-Z0-9_.+=%#?~^-]@%63[a-zA-Z0-9_.-] ", 
+                   local_part, domain);
+        if (i < 2 || i == EOF) {
+            log_debug("unable to parse address");
+            goto errout;
+        }
     }
     //log_debug("parsed %s as [%s], [%s]", src, dest->user, dest->domain);
 
     /* Validate the address */
-    if (local_part[0] == '\0' || domain[0] == '\0') {
-        log_debug("invalid address: empty part not allowed");
-        goto errout;
-    }
     if (local_part[0] == '.' || domain[0] == '.') {
         log_debug("invalid address: leading dot not allowed");
         goto errout;
