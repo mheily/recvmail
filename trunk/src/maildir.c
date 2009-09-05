@@ -75,7 +75,6 @@ maildir_msg_open(struct message *msg, struct session *s)
     struct tm       timeval;
     char            timestr[64];
     size_t          len;
-    char            ma_addr[MAIL_ADDRSTRLEN + 1];
     char           *buf = NULL;
 
     if (LIST_EMPTY(&msg->recipient)) {
@@ -104,9 +103,15 @@ maildir_msg_open(struct message *msg, struct session *s)
     gmtime_r(&now, &timeval);
     asctime_r(&timeval, timestr);
     len = asprintf(&buf,
+                   "Return-Path: %s\n"
+                   "X-Original-To: %s@%s\n"
+                   "Delivered-To: %s@%s\n"
                    "Received: from %s ([%s])\n"
                    "        by %s (recvmail) on %s",
-                   address_get(ma_addr, sizeof(ma_addr), msg->sender),
+                   msg->sender,
+                   "FIXME","FIXME",
+                   "FIXME","FIXME",
+                   msg->sender,
                    socket_get_peername(session_get_socket(s)),
                    OPT.hostname,
                    timestr);

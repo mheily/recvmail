@@ -62,7 +62,7 @@ message_free(struct message *msg)
         free(msg->path);
     }
 
-    address_free(msg->sender);
+    free(msg->sender);
     free(msg->filename);
 
     /* Remove all recipients from the list */
