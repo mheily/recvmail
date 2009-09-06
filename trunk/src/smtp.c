@@ -93,6 +93,7 @@ static int smtpd_session_reset(struct session *);
 
 static int smtpd_quit(struct session *s);
 static int smtpd_rset(struct session *s);
+static int smtpd_vrfy(struct session *s);
 /* TODO: static int smtpd_starttls(struct session *s); */
 
 #if TODO
@@ -306,6 +307,14 @@ smtpd_rset(struct session *s)
 }
 
 static int
+smtpd_vrfy(struct session *s)
+{
+    /* TODO: Handle the request */
+    session_println(s, "252 VRFY not implemented");   
+    return (0);
+}
+
+static int
 smtpd_noop(struct session *s)
 {
     session_println(s, "250 Ok");
@@ -436,6 +445,9 @@ smtpd_parse_command(struct session *s, char *src, size_t len)
                       return (smtpd_starttls(s));
                   break;
 #endif
+        case 'V': if (strncasecmp(src, "VRFY ", 5) == 0)
+                      return (smtpd_vrfy(s));
+                  break;
     }
 
     session_println(s, "502 Error: invalid command");
