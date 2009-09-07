@@ -256,16 +256,6 @@ server_init(int argc, char *argv[], struct protocol *proto)
         return (-1);
     }
 #endif
-
-    if (poll_init() < 0) {
-        log_error("poll_init() failed");
-        return (-1);
-    }
-    if (resolver_init() < 0) {
-        log_error("resolver initialization failed");
-        return (-1);
-    }
-
     if (OPT.daemon) {
 
         /* Create a new process */
@@ -321,6 +311,16 @@ server_init(int argc, char *argv[], struct protocol *proto)
 
         /* ... fall through to continue executing  in the child */
         close(ps_ctx.p_fd);
+    }
+
+    /* These should occur after all fork(2) calls are complete. */
+    if (poll_init() < 0) {
+        log_error("poll_init() failed");
+        return (-1);
+    }
+    if (resolver_init() < 0) {
+        log_error("resolver initialization failed");
+        return (-1);
     }
 
     /* Bind to the server socket */
