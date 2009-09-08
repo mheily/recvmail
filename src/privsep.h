@@ -20,26 +20,25 @@
 #define _PRIVSEP_H
 
 #include <sys/types.h>
+#include <stdio.h>
 #include <unistd.h>
 
+/* TODO: This is only needed by server.c, make an accessor function.. */
 struct privsep_context {
     /* Priviliged */
     pid_t  p_pid;
     int    p_fd;
+    FILE  *p_fp;
 
     /* Non-Priviliged */
     pid_t  np_pid;
     int    np_fd;
+    FILE  *np_fp;
 };
-
-struct priv_op {
-    unsigned int r[8];  /* pseudo-registers */
-};
-
 extern struct privsep_context ps_ctx; 
 
-int privsep_send(unsigned int);
+int privsep_send(const char *);
 int privsep_init(void);
-int privsep_main(int (*)(void));
+int privsep_main(int (*)(const char *));
 
 #endif /* _PRIVSEP_H */
