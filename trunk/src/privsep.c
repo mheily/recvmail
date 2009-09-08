@@ -41,28 +41,48 @@ privsep_init(void)
     ps_ctx.p_fd = sockfd[0];
     ps_ctx.np_fd = sockfd[1];
 
+    /* Create a stream I/O handle for each socket descriptor */
+    ps_ctx.p_fp = fdopen(ps_ctx.p_fd, "r+");
+    ps_ctx.np_fp = fdopen(ps_ctx.np_fd, "r+");
+    if ( ps_ctx.p_fp == NULL || ps_ctx.np_fp == NULL) {
+        log_errno("fdopen(3)");
+        return (-1);
+    }
+
     return (0);
 }
     
 int
-privsep_send(unsigned int op)
+privsep_send(const char *buf)
 {
-    write(ps_ctx.np_fd, &op, sizeof(op)); //FIXME: error checking
+    if (fputs(buf, ps_ctx.np_fp) == EOF) {
+        log_error("fputs(3)");
+        return (-1);
+    }
+    if (fflush(ps_ctx.np_fp) < 0) {
+        log_errno("fputs(3)");
+        return (-1);
+    }
     return (0);
 }
 
 int
-privsep_main(int (*cb)(void))
+privsep_main(int (*cb)(const char *))
 {
-    char buf[10];
-    memset(&buf,0,10);
+    char buf[1024];
 
+    /* Process requests */
     for (;;) {
         log_warning("%d child %d id", ps_ctx.p_pid, getuid());
-        read(ps_ctx.p_fd, &buf, 2);
-        log_warning("child says %s", buf);
-        sleep(3);
+        if (fgets(&buf[0], sizeof(buf) - 1, ps_ctx.p_fp) == NULL)
+            err(1, "fgets(3)");
+        if (cb(&buf[0]) < 0) {
+            log_error("callback returned error");
+            break;
+        }
     }
+
+    fclose(ps_ctx.p_fp);
 
     return (0);
 }

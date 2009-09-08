@@ -45,7 +45,7 @@ static int sanity_check(void);
 static int smtpd_getopt(const char *, const char *);
 static int smtpd_bind(const struct sockaddr *, const char *);
 static void smtpd_abort(struct session *s);
-/*FIXME:static int smtpd_privsep(void);*/
+static int smtpd_privsep(const char *);
 
 static int      use_dnsbl = 0;
 static u_short  port = 25;
@@ -59,7 +59,7 @@ struct protocol SMTP = {
     .abort_hook     = smtpd_abort,
     .close_hook     = smtpd_close,
     .init_hook      = smtpd_init,
-/* FIXME: not ready yet:    .privsep_hook   = smtpd_privsep, */
+    .privsep_hook   = smtpd_privsep, 
     .shutdown_hook  = smtpd_shutdown,
 };
 
@@ -96,20 +96,13 @@ static int smtpd_rset(struct session *s);
 static int smtpd_vrfy(struct session *s);
 /* TODO: static int smtpd_starttls(struct session *s); */
 
-#if TODO
 static int
-smtpd_privsep(void)
+smtpd_privsep(const char *line)
 {
-    struct priv_op *op;
-
-    //if ((op = privsep_shift()) == NULL)
-    //    return (0);
-
-    log_warning("%d opcode ", op->r[0]);
+    log_warning("line=`%s'", line);
 
     return (0);
 }
-#endif
 
 void
 smtp_mda_callback(struct session *s, int retval)

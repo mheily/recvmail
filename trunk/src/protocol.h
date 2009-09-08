@@ -27,7 +27,7 @@ struct protocol {
     int     (*bind_hook)(const struct sockaddr *, const char *);
     int     (*sanity_hook)(void);
     int     (*init_hook)(void);
-    int     (*privsep_hook)(void); 
+    int     (*privsep_hook)(const char *); 
     int     (*shutdown_hook)(void);             /* server shutdown */
     int     (*reload_hook)(void); /* TODO - Reload configuration files */
     void    (*timeout_hook)(struct session *); /* session timeout */
