@@ -104,14 +104,10 @@ maildir_msg_open(struct message *msg, struct session *s)
     asctime_r(&timeval, timestr);
     len = asprintf(&buf,
                    "Return-Path: %s\n"
-                   "X-Original-To: %s@%s\n"
-                   "Delivered-To: %s@%s\n"
                    "Received: from %s ([%s])\n"
                    "        by %s (recvmail) on %s",
-                   msg->sender,
-                   "FIXME","FIXME",
-                   "FIXME","FIXME",
-                   msg->sender,
+                   msg->return_path,
+                   msg->client,
                    socket_get_peername(session_get_socket(s)),
                    OPT.hostname,
                    timestr);
