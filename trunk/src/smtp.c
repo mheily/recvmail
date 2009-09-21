@@ -45,7 +45,6 @@ static int sanity_check(void);
 static int smtpd_getopt(const char *, const char *);
 static int smtpd_bind(const struct sockaddr *, const char *);
 static void smtpd_abort(struct session *s);
-static int smtpd_privsep(const char *);
 
 static int      use_dnsbl = 0;
 static u_short  port = 25;
@@ -59,7 +58,7 @@ struct protocol SMTP = {
     .abort_hook     = smtpd_abort,
     .close_hook     = smtpd_close,
     .init_hook      = smtpd_init,
-    .privsep_hook   = smtpd_privsep, 
+/* TODO:     .privsep_hook   = smtpd_privsep,  */
     .shutdown_hook  = smtpd_shutdown,
 };
 
@@ -97,10 +96,37 @@ static int smtpd_vrfy(struct session *s);
 /* TODO: static int smtpd_starttls(struct session *s); */
 
 static int
-smtpd_privsep(const char *line)
+hostname_parse(char *dst, const char *src)
 {
-    log_warning("line=`%s'", line);
+    size_t n;
 
+    /* FIXME: support address literals as per RFC5321 4.1.3
+       , e.g. "[192.168.0.1]" */
+
+    if (src[0] == '\0' || src[0] == '.' || src[0] == '-')
+        return (-1);
+
+    for (n = 0; src[n] != '\0'; n++) {
+        if ((src[n] > 47 && src[n] < 58)            /* 0 .. 9 */
+                || (src[n] > 64 && src[n] < 91)     /* A .. Z */
+                || (src[n] > 96 && src[n] < 123)    /* a .. z */
+                || (src[n] == '-') || src[n] == '.') 
+        {
+            continue;
+        } else {
+            dst = NULL;
+            return (-1);
+        }
+    }
+
+    if (n > 255)
+        return (-1);
+
+    if ((dst = strdup(src)) == NULL) {
+        log_errno("strdup(3)");
+        /* TODO: need a symbolic constant instead of this magic */
+        return (-2);
+    }
     return (0);
 }
 
@@ -122,34 +148,36 @@ smtpd_session_reset(struct session *s)
 {
     struct smtp_session *sd = smtp_session(s);
 
-    message_free(sd->msg);
-    sd->msg = message_new();
-    if (sd->msg == NULL) {
-        log_errno("calloc(3)");
-        return (-1);
-    }
+    message_reset(sd->msg);
     sd->smtp_state = SMTP_STATE_MAIL;
     
     return (0);
 }
 
 static int
-smtpd_helo(struct session *s, const char *arg)
+smtpd_helo(struct session *s, const char *arg, int extended)
 {
-    log_debug("HELO=`%s'", arg);
-    session_printf(s, "250 %s\r\n", OPT.hostname);
-    return (0);
-}
+    struct smtp_session *sd = smtp_session(s);
 
-static int
-smtpd_ehlo(struct session *s, const char *arg)
-{
-    log_debug("EHLO=`%s'", arg);
-    session_printf(s, "250-%s\r\n"
-                    "250-PIPELINING\r\n"
-                    "250-STARTTLS\r\n"
-                    "250 8BITMIME\r\n" 
-                    , OPT.hostname);
+    if (sd->smtp_state != SMTP_STATE_HELO) {
+        message_reset(sd->msg);
+        sd->smtp_state = SMTP_STATE_HELO;
+    }
+    if (hostname_parse(sd->msg->client, arg) < 0) {
+        session_println(s, "501 Syntax error");
+        return (-1);
+    }
+    if (extended) {
+        log_debug("EHLO=`%s'", arg);
+        session_printf(s, "250-%s\r\n"
+                "250-PIPELINING\r\n"
+                "250-STARTTLS\r\n"
+                "250 8BITMIME\r\n" 
+                , OPT.hostname);
+    } else {
+        log_debug("HELO=`%s'", arg);
+        session_printf(s, "250 %s\r\n", OPT.hostname);
+    }
     return (0);
 }
 
@@ -183,10 +211,11 @@ smtpd_mail(struct session *s, const char *arg)
 {
     struct smtp_session *sd = smtp_session(s);
 
-    if (sd->msg->sender != NULL)
-        free(sd->msg->sender);
-    /* TODO: validate sender syntax */
-    if ((sd->msg->sender = strdup(arg)) == NULL) {
+    /* FIXME: should cause a RSET */
+    if (sd->msg->return_path != NULL)
+        free(sd->msg->return_path);
+    /* XXX-FIXME: validate sender syntax */
+    if ((sd->msg->return_path = strdup(arg)) == NULL) {
         log_errno("strdup(3)");
         smtpd_abort(s);
         return (-1);
@@ -210,7 +239,7 @@ smtpd_rcpt(struct session *s, char *line)
     }
 
     /* Require 'MAIL FROM' before 'RCPT TO' */
-    if (sd->msg->sender == NULL) {
+    if (sd->msg->return_path == NULL) {
         session_println(s, "503 Error: need MAIL command first");
         goto errout;
     }
@@ -409,11 +438,11 @@ smtpd_parse_command(struct session *s, char *src, size_t len)
                   break;
 
         case 'E': if (strncasecmp(src, "EHLO ", 5) == 0)
-                      return (smtpd_ehlo(s, src + 5));
+                      return (smtpd_helo(s, src + 5, 1));
                   break;
 
         case 'H': if (strncasecmp(src, "HELO ", 5) == 0)
-                      return (smtpd_helo(s, src + 5));
+                      return (smtpd_helo(s, src + 5, 0));
                   break;
 
         case 'M': if (strncasecmp(src, "MAIL FROM:", 10) == 0)
@@ -460,20 +489,28 @@ static int
 smtpd_parse_data(struct session *s, char *src, size_t len)
 {
     struct smtp_session *sd = smtp_session(s);
+    struct message *newmsg;
 
     /* If the line is '.', end the data stream */
     if ((len == 2) && strncmp(src, ".\n", 2) == 0) {
+
+        /* Create a replacement message object */
+        if ((newmsg = message_new()) == NULL) {
+            log_error("message_new()");
+            goto error;
+        }
 
         /* Submit to the MDA workqueue for processing */
         session_handler_pop(s);
         if (mda_submit(session_get_id(s), sd->msg) < 0) {
             log_error("mda_submit()");
+            message_free(newmsg);
             goto error;
         }
 
         /* After submitting the message, the 'msg' object becomes 
          * property of the MDA thread. */
-        sd->msg = NULL;
+        sd->msg = newmsg;
 
         return (0);
     }

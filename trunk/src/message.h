@@ -29,7 +29,8 @@ struct message {
     size_t  recipient_count;
     size_t  msg_size;
     char   *filename;	        /* The Maildir message-ID */
-    char   *sender;     	    /* The "MAIL FROM:" sender */
+    char   *client;     	    /* The "HELO/EHLO" string */
+    char   *return_path;   	    /* The "MAIL FROM:" sender */
     LIST_HEAD(,mail_addr) recipient;    /* All recipients */
 };
 
@@ -38,5 +39,6 @@ void             message_free(struct message *);
 
 int     message_close(struct message *);
 int     message_fsync(struct message *);
+void    message_reset(struct message *);
 
 #endif /* _MESSAGE_H */
