@@ -95,13 +95,6 @@ line_new(const char *buf, size_t len)
 int
 socket_event_handler(struct socket *sock, int events)
 {
-    if (events & POLLHUP) {
-        // FIXME: read any data remaining in the kernel buffer
-        return (0);
-    }
-
-    //FIXME: WHEREis POLLIN?
-
 #if TODO
     /* Attempt to retry any incomplete TLS operation */
     if ((sock->ssl != NULL) && 
@@ -112,6 +105,15 @@ socket_event_handler(struct socket *sock, int events)
     }
 #endif
 
+    if (events & POLLHUP) {
+        // FIXME: read any data remaining in the kernel buffer
+        log_debug("fd %d hangup", sock->fd);
+        return (0);
+    }
+    if (events & POLLIN) {
+        log_debug("fd %d ready for reading", sock->fd);
+        return (socket_read(sock));
+    }
     if (events & POLLOUT) {
         log_debug("fd %d ready for writing", sock->fd);
         return (buf_drain(sock));
@@ -331,6 +333,7 @@ socket_poll_disable(struct socket *sock)
         log_error("cannot disable polling on this socket");
         return (-1);
     }
+    log_debug("removed fd from pollset");
     poll_remove(sock->wd);
     sock->wd = NULL;
     return (0);
@@ -518,7 +521,7 @@ socket_write(struct socket *sock, const char *buf, size_t len)
 int
 socket_pending(const struct socket *sock)
 {
-    return (STAILQ_EMPTY(&sock->input));
+    return (!STAILQ_EMPTY(&sock->input));
 }
 
 int

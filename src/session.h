@@ -50,6 +50,7 @@ void *  session_data_get(const struct session *);
 void    session_data_set(struct session *, const void *);
 void    session_buffer_get(const struct session *, char **, size_t *);
 void    session_timeout_set(struct session *, time_t);
+void    session_resume(struct session *);
 
 const struct socket * session_get_socket(struct session *);
 unsigned long session_get_id(struct session *);

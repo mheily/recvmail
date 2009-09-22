@@ -16,6 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <assert.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdarg.h>
@@ -82,10 +83,7 @@ session_read(struct session *s)
     char    *buf;
     ssize_t  len;
 
-    if (s->handler == NULL) {
-        log_debug("NULL handler");
-        return (0);
-    }
+    assert(s->handler);
 
     log_debug("reading data from client");
 
@@ -100,10 +98,12 @@ session_read(struct session *s)
             s->buf = buf;
             s->buf_len = len; 
             if (s->handler(s) < 0) 
-                return (-1);
+               return (-1);         /* TODO: close session? */
+
             /* Test if session_suspend() was called */
-            if (s->handler == NULL)
+            if (s->handler == NULL) {
                return (0);
+            }
         }
     } while (len > 0);
 
@@ -333,4 +333,12 @@ void
 session_timeout_set(struct session *s, time_t interval)
 {
     s->timeout = time(NULL) + interval;
+}
+
+void
+session_resume(struct session *s)
+{
+    /* Drain the input buffer */
+    if (session_pending(s) && session_read(s) < 0)    
+        session_close(s);
 }
