@@ -33,7 +33,7 @@ recvmail_HEADERS = address.h  hash.h  mda.h poll.h server.h socket.h    \
     dnsbl.h    maildir.h  options.h  resolver.h  smtp.h     workqueue.h
 
 loopback:
-	printf "helo a\nmail from:abc@def.ghi\nrcpt to:example@example.com\ndata\nSubject: hi\n\nHello\n.\nquit\n" | nc localhost 1025
+	printf "helo a\nmail from:abc@def.ghi\nrcpt to:foo@nowhere.local\ndata\nSubject: hi\n\nHello\n.\nquit\n" | nc `hostname` 1025
 
 loopback2:
 	/usr/sbin/smtp-source -v -t example@example.com localhost:1025
