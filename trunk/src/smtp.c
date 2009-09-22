@@ -141,6 +141,8 @@ smtp_mda_callback(struct session *s, int retval)
     } else {
         session_println(s, "451 Requested action aborted: error in processing");
     }
+
+    session_resume(s);
 }
 
 static int
@@ -348,6 +350,7 @@ smtpd_quit(struct session *s)
 {
     struct smtp_session *sd = smtp_session(s);
 
+    log_debug("client has QUIT");
     session_println(s, "221 Bye");
     sd->smtp_state = SMTP_STATE_QUIT;
     return (0);
@@ -552,8 +555,7 @@ dnsbl_response_handler(struct session *s, int retval)
         session_handler_push(s, smtpd_parser);
         session_timeout_set(s, SMTP_COMMAND_TIMEOUT);
         smtpd_greeting(s);
-        if (session_read(s) < 0)
-            session_close(s);
+        session_resume(s);
     }
 }
 

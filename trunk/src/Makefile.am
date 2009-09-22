@@ -50,7 +50,7 @@ valgrind:
 	valgrind --tool=memcheck --leak-check=full --show-reachable=yes --num-callers=20 --track-fds=yes ./recvmail -fq -o Port=1025
 
 hammer:
-	while [ 1 -eq 1 ] ; do make loopback ; rm /var/spool/recvmail/new/*; done
+	while [ 1 -eq 1 ] ; do make loopback ; rm /srv/mail/box/nowhere.local/foo/new/*; done
 
 hammer2:
 	time /usr/sbin/smtp-source -s 50 -m 100 -t example@example.com localhost:1025
