@@ -685,8 +685,6 @@ create_dirs(void)
 int
 smtpd_init(void)
 {
-    pthread_t       tid;
-
     /* Create the directory heirarchy */
     if (create_dirs() < 0)
         return (-1);
@@ -694,10 +692,6 @@ smtpd_init(void)
     /* Create the MDA thread */
     if (mda_init() < 0) {
         log_error("mda_init() failed");
-        return (-1);
-    }
-    if (pthread_create(&tid, NULL, mda_dispatch, NULL) != 0) {
-        log_errno("pthread_create(3)");
         return (-1);
     }
 
@@ -711,10 +705,6 @@ smtpd_init(void)
     if (use_dnsbl) {
       if (dnsbl_new("zen.spamhaus.org", dnsbl_response_handler) < 0) {
           log_error("dnsbl_new()");
-          return (-1);
-      }
-      if (pthread_create(&tid, NULL, dnsbl_dispatch, NULL) != 0) {
-          log_errno("pthread_create(3)");
           return (-1);
       }
     }

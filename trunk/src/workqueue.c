@@ -31,6 +31,7 @@
 #include "workqueue.h"
 
 static void wq_retrieve_all(void *, int events);
+static void * workqueue_dispatch(void *wq);
 
 struct wq_entry {
     unsigned long sid;                      /* Session ID */
@@ -38,10 +39,15 @@ struct wq_entry {
     TAILQ_ENTRY(wq_entry) entries;
 };
 
+struct worker {
+    pthread_t  tid;
+};
+
 struct workqueue {
-    void (*bottom)(struct work *, void *);
-    void (*top)(struct session *, int);
-    void *udata;
+    void    (*bottom)(struct work *, void *);
+    void    (*top)(struct session *, int);
+    void    *udata;
+    size_t  worker_idx;
 
     /* Request list */
     TAILQ_HEAD(,wq_entry) req;
@@ -57,9 +63,11 @@ struct workqueue {
     struct watch *wd;
 };
 
+static size_t      worker_max, worker_min, worker_cnt;
+static pthread_t  *worker;
 
 struct workqueue *
-wq_new( void (*bottom)(struct work *, void *),
+workqueue_new( void (*bottom)(struct work *, void *),
         void (*top)(struct session *, int), 
         void *udata)
 {
@@ -90,22 +98,30 @@ wq_new( void (*bottom)(struct work *, void *),
         return (NULL);
     }
 
+    if (pthread_create(&worker[worker_cnt], NULL, 
+                workqueue_dispatch, wq) != 0) {
+        log_error("pthread_create(3) failed");
+        workqueue_free(wq);
+        return (NULL);
+    }
+    wq->worker_idx = worker_cnt++; //FIXME: naive
+
     return (wq);
 }
 
 void
-wq_free(struct workqueue *wq)
+workqueue_free(struct workqueue *wq)
 {
     /* TODO: wait for all response items to be retrieved */
+    /* TODO: pthread_join(worker[wq->worker_idx]) */
     close(wq->pfd[0]);
     close(wq->pfd[1]);
     poll_remove(wq->wd);
     free(wq);
 }
 
-
 int
-wq_submit(struct workqueue *wq, struct work w)
+workqueue_submit(struct workqueue *wq, struct work w)
 {
     struct wq_entry *wqe;
 
@@ -121,8 +137,7 @@ wq_submit(struct workqueue *wq, struct work w)
     return (0);
 }
 
-
-int         
+static int         
 wq_retrieve(struct work *wptr, struct workqueue *wq)
 {
     struct wq_entry *wqe;
@@ -142,7 +157,6 @@ wq_retrieve(struct work *wptr, struct workqueue *wq)
     free(wqe);
     return (0);
 }
-
 
 static void
 wq_retrieve_all(void *arg, int events)
@@ -173,9 +187,10 @@ wq_retrieve_all(void *arg, int events)
 }
 
 
-void *
-wq_dispatch(struct workqueue *wq)
+static void *
+workqueue_dispatch(void *arg)
 {
+    struct workqueue *wq = (struct workqueue *) arg;
     struct wq_entry *wqe;
     
     for (;;) {
@@ -214,4 +229,16 @@ queue_not_empty:
     }
 
     return (NULL);
+}
+
+int
+workqueue_init(void)
+{
+    worker_cnt = worker_min = 0;
+    worker_max = sysconf(_SC_NPROCESSORS_ONLN) * 2;
+    worker = calloc(worker_max, sizeof(pthread_t *));
+    if (worker == NULL)
+        return (-1);
+
+    return (0);
 }
