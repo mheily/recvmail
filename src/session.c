@@ -339,6 +339,6 @@ void
 session_resume(struct session *s)
 {
     /* Drain the input buffer */
-    if (session_pending(s) && session_read(s) < 0)    
+    if (socket_pending(s->sock) && session_read(s) < 0)    
         session_close(s);
 }

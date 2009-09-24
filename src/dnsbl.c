@@ -53,7 +53,7 @@ dnsbl_new(const char *service, void (*handler)(struct session *, int))
         return (-1);
 
     d.handler = handler;
-    d.wq = wq_new(dnsbl_query, handler, &d);
+    d.wq = workqueue_new(dnsbl_query, handler, &d);
 
     return (0);
 }
@@ -63,7 +63,7 @@ void
 dnsbl_free(void)
 {
     free(d.service);
-    wq_free(d.wq); 
+    workqueue_free(d.wq); 
 }
 
 
@@ -137,13 +137,5 @@ dnsbl_submit(struct session *s)
 	session_handler_push(s, dnsbl_reject_early_talker);
 	
     /* TODO: check the cache */
-    return wq_submit(d.wq, w);
-}
-
-
-
-void *
-dnsbl_dispatch(void *unused)
-{
-    return wq_dispatch(d.wq);
+    return workqueue_submit(d.wq, w);
 }

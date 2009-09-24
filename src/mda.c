@@ -45,7 +45,7 @@ mda_init(void)
     if ((mda = calloc(1, sizeof(*mda))) == NULL)
         return (-1);
 
-    mda->wq = wq_new(mda_deliver, smtp_mda_callback, mda);
+    mda->wq = workqueue_new(mda_deliver, smtp_mda_callback, mda);
 
     return (0);
 }
@@ -53,7 +53,7 @@ mda_init(void)
 void
 mda_free(void)
 {
-    wq_free(mda->wq);
+    workqueue_free(mda->wq);
     free(mda);
 }
 
@@ -85,12 +85,5 @@ mda_submit(unsigned long sid, struct message *msg)
     w.argc = 1;
     w.argv0.ptr = msg;
     
-    return wq_submit(mda->wq, w);
-}
-
-void *
-mda_dispatch(void *unused)
-{
-    wq_dispatch(mda->wq);
-    return (NULL);
+    return workqueue_submit(mda->wq, w);
 }

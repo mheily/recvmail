@@ -32,13 +32,12 @@ struct work {
 struct session;
 
 struct workqueue *
-wq_new( void (*)(struct work *, void *),
-        void (*)(struct session *, int), 
-        void *);
+        workqueue_new( void (*)(struct work *, void *),
+                void (*)(struct session *, int), 
+                void *);
 
-void *  wq_dispatch(struct workqueue *);
-int     wq_submit(struct workqueue *, struct work);
-int     wq_retrieve(struct work *, struct workqueue *);
-void    wq_free(struct workqueue *);
+int     workqueue_submit(struct workqueue *, struct work);
+void    workqueue_free(struct workqueue *);
+int     workqueue_init(void);
 
 #endif  /* _WORKQUEUE_H */

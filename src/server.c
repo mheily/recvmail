@@ -322,6 +322,10 @@ server_init(int argc, char *argv[], struct protocol *proto)
         log_error("resolver initialization failed");
         return (-1);
     }
+    if (workqueue_init() < 0) {
+        log_error("workqueue initialization failed");
+        return (-1);
+    }
 
     /* Bind to the server socket */
     if (server_bind() < 0)
