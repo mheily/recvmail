@@ -1,0 +1,32 @@
+Digraph G {
+
+main -> server
+main -> smtp
+
+server -> session
+server -> mda
+server -> poll
+server -> resolver
+server -> workqueue
+
+session -> socket
+session -> message
+session -> maildir
+session -> protocol
+
+mda -> session
+mda -> maildir
+mda -> message
+mda -> smtp
+mda -> workqueue
+
+message -> address
+
+//HIDE: workqueue -> session
+
+dnsbl -> workqueue
+
+smtp -> session
+smtp -> protocol
+
+}

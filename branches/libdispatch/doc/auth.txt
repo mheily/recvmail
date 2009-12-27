@@ -1,0 +1,33 @@
+Authentication
+---
+
+Authentication is needed in several places:
+
+  1. Authenticated SMTP clients can relay messages to other mailsystems
+  1. Authenticated and authorized users can administer recvmail via HTTP(s)
+
+Authentication is handled by a coprocess that runs as root outside the
+chroot jail. 
+
+If authentication is enabled, a coprocess is launched that communicates
+with the main process via a socketpair(2). Communication with the coprocess
+uses the following simple protocol:
+
+Client request:
+
+    <username>\n
+    <password>\n
+
+Server response:
+
+    <result code>\n
+
+The result codes are:
+
+    AUTH_SUCCESS        Username and password matched
+    AUTH_NOT_FOUND      Username not found
+    AUTH_FAIL           Password mismatch
+    AUTH_ERROR          Internal error in the auth coprocess
+    AUTH_RETRY          Too many failures for this account, try again later
+
+The actual authentication is performed by PAM or OpenPAM. 
