@@ -289,7 +289,8 @@ resolver_lookup_addr(in_addr_t *dst, const char *src, int flags)
         *dst = sain->sin_addr.s_addr;
         n = cache_insert(ns_t_a, src, dst, DEFAULT_TTL);
         freeaddrinfo(ai);
-    } else if (rv == EAI_NONAME || rv == EAI_NODATA) {
+    } else if (rv == EAI_NONAME) {
+	/* TODO: glibc also defines EAI_NODATA, should we care? */
         log_debug("lookup failed: %s", src);
         *dst = 0;
         n = cache_insert(ns_t_a, src, NULL, DEFAULT_TTL);
@@ -330,7 +331,8 @@ resolver_lookup_name(char **dst, const in_addr_t src, int flags)
     rv = getnameinfo((struct sockaddr *) &sain, sizeof(sain),
             host, sizeof(host), serv, sizeof(serv), NI_NAMEREQD);
 
-    if (rv == EAI_NONAME || rv == EAI_NODATA) {
+    if (rv == EAI_NONAME) {
+	/* TODO: glibc also defines EAI_NODATA, should we care? */
         host[0] = '\0'; 
     } else if (rv != 0) {
         log_errno("getnameinfo(3) of %d returned %d", src, rv);

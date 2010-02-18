@@ -16,6 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/types.h>	/* Needed by ifaddrs.h on FreeBSD*/
+
 #include <fcntl.h>
 #include <grp.h>
 #include <ifaddrs.h>
