@@ -23,6 +23,10 @@
 /* Maximum length of an email address, including NUL */
 #define MAIL_ADDRSTRLEN     130
 
+/* Return codes for address_lookup() */
+#define MA_RES_NODOMAIN       -1
+#define MA_RES_NOUSER         -2
+
 struct mail_addr {
     char   *local_part, 
            *domain;
@@ -36,6 +40,7 @@ struct mail_addr *
     address_parse(const char *);
 
 void    address_free(struct mail_addr *);
+int     address_lookup(struct mail_addr *);
 char *  address_get(char *, size_t, const struct mail_addr *);
 int     valid_address(const struct rfc2822_addr *addr);
 int     valid_domain(const char *domain);
