@@ -116,6 +116,9 @@ signal_dispatch(void *arg)
         sig_status[signum] = 1;
         write(pipefd, &c, 1);
     }
+
+    /* NOTREACHED */
+    return (NULL);
 }
 
 static void
@@ -211,6 +214,9 @@ timekeeper(void *arg)
         sleep(30);
         write(pipefd, &c, 1);
     }
+
+    /* NOTREACHED */
+    return (NULL);
 }
 
 int

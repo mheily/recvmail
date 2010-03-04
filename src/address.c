@@ -23,6 +23,7 @@
 
 #include "address.h"
 #include "log.h"
+#include "util.h"
 
 #define USERNAME_MAX    63
 #define DOMAIN_MAX		63
@@ -119,4 +120,20 @@ address_get(char *dst, size_t len, const struct mail_addr *src)
     }
 
     return (dst);
+}
+
+int
+address_lookup(struct mail_addr *ma)
+{
+    char buf[PATH_MAX];
+
+    snprintf(buf, PATH_MAX, "box/%s", ma->domain);
+    if (!file_exists(buf))
+        return (MA_RES_NODOMAIN);
+
+    snprintf(buf, PATH_MAX, "box/%s/%s", ma->domain, ma->local_part);
+    if (!file_exists(buf))
+        return (MA_RES_NOUSER);
+
+    return (0);
 }

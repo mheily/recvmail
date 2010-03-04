@@ -35,7 +35,6 @@
 #include "protocol.h"
 #include "privsep.h"
 #include "poll.h"
-#include "recipient.h"
 #include "socket.h"
 #include "smtp.h"
 #include "workqueue.h"
@@ -233,17 +232,18 @@ smtpd_rcpt(struct session *s, char *line)
     char *buf = NULL;
     struct mail_addr *ma = NULL;
     struct smtp_session *sd = smtp_session(s);
+    int rv;
 
     /* Limit the number of recipients per envelope */
     if (sd->msg->recipient_count > RECIPIENT_MAX) {
         session_println(s, "503 Error: Too many recipients");
-        goto errout;
+        return (-1);
     }
 
     /* Require 'MAIL FROM' before 'RCPT TO' */
     if (sd->msg->return_path == NULL) {
         session_println(s, "503 Error: need MAIL command first");
-        goto errout;
+        return (-1);
     }
 
     /* Remove leading whitespace and '<' bracket */
@@ -254,7 +254,7 @@ smtpd_rcpt(struct session *s, char *line)
     if ((buf = strdup(line)) == NULL) {
         log_errno("strdup(3)");
         smtpd_abort(s);
-        goto errout;
+        return (-1);
     }
 
     /* Ignore any trailing whitespace and additional options */
@@ -266,33 +266,33 @@ smtpd_rcpt(struct session *s, char *line)
 
     if ((ma = address_parse(buf)) == NULL) {
         session_println(s, "501 Invalid address syntax");
-        goto errout;
+        free(buf);
+        return (-1);
     }
 
     /* Check if we accept mail for this domain */
-    if (!recipient_domain_lookup(ma->domain)) {
-        session_println(s, "551 Relay access denied");
-        goto errout;
+    switch (address_lookup(ma)) {
+        case MA_RES_NODOMAIN:
+            session_println(s, "551 Relay access denied");
+            rv = -1;
+            break;
+
+        case MA_RES_NOUSER:
+            session_println(s, "550 Mailbox does not exist");
+            rv = -1;
+            break;
+
+        case 0:
+            /* Add the recipient to the envelope */
+            LIST_INSERT_HEAD(&sd->msg->recipient, ma, entries);
+            sd->msg->recipient_count++;
+            session_println(s, "250 Ok");
     }
 
-    /* Check if the mailbox exists */
-    if (!recipient_lookup(ma->local_part, ma->domain)) {
-        session_println(s, "550 Mailbox does not exist");
-        goto errout;
-    }
-
-    /* Add the recipient to the envelope */
-    LIST_INSERT_HEAD(&sd->msg->recipient, ma, entries);
-    sd->msg->recipient_count++;
-    session_println(s, "250 Ok");
-
     free(buf);
-    return (0);
-
-errout:
-    free(buf);
-    address_free(ma);
-    return (-1);
+    if (rv < 0)
+        address_free(ma);
+    return (rv);
 }
 
 static int
@@ -692,12 +692,6 @@ smtpd_init(void)
     /* Create the MDA thread */
     if (mda_init() < 0) {
         log_error("mda_init() failed");
-        return (-1);
-    }
-
-    /* Create the recipient table manager thread */
-    if (recipient_table_init() < 0) {
-        log_error("recipient_table_init() failed");
         return (-1);
     }
 
