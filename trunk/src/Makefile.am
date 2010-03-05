@@ -66,4 +66,4 @@ checkin: indent
 	svn ci
 
 edit:
-	gvim *.c *.h Makefile* configure*
+	gvim *.c *.h
