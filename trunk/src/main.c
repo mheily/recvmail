@@ -22,12 +22,8 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <unistd.h>
 
-#include "options.h"
-#include "log.h"
-#include "server.h"
-#include "smtp.h"
+#include "recvmail.h"
 
 /* TODO: eliminate this struct */
 struct options  OPT = {

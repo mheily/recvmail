@@ -26,15 +26,9 @@
 #include <resolv.h>
 #include <stdio.h>
 #include <sys/socket.h>
-#include <time.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 
-#include "resolver.h"
+#include "recvmail.h"
 #include "tree.h"
-#include "poll.h"
-#include "log.h"
 
 /* Cache DNS lookups for 60 minutes by default. */
 #define DEFAULT_TTL     (60 * 60)

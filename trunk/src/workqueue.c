@@ -18,17 +18,7 @@
 
 #define NDEBUG
 
-#include <assert.h>
-#include <pthread.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-
-#include "log.h"
-#include "queue.h"
-#include "poll.h"
-#include "session.h"
-#include "workqueue.h"
+#include "recvmail.h"
 
 static void wq_retrieve_all(void *, int events);
 static void * workqueue_dispatch(void *wq);

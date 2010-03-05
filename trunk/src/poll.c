@@ -16,16 +16,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdlib.h>
-#include <errno.h>
 #include <poll.h>
-#include <pthread.h>
 #include <signal.h>
-#include <unistd.h>
 
-#include "log.h"
-#include "poll.h"
-#include "queue.h"
+#include "recvmail.h"
 
 /* Maximum number of descriptors to watch (TODO: make dynamic) */
 #define POLLSET_MAX  2048

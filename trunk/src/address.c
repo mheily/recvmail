@@ -17,13 +17,8 @@
  */
 
 #include <dirent.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
-#include "address.h"
-#include "log.h"
-#include "util.h"
+#include "recvmail.h"
 
 #define USERNAME_MAX    63
 #define DOMAIN_MAX		63

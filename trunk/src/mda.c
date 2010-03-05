@@ -16,15 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <unistd.h>
-
-#include "log.h"
-#include "session.h"
-#include "maildir.h"
-#include "message.h"
-#include "mda.h"
-#include "smtp.h"
-#include "workqueue.h"
+#include "recvmail.h"
 
 static struct delivery_agent *mda;
 

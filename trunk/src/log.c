@@ -16,7 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "log.h"
+#include "recvmail.h"
 
 static char *_ident;
 

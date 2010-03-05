@@ -16,20 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <assert.h>
-#include <fcntl.h>
-#include <pthread.h>
-#include <stdarg.h>
-#include <limits.h>
-#include <unistd.h>
-
-#include "log.h"
-#include "poll.h"
-#include "protocol.h"
-#include "socket.h"
-#include "session.h"
-#include "message.h"
-#include "maildir.h"
+#include "recvmail.h"
 
 static void session_table_expire(void *unused);
 
