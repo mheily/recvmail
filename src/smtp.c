@@ -16,29 +16,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <ctype.h>
-#include <pthread.h>
-#include <string.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <time.h>
-#include <unistd.h>
 
-#include "address.h"
-#include "dnsbl.h"
-#include "log.h"
-#include "options.h"
-#include "maildir.h"
-#include "mda.h"
-#include "message.h"
-#include "session.h"
-#include "protocol.h"
-#include "privsep.h"
-#include "poll.h"
-#include "socket.h"
-#include "smtp.h"
-#include "workqueue.h"
-#include "util.h"
+#include "recvmail.h"
 
 static int sanity_check(void);
 static int smtpd_getopt(const char *, const char *);

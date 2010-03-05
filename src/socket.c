@@ -17,23 +17,12 @@
  */
 
 #include <arpa/inet.h>
-#include <assert.h>
-#include <fcntl.h>
-#include <limits.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
-#include <unistd.h>
 
-#include "socket.h"
-#include "poll.h"
-#include "options.h"
-#include "queue.h"
-#include "log.h"
-#include "util.h"
+#include "recvmail.h"
 
 static int socket_read(struct socket *sock);
 static int buf_drain(struct socket *sock);

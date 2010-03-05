@@ -16,9 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/types.h>	/* Needed by ifaddrs.h on FreeBSD*/
 
-#include <fcntl.h>
 #include <grp.h>
 #include <ifaddrs.h>
 #include <limits.h>
@@ -31,17 +29,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "log.h"
-#include "mda.h"
-#include "options.h"
-#include "poll.h"
-#include "protocol.h"
-#include "privsep.h"
-#include "resolver.h"
-#include "server.h"
-#include "session.h"
-#include "util.h"
-#include "workqueue.h"
+#include "recvmail.h"
 
 static void server_accept(void *if_ptr, int events);
 
@@ -289,30 +277,6 @@ server_init(int argc, char *argv[], struct protocol *proto)
     if (setrlimit(RLIMIT_CORE, &limit) != 0) {
         log_errno("setrlimit(RLIMIT_CORE)");
         abort();
-    }
-
-    /* Create a separate process for privileged operations */
-    if (srv.proto->privsep_hook != NULL) {
- 
-        /* Initialize IPC */
-        if (privsep_init() < 0) {
-            log_error("privsep initialization failed");
-            return (-1);
-        }
-
-        /* Create a new process */
-        if ((pid = fork()) < 0)
-            err(1, "fork(2)");
-
-        /* The parent process retains root privileges. */
-        if (pid > 0) {
-            ps_ctx.np_pid = pid;
-            close(ps_ctx.np_fd);
-            exit(privsep_main(srv.proto->privsep_hook));
-        }
-
-        /* ... fall through to continue executing  in the child */
-        close(ps_ctx.p_fd);
     }
 
     /* These should occur after all fork(2) calls are complete. */

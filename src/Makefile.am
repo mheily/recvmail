@@ -23,14 +23,11 @@ SOURCES		 = $(recvmail_SOURCES) $(recvmail_HEADERS)
 
 recvmail_CFLAGS  = -g -O0 -Wall -Werror -include config.h
 recvmail_SOURCES = address.c poll.c dnsbl.c \
-            util.c privsep.c \
+            util.c \
 		   log.c mda.c resolver.c socket.c message.c maildir.c session.c \
 		   smtp.c server.c throttle.c workqueue.c main.c
 recvmail_LDADD   = -lpthread -lresolv
-recvmail_HEADERS = address.h  hash.h  mda.h poll.h server.h socket.h    \
-    config.h   log.h      message.h  queue.h     session.h  throttle.h  \
-    tree.h     protocol.h util.h privsep.h                              \
-    dnsbl.h    maildir.h  options.h  resolver.h  smtp.h     workqueue.h
+recvmail_HEADERS =  hash.h queue.h recvmail.h tree.h
 
 loopback:
 	printf "helo a\nmail from:abc@def.ghi\nrcpt to:foo@nowhere.local\ndata\nSubject: hi\n\nHello\n.\nquit\n" | nc `hostname` 1025

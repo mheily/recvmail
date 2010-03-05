@@ -17,20 +17,11 @@
  */
 
 #include <fcntl.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <time.h>
-#include <unistd.h>
 
-#include "address.h"
-#include "message.h"
-#include "session.h"
-#include "options.h"
-#include "socket.h"
-#include "log.h"
+#include "recvmail.h"
 
 static int 
 maildir_get_path(char *buf, size_t n, const struct mail_addr *ma)

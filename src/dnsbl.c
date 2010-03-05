@@ -18,21 +18,13 @@
 
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <pthread.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 
-#include "dnsbl.h"
-#include "session.h"
-#include "server.h"
-#include "poll.h"
-#include "protocol.h"
-#include "resolver.h"
-#include "workqueue.h"
-#include "log.h"
+#include "recvmail.h"
 
 static void dnsbl_query(struct work *wqa, void *udata);
 static int  dnsbl_reject_early_talker(struct session *s);

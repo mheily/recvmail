@@ -16,16 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <stdio.h>
-#include <time.h>
-#include <stdlib.h>
-#include <string.h>
-
+#include "recvmail.h"
 #include "tree.h"
-#include "poll.h"
-#include "log.h"
 
 struct client {
     RB_ENTRY(client) entry;

@@ -16,12 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdlib.h>
-#include <unistd.h>
-
-#include "address.h"
-#include "message.h"
-#include "log.h"
+#include "recvmail.h"
 
 static void
 recipient_free(struct message *msg)
