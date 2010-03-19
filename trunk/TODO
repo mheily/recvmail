@@ -1,0 +1,3 @@
+Make the design so that users create their own email addresses. Make /srv/mail mode 1777 like /tmp so that people can create their own accounts but not mess with other people's stuff.
+
+Remove the use of /etc/aliases and /etc/passwd.
