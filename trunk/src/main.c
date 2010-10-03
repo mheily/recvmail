@@ -30,6 +30,7 @@ struct options  OPT = {
     .debugging = 0,
     .daemon = 1,
     .uid = "recvmail",
+    .port = 0,
     .log_ident = "recvmail",
     .log_level = LOG_INFO,
     .log_facility = LOG_MAIL,
