@@ -213,15 +213,6 @@ timekeeper(void *arg)
     return (NULL);
 }
 
-int
-poll_init(void)
-{
-    LIST_INIT(&timer_list); 
-    LIST_INIT(&watchlist); 
-
-    return (0);
-}
-
 void
 poll_free(void)
 {
@@ -235,12 +226,6 @@ poll_free(void)
     close(tk_pipefd[1]);
     close(sc_pipefd[0]);
     close(sc_pipefd[1]);
-}
-
-void
-poll_shutdown(void)
-{
-    shutdown_flag = 1;
 }
 
 int

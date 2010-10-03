@@ -31,7 +31,7 @@
 
 #include "recvmail.h"
 
-static void server_accept(void *if_ptr, int events);
+static void server_accept(void *if_ptr);
 static void server_shutdown(void *unused);
 static void server_restart(void *unused);
 
@@ -245,8 +245,7 @@ server_shutdown(void *unused)
     }
 
     log_close();
-
-    poll_shutdown();
+    exit(0);        /* TODO: set non-zero for SIGINT */
 }
 
 /* Initialization routines common to all servers */
@@ -310,10 +309,6 @@ server_init(int argc, char *argv[], struct protocol *proto)
     }
 
     /* These should occur after all fork(2) calls are complete. */
-    if (poll_init() < 0) {
-        log_error("poll_init() failed");
-        return (-1);
-    }
     if (resolver_init() < 0) {
         log_error("resolver initialization failed");
         return (-1);
@@ -356,6 +351,7 @@ server_bind_addr(struct sockaddr *sa, struct protocol *proto)
     char sa_name[INET6_ADDRSTRLEN];
     socklen_t sa_len;
     struct net_interface *ni;
+    dispatch_source_t ds;
     int             one = 1;
     int             fd = -1;
     int rv;
@@ -441,11 +437,12 @@ server_bind_addr(struct sockaddr *sa, struct protocol *proto)
     LIST_INSERT_HEAD(&srv.if_list, ni, entry);
 
     /* Monitor the server descriptor for new connections */
-    if (poll_add(fd, POLLIN, server_accept, ni) == NULL) { 
-        log_error("poll_add() (fd=%d)", fd);
-        goto errout;
-    }
-   
+    /* TODO: error handling */
+    ds = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, fd, 0, dispatch_get_main_queue());
+    dispatch_set_context(ds, ni);
+    dispatch_source_set_event_handler_f(ds, server_accept);
+    dispatch_resume(ds);
+
     return (0);
 
 errout:
@@ -506,19 +503,12 @@ client_event_handler(void *sptr, int events)
 }
 
 static void
-server_accept(void *if_ptr, int events)
+server_accept(void *if_ptr)
 {
     struct net_interface *ni = (struct net_interface *) if_ptr;
 	socklen_t cli_len = ni->ss_len;
     int fd = -1;
 	struct session *s;
-
-    if (events & POLLERR) {
-        log_errno("bad server socket");
-        abort(); // TODO: cleanly
-    }
-    
-    /* Assume: (events & SOCK_CAN_READ) */
 
     /* Accept the incoming connection */
     if ((fd = accept(ni->fd, (struct sockaddr *) &ni->ss, &cli_len)) < 0) {
@@ -544,13 +534,6 @@ errout:
         session_close(s);
     }
 }
-
-int
-server_dispatch(void)
-{
-    return poll_dispatch();
-}
-
 
 /*
  * TODO -- move to options.c
