@@ -41,11 +41,15 @@ main(int argc, char *argv[])
     if (server_init(argc, argv, &SMTP) < 0)
         errx(1, "server initialization failed");
 
+    dispatch_main();
+#if DEADWOOD
     if (server_dispatch() < 0) {
         if (!detached) 
             fprintf(stderr, "Abnormal program termination.\n");
         exit(EXIT_FAILURE);
     }
+#endif
 
+    /* NOTREACHED */
     exit (EXIT_SUCCESS);
 }

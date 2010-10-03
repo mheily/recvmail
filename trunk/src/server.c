@@ -32,6 +32,8 @@
 #include "recvmail.h"
 
 static void server_accept(void *if_ptr, int events);
+static void server_shutdown(void *unused);
+static void server_restart(void *unused);
 
 struct server srv;
 
@@ -44,6 +46,34 @@ struct net_interface {
     int use_tls;
     LIST_ENTRY(net_interface) entry;
 };
+
+/* TODO: refactor to eliminate copy+paste */
+/* TODO: error checking */
+static int
+install_signal_handlers(struct server *srv)
+{
+    dispatch_source_t ds;
+    
+    signal(SIGINT, SIG_IGN);
+    ds = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGINT, 
+            0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler_f(ds, server_shutdown);
+    dispatch_resume(ds);
+
+    signal(SIGTERM, SIG_IGN);
+    ds = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGTERM, 
+            0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler_f(ds, server_shutdown);
+    dispatch_resume(ds);
+
+    signal(SIGHUP, SIG_IGN);
+    ds = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGHUP, 
+            0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler_f(ds, server_restart);
+    dispatch_resume(ds);
+
+    return (0);
+}
 
 static int
 pidfile_check(void)
@@ -192,14 +222,14 @@ drop_privileges(const char *user)
 }
 
 static void
-server_restart(void *unused, int events)
+server_restart(void *unused)
 {
     log_error("STUB");
     sleep(1);
 }
 
 static void
-server_shutdown(void *unused, int events)
+server_shutdown(void *unused)
 {
     struct net_interface *ni;
 
@@ -309,6 +339,9 @@ server_init(int argc, char *argv[], struct protocol *proto)
     /* Drop root privilges and call chroot(2) */
     if (drop_privileges(OPT.uid) < 0)
         err(1, "unable to drop privileges");
+
+    if (install_signal_handlers(&srv) < 0)
+        err(1, "unable to install signal handlers");
 
     /* Run the protocol-specific initialization routines. */
     return srv.proto->init_hook();
@@ -515,14 +548,6 @@ errout:
 int
 server_dispatch(void)
 {
-    /* Respond to signals */
-    if (poll_signal(SIGINT, server_shutdown, &srv) < 0) 
-        return (-1);
-    if (poll_signal(SIGTERM, server_shutdown, &srv) < 0) 
-        return (-1);
-    if (poll_signal(SIGHUP, server_restart, &srv) < 0) 
-        return (-1);
-
     return poll_dispatch();
 }
 
