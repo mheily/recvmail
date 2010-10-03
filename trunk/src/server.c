@@ -486,6 +486,7 @@ errout:
     return (-1);
 }
 
+#if DEADWOOD
 /* TODO: I don't think this needs to be void, void * anymore.
 
 static int
@@ -493,18 +494,19 @@ client_event_handler(struct session *s, int events)
 
    */
 static void
-client_event_handler(void *sptr, int events)
+client_event_handler(void *sptr)
 {
     struct session *s = (struct session *) sptr;
     struct socket *sock = (struct socket *) session_get_socket(s);
     int rv;
 
-    rv = socket_event_handler(sock, events);
+    rv = socket_event_handler(sock);
     if (rv < 0) 
         socket_close(sock); /* KLUDGE - lame way to kill the connection. */
     if (rv == 0)
-        session_event_handler(s, events);
+        session_event_handler(s);
 }
+#endif
 
 static void
 server_accept(void *if_ptr)
@@ -522,7 +524,7 @@ server_accept(void *if_ptr)
     log_debug("accept(2) created fd %d", fd);
 
     /* Create a new session */
-    if ((s = session_new(fd, ni->proto, client_event_handler)) == NULL) 
+    if ((s = session_new(fd, ni->proto)) == NULL) 
         return;
 
     /* Run the protocol specific accept(2) hook */

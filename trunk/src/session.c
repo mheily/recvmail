@@ -136,7 +136,7 @@ session_println(struct session *s, const char *buf)
 }
 
 struct session *
-session_new(int fd, struct protocol *proto, void (*handler)(void *, int))
+session_new(int fd, struct protocol *proto)
 {
     static unsigned long session_id = 0;
     struct session *s;
@@ -158,8 +158,8 @@ session_new(int fd, struct protocol *proto, void (*handler)(void *, int))
     /* TODO: Determine the reverse DNS name for the host */
 
     /* Monitor the client socket for events */
-    if (socket_poll_enable(s->sock, POLLIN, handler, s) < 0) {
-        log_error("poll_enable()");
+    if (socket_pollin(s->sock, (dispatch_function_t) proto->read_hook, s) < 0) {
+        log_error("socket_pollin()");
         socket_free(s->sock);
         free(s);
         return (NULL);

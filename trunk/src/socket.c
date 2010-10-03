@@ -24,8 +24,8 @@
 
 #include "recvmail.h"
 
-static int socket_read(struct socket *sock);
-static int buf_drain(struct socket *sock);
+static void socket_read(struct socket *);
+static void buf_drain(struct socket *);
 static int buf_append(struct socket *sock, const char *buf, size_t len);
 static struct line * line_new(const char *buf, size_t len);
 
@@ -44,8 +44,10 @@ struct line {
 
 /* A socket buffer */
 struct socket {
-    int     fd;
-    struct watch *wd;
+    int         status;     /* 0=socket OK, -1=error condition */
+    int         fd;
+    struct watch *wd;   /* DEADWOOD */
+    dispatch_source_t ds_read, ds_write;
     struct sockaddr_storage peer;
     char peername[INET6_ADDRSTRLEN];
     /* TODO: struct tls_state *tls; */
@@ -81,6 +83,7 @@ line_new(const char *buf, size_t len)
     return (x);
 }
 
+#if DEADWOOD
 int
 socket_event_handler(struct socket *sock, int events)
 {
@@ -110,6 +113,7 @@ socket_event_handler(struct socket *sock, int events)
 
     return (0);
 }
+#endif
 
 static int
 append_input(struct socket *sock, const char *buf, size_t len)
@@ -202,6 +206,17 @@ socket_new(int fd, struct session *sess)
             goto errout;
     }
 
+    /* Create dispatch sources for POLLIN and POLLOUT events.
+       These are suspended by default.
+       TODO: Error handling
+     */
+    sock->ds_read = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, fd, 0, dispatch_get_main_queue());
+    dispatch_set_context(sock->ds_read, sock);
+    dispatch_source_set_event_handler_f(sock->ds_read, (dispatch_function_t) socket_read);
+    sock->ds_write = dispatch_source_create(DISPATCH_SOURCE_TYPE_WRITE, fd, 0, dispatch_get_main_queue());
+    dispatch_set_context(sock->ds_write, sock);
+    dispatch_source_set_event_handler_f(sock->ds_read, (dispatch_function_t) buf_drain);
+
     return (sock);
 
 errout:
@@ -273,7 +288,8 @@ socket_readln(char **dst, struct socket *sock)
     struct line *x;
 
     /* Read data from the socket*/
-    if (socket_read(sock) < 0) {
+    socket_read(sock);
+    if (0) {  /* FIXME-XXX: need to check an error flag */
         log_error("socket_read() failed");
         *dst = NULL;
         return (-1);
@@ -302,17 +318,14 @@ socket_readln(char **dst, struct socket *sock)
 }
 
 int
-socket_poll_enable(struct socket *sock, 
-        int events,
-        void (*callback)(void *, int), 
-        void *udata)
+socket_pollin(struct socket *sock, dispatch_function_t cb, void *udata)
 {
-    if (sock->wd != NULL) {
-        log_error("multiple attempts to enable polling on a socket");
-        return (-1);
-    }
-    sock->wd = poll_add(sock->fd, events, callback, udata);
-    return ((sock->wd == NULL) ? -1 : 0);
+    /* FIXME: error handling */
+    dispatch_set_context(sock->ds_read, udata);
+    dispatch_source_set_event_handler_f(sock->ds_read, cb);
+    dispatch_resume(sock->ds_read);
+
+    return (0);
 }
 
 int
@@ -328,7 +341,7 @@ socket_poll_disable(struct socket *sock)
     return (0);
 }
 
-static int
+static void
 parse_lines(struct socket *sock, char *buf, size_t buf_len)
 {
     size_t line_len, a, z;
@@ -351,12 +364,15 @@ parse_lines(struct socket *sock, char *buf, size_t buf_len)
         }
         if (line_len >= SOCK_LINE_MAX) {
             log_error("line length exceeded");
-            return (-1);
+            sock->status = -1;
+            return;
         }
 
         /* Create a new line object */
-        if (append_input(sock, &buf[a], line_len) < 0)
-            return (-1);
+        if (append_input(sock, &buf[a], line_len) < 0) {
+            sock->status = -1;
+            return;
+        }
 
         a = z + 1;
     }
@@ -365,14 +381,14 @@ parse_lines(struct socket *sock, char *buf, size_t buf_len)
     /* TODO: avoid code duplication with above loop */
     if (a != buf_len) {
         line_len = z - a;
-        if (append_input(sock, &buf[a], line_len) < 0)
-            return (-1);
+        if (append_input(sock, &buf[a], line_len) < 0) {
+            sock->status = -1;
+            return;
+        }
     }
-
-    return (0);
 }
 
-static int
+static void
 socket_read(struct socket *sock)
 {
     char buf[SOCK_BUF_SIZE];
@@ -388,13 +404,15 @@ socket_read(struct socket *sock)
     if (n < 0) { 
         if (errno == EAGAIN) {
             log_debug("got EAGAIN");
-            return (0);
+            return;
         } else if (errno == ECONNRESET) {
             log_info("connection reset by peer");   //TODO: add remote_addr
-            return (-1);
+            sock->status = -1;
+            return;
         } else {
             log_errno("recv(2)");
-            return (-1);
+            sock->status = -1;
+            return;
         }
     }
 
@@ -403,14 +421,15 @@ socket_read(struct socket *sock)
     if (n == 0) {
         log_debug("zero-length read(2)");
         //TODO -- indicate to session object that no more reads are possible
-        return (-1);
+        sock->status = -1;
+        return;
     }
     log_debug("read %zu bytes", n);
 
     return parse_lines(sock, buf, (size_t) n);
 } 
 
-static int
+    static int
 line_send(struct socket *sock, struct line *ent)
 {
     ssize_t n;
@@ -436,7 +455,7 @@ line_send(struct socket *sock, struct line *ent)
     return (0);        
 }
 
-static int
+static void
 buf_drain(struct socket *sock)
 {
     struct line *cur, *nxt;
@@ -446,18 +465,18 @@ buf_drain(struct socket *sock)
     while (cur != NULL) {
         nxt = STAILQ_NEXT(cur, entry);   
         rv = line_send(sock, cur);
-        if (rv < 0)
-            return (-1);
+        if (rv < 0) {
+            sock->status = -1;
+            return;
+        }
         if (rv == 1)
-            return (0);
+            return;
         free(cur);
         cur = nxt;
     }
     
     STAILQ_INIT(&sock->output);
     socket_get_pollfd(sock)->events ^= POLLOUT;
-    
-    return (0);
 }
 
 static int
