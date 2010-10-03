@@ -239,7 +239,8 @@ struct protocol {
     void    (*timeout_hook)(struct session *); /* session timeout */
     int     (*accept_hook)(struct session *); /* Called after accept(2) */
     void    (*close_hook)(struct session *); /* Called prior to close(2) for a session */
-    void    (*abort_hook) (struct session *); /* Fatal internal error */
+    void    (*abort_hook)(struct session *); /* Fatal internal error */
+    void    (*read_hook)(struct session *); /* Called when data is available to read */
     /* Sends a 'too many errors' message to a misbehaving client before
      * closing */
     //DEADWOOD:void            (*reject_hook) (struct session *);
@@ -291,7 +292,7 @@ struct socket;
 struct session;
 struct protocol;
 
-struct session * session_new(int, struct protocol *, void (*)(void *, int));
+struct session * session_new(int, struct protocol *);
 void             session_free(struct session *s);
 
 int     session_read(struct session *);
@@ -326,9 +327,10 @@ int     smtpd_parser(struct session *);
 void    smtpd_client_error(struct session *);
 void    smtpd_close(struct session *);
 void    smtp_mda_callback(struct session *, int);
-void    smtpd_timeout(struct session *s);
+void    smtpd_timeout(struct session *);
 int     smtpd_init(void);
 int     smtpd_shutdown(void);
+void    smtpd_read(struct session *);
 
 //socket.h
 
@@ -344,7 +346,7 @@ int      socket_pending(const struct socket *);
 ssize_t  socket_readln(char **, struct socket *);
 int      socket_close(struct socket *);
 int      socket_write(struct socket *, const char *, size_t);
-int      socket_poll_enable(struct socket *, int, void (*)(void *, int), void *);
+int      socket_pollin(struct socket *, void (*)(void *), void *);
 int      socket_poll_disable(struct socket *);
 struct pollfd * socket_get_pollfd(struct socket *);
 int      socket_event_handler(struct socket *, int);

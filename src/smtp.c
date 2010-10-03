@@ -37,6 +37,7 @@ struct protocol SMTP = {
     .abort_hook     = smtpd_abort,
     .close_hook     = smtpd_close,
     .init_hook      = smtpd_init,
+    .read_hook      = smtpd_read,
 /* TODO:     .privsep_hook   = smtpd_privsep,  */
     .shutdown_hook  = smtpd_shutdown,
 };
@@ -544,6 +545,13 @@ smtpd_greeting(struct session *s)
 {
     session_println(s, "220 ESMTP server ready");
     return (0);
+}
+
+void
+smtpd_read(struct session *s)
+{
+        log_error("FIXME -- STUB");
+        abort();
 }
 
 int
