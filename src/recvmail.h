@@ -22,6 +22,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <dispatch/dispatch.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
