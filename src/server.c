@@ -383,6 +383,10 @@ server_bind_addr(struct sockaddr *sa, struct protocol *proto)
         return (-1);
     port = (unsigned short) rv;
 
+    /* The port number can be overridden by a command-line option */
+    if (OPT.port > 0)
+        port = OPT.port;
+
     /* Setup the protocol-specific socket structure */
     if (sa->sa_family == AF_INET) {
         memcpy(&sain, sa, sizeof(sain));
@@ -546,6 +550,7 @@ usage()
 	    "  recvmail [-fhstv] [-u uid]\n\n"
 	    "        -f      Run in the foreground           (default: no)\n"
 	    "        -h      Display this help message\n"
+	    "        -p      Run under a different port      (default: 25)\n"
 	    "        -q      Quiet (warning messages only)                \n"
 	    "        -u      Run under a different user ID   (default: recvmail)\n"
 	    "        -v      Verbose debugging messages      (default: no)\n"
@@ -631,7 +636,7 @@ options_parse(int argc, char *argv[])
     OPT.ssl_keyfile = strdup("/etc/ssl/private/ssl-cert-snakeoil.key");
 
     /* Get arguments from ARGV */
-    while ((c = getopt(argc, argv, "vfho:qu:")) != -1) {
+    while ((c = getopt(argc, argv, "vfho:p:qu:")) != -1) {
         switch (c) {
             case 'f':
                 OPT.daemon = 0;
@@ -642,6 +647,9 @@ options_parse(int argc, char *argv[])
             case 'o':
                 if (option_parse(optarg) < 0)
                     errx(1, "parse error");
+                break;
+            case 'p':
+                OPT.port = atoi(optarg);
                 break;
             case 'q':
                 OPT.log_level = LOG_ERR;
