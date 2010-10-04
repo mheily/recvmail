@@ -429,7 +429,7 @@ socket_read(struct socket *sock)
     return parse_lines(sock, buf, (size_t) n);
 } 
 
-    static int
+static int
 line_send(struct socket *sock, struct line *ent)
 {
     ssize_t n;

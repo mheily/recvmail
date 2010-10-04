@@ -295,8 +295,7 @@ struct protocol;
 struct session * session_new(int, struct protocol *);
 void             session_free(struct session *s);
 
-int     session_read(struct session *);
-int     session_readln(struct session *s);
+ssize_t session_readln(struct session *s, char **dst);
 int     session_printf(struct session *, const char *, ...);
 int     session_println(struct session *, const char *);
 void    session_close(struct session *);
@@ -305,14 +304,11 @@ void    session_event_handler(struct session *, int);
 int     session_table_init(void);
 int     session_table_lookup(struct session **, unsigned long);
 
-int     session_handler_push(struct session *, int (*)(struct session *));
-int     session_handler_pop(struct session *);
-
 void *  session_data_get(const struct session *);
 void    session_data_set(struct session *, const void *);
 void    session_buffer_get(const struct session *, char **, size_t *);
 void    session_timeout_set(struct session *, time_t);
-void    session_resume(struct session *);
+//void    session_resume(struct session *);
 
 const struct socket * session_get_socket(struct session *);
 unsigned long session_get_id(struct session *);
@@ -323,7 +319,6 @@ extern struct protocol SMTP;
 
 
 int    smtpd_accept(struct session *);
-int     smtpd_parser(struct session *);
 void    smtpd_client_error(struct session *);
 void    smtpd_close(struct session *);
 void    smtp_mda_callback(struct session *, int);

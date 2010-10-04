@@ -113,7 +113,7 @@ hostname_parse(char *dst, const char *src)
 void
 smtp_mda_callback(struct session *s, int retval)
 {
-    session_handler_push(s, smtpd_parser);
+    //FIXME:session_handler_push(s, smtpd_parser);
     smtpd_session_reset(s);
 
     if (retval == 0) {
@@ -122,7 +122,7 @@ smtp_mda_callback(struct session *s, int retval)
         session_println(s, "451 Requested action aborted: error in processing");
     }
 
-    session_resume(s);
+    //session_resume(s);
 }
 
 static int
@@ -347,11 +347,9 @@ smtpd_abort(struct session *s)
 }
 
 
-int
-smtpd_parser(struct session *s)
+static int
+smtpd_parser(struct session *s, char *buf, size_t len)
 {
-    char *buf;
-    size_t len;
     int rv;
     struct smtp_session *sd = smtp_session(s);
 
@@ -485,7 +483,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
         }
 
         /* Submit to the MDA workqueue for processing */
-        session_handler_pop(s);
+        //session_handler_pop(s);
         if (mda_submit(session_get_id(s), sd->msg) < 0) {
             log_error("mda_submit()");
             message_free(newmsg);
@@ -531,12 +529,12 @@ dnsbl_response_handler(struct session *s, int retval)
     } else if (retval == DNSBL_NOT_FOUND || retval == DNSBL_ERROR) {
         if (use_dnsbl) {
             log_debug("client is not in a DNSBL");
-            session_handler_pop(s);
+            //session_handler_pop(s);
         }
-        session_handler_push(s, smtpd_parser);
+        //session_handler_push(s, smtpd_parser);
         session_timeout_set(s, SMTP_COMMAND_TIMEOUT);
         smtpd_greeting(s);
-        session_resume(s);
+        //session_resume(s);
     }
 }
 
@@ -550,8 +548,16 @@ smtpd_greeting(struct session *s)
 void
 smtpd_read(struct session *s)
 {
-        log_error("FIXME -- STUB");
-        abort();
+    char    *buf;
+    ssize_t  len;
+
+    len = session_readln(s, &buf);
+    if (len < 0)
+        return;
+
+    if (smtpd_parser(s, buf, len) < 0) {
+        //FIXME: s->status = -1;
+    }
 }
 
 int

@@ -31,7 +31,6 @@ struct session {
     time_t      timeout;  
     void       *udata;
 
-    int (*handler)(struct session *); 
     LIST_ENTRY(session)  st_entries;
 };
 
@@ -64,13 +63,11 @@ session_table_expire(void *unused)
     }
 }
 
-int
-session_read(struct session *s) 
+ssize_t
+session_readln(struct session *s, char **dst) 
 {
     char    *buf;
     ssize_t  len;
-
-    assert(s->handler);
 
     log_debug("reading data from client");
 
@@ -78,23 +75,19 @@ session_read(struct session *s)
     do {
         if ((len = socket_readln(&buf, s->sock)) < 0) {
             log_info("readln failed");
+            *dst = NULL;
             return (-1);
         } 
         log_debug("read: %zu bytes", len);
         if (len > 0) {
             s->buf = buf;
             s->buf_len = len; 
-            if (s->handler(s) < 0) 
-               return (-1);         /* TODO: close session? */
-
-            /* Test if session_suspend() was called */
-            if (s->handler == NULL) {
-               return (0);
-            }
+            break;
         }
-    } while (len > 0);
+    } while (len > 0); //FIXME:doesn't make sense anymore
 
-    return (0);
+    *dst = buf;
+    return (len);
 }
 
 int
@@ -213,13 +206,11 @@ session_event_handler(struct session *s, int events)
 
     /* TODO: limit the max size of the input buffer */
     //FIXME: turn off polling.
-    if (s->handler == NULL)
-        return;
 
     if (events & POLLIN) {
         log_debug("session %lu is now readable", s->id);
-        if (session_read(s) < 0) 
-            session_close(s);
+        //if (session_read(s) < 0) 
+        //    session_close(s);
     }
 #if TODO
     // TODO: implement output buffreing
@@ -231,26 +222,6 @@ session_event_handler(struct session *s, int events)
         //TODO - flush output buffer, or do something
     }
 #endif
-}
-
-//FIXME: stub
-int
-session_handler_push(struct session *s, int (*fp)(struct session *))
-{
-    if (s->handler != NULL)
-        abort();
-    s->handler = fp;
-    return (0);
-}
-
-//FIXME: stub
-int
-session_handler_pop(struct session *s)
-{
-    if (s->handler == NULL)
-        abort();
-    s->handler = NULL;
-    return (0);
 }
 
 int
@@ -322,6 +293,7 @@ session_timeout_set(struct session *s, time_t interval)
     s->timeout = time(NULL) + interval;
 }
 
+#if DEADWOOD
 void
 session_resume(struct session *s)
 {
@@ -329,3 +301,4 @@ session_resume(struct session *s)
     if (socket_pending(s->sock) && session_read(s) < 0)    
         session_close(s);
 }
+#endif

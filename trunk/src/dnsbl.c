@@ -27,7 +27,7 @@
 #include "recvmail.h"
 
 static void dnsbl_query(struct work *wqa, void *udata);
-static int  dnsbl_reject_early_talker(struct session *s);
+//static int  dnsbl_reject_early_talker(struct session *s);
 
 static struct dnsbl {
     /* FQDN of the DNSBL service (e.g. zen.spamhaus.org) */
@@ -59,12 +59,14 @@ dnsbl_free(void)
 }
 
 
+#if DEADWOOD
 static int
 dnsbl_reject_early_talker(struct session *s)
 {
 	session_println(s, "421 Protocol error -- SMTP early talkers not allowed");
 	return (-1);
 }
+#endif
 
 
 static void
@@ -126,7 +128,7 @@ dnsbl_submit(struct session *s)
     w.argv0.u_i = socket_get_peeraddr4(session_get_socket(s));
 
 	/* Don't allow "early talkers" to send data prior to the greeting */
-	session_handler_push(s, dnsbl_reject_early_talker);
+	//FIXME:session_handler_push(s, dnsbl_reject_early_talker);
 	
     /* TODO: check the cache */
     return workqueue_submit(d.wq, w);
