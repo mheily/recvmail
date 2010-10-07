@@ -64,11 +64,13 @@ char *  address_get(char *, size_t, const struct mail_addr *);
 int     valid_address(const struct rfc2822_addr *addr);
 int     valid_domain(const char *domain);
 
+//dnsbl
 /* Result codes */
 #define DNSBL_NOT_FOUND     (0)
 #define DNSBL_FOUND         (1)
 #define DNSBL_ERROR         (-1)
 
+#if DEADWOOD
 struct session;
 
 int     dnsbl_new(const char *service, void (*)(struct session *, int));
@@ -77,6 +79,7 @@ void    dnsbl_free(void);
 void *  dnsbl_dispatch(void *);
 int     dnsbl_submit(struct session *);
 int     dnsbl_response(struct session **);
+#endif
 
 //LOG.h
 
@@ -146,9 +149,6 @@ int maildir_create(const char *);
 
 struct message;
 
-int    mda_init(void);
-void   mda_free(void);
-void * mda_dispatch(void *);
 int    mda_submit(unsigned long, struct message *);
 
 // message.h
@@ -240,7 +240,7 @@ struct protocol {
     int     (*accept_hook)(struct session *); /* Called after accept(2) */
     void    (*close_hook)(struct session *); /* Called prior to close(2) for a session */
     void    (*abort_hook)(struct session *); /* Fatal internal error */
-    void    (*read_hook)(struct session *); /* Called when data is available to read */
+    void    (*read_hook)(struct session *, char *, size_t);
     /* Sends a 'too many errors' message to a misbehaving client before
      * closing */
     //DEADWOOD:void            (*reject_hook) (struct session *);
@@ -295,7 +295,6 @@ struct protocol;
 struct session * session_new(int, struct protocol *);
 void             session_free(struct session *s);
 
-ssize_t session_readln(struct session *s, char **dst);
 int     session_printf(struct session *, const char *, ...);
 int     session_println(struct session *, const char *);
 void    session_close(struct session *);
@@ -306,7 +305,6 @@ int     session_table_lookup(struct session **, unsigned long);
 
 void *  session_data_get(const struct session *);
 void    session_data_set(struct session *, const void *);
-void    session_buffer_get(const struct session *, char **, size_t *);
 void    session_timeout_set(struct session *, time_t);
 //void    session_resume(struct session *);
 
@@ -318,14 +316,14 @@ unsigned long session_get_id(struct session *);
 extern struct protocol SMTP;
 
 
-int    smtpd_accept(struct session *);
+int     smtpd_accept(struct session *);
 void    smtpd_client_error(struct session *);
 void    smtpd_close(struct session *);
 void    smtp_mda_callback(struct session *, int);
 void    smtpd_timeout(struct session *);
 int     smtpd_init(void);
 int     smtpd_shutdown(void);
-void    smtpd_read(struct session *);
+void    smtpd_read(struct session *, char *, size_t);
 
 //socket.h
 
@@ -334,16 +332,12 @@ void    smtpd_read(struct session *);
 struct socket;
 struct session;
 
-struct socket * socket_new(int, struct session *);
-void            socket_free(struct socket *);
+struct socket * socket_new(int, struct session *, struct protocol *);
 
 int      socket_pending(const struct socket *);
-ssize_t  socket_readln(char **, struct socket *);
 int      socket_close(struct socket *);
 int      socket_write(struct socket *, const char *, size_t);
-int      socket_pollin(struct socket *, void (*)(void *), void *);
-int      socket_poll_disable(struct socket *);
-struct pollfd * socket_get_pollfd(struct socket *);
+int      socket_poll(struct socket *sock, short events);
 int      socket_event_handler(struct socket *, int);
 int      socket_get_family(const struct socket *);
 int      socket_get_peeraddr4(const struct socket *);
@@ -370,28 +364,6 @@ int      socket_init(void);
 int  file_exists(const char *);
 ssize_t file_read(char **, const char *);
 
-//workqueue.h
-
-struct work {
-    u_long  sid;                /* Session ID */
-    u_int   argc;               /* Number of arguments */
-    union {
-        u_int   u_i;
-        u_long  u_l;
-        void   *ptr;
-    } argv0;                    /* Argument vector */
-    int retval;                 /* Return value */
-};
-
 struct session;
-
-struct workqueue *
-        workqueue_new( void (*)(struct work *, void *),
-                void (*)(struct session *, int), 
-                void *);
-
-int     workqueue_submit(struct workqueue *, struct work);
-void    workqueue_free(struct workqueue *);
-int     workqueue_init(void);
 
 #endif  /* _RECVMAIL_H */
