@@ -63,33 +63,6 @@ session_table_expire(void *unused)
     }
 }
 
-ssize_t
-session_readln(struct session *s, char **dst) 
-{
-    char    *buf;
-    ssize_t  len;
-
-    log_debug("reading data from client");
-
-    /* Continue reading data until EAGAIN is returned */
-    do {
-        if ((len = socket_readln(&buf, s->sock)) < 0) {
-            log_info("readln failed");
-            *dst = NULL;
-            return (-1);
-        } 
-        log_debug("read: %zu bytes", len);
-        if (len > 0) {
-            s->buf = buf;
-            s->buf_len = len; 
-            break;
-        }
-    } while (len > 0); //FIXME:doesn't make sense anymore
-
-    *dst = buf;
-    return (len);
-}
-
 int
 session_vprintf(struct session *s, const char *format, va_list ap)
 {
@@ -142,21 +115,13 @@ session_new(int fd, struct protocol *proto)
     s->proto = proto;
   
     /* Initialize the socket object */
-    if ((s->sock = socket_new(fd, s)) == NULL) {
+    if ((s->sock = socket_new(fd, s, proto)) == NULL) {
         log_error("socket_new()");
         free(s);
         return (NULL);
     }
 
     /* TODO: Determine the reverse DNS name for the host */
-
-    /* Monitor the client socket for events */
-    if (socket_pollin(s->sock, (dispatch_function_t) proto->read_hook, s) < 0) {
-        log_error("socket_pollin()");
-        socket_free(s->sock);
-        free(s);
-        return (NULL);
-    }
 
     /* Generate a session ID (TODO: use connection throttling to prevent unlimited wraparound) */
     /* Add to the session table */
@@ -176,11 +141,6 @@ session_new(int fd, struct protocol *proto)
 void
 session_close(struct session *s)
 {
-    if (s == NULL) {
-        log_warning("session_close() called twice");
-        return;
-    }
-
     log_info("closing session with %s", socket_get_peername(s->sock));
 
     /* Run any protocol-specific hooks */
@@ -191,8 +151,7 @@ session_close(struct session *s)
     LIST_REMOVE(s, st_entries);
     pthread_mutex_unlock(&st_mtx);
 
-    socket_free(s->sock);
-    free(s);
+    socket_close(s->sock);
 }
 
 void
@@ -278,13 +237,6 @@ void
 session_data_set(struct session *s, const void *udata)
 {
     s->udata = (void *) udata;
-}
-
-void
-session_buffer_get(const struct session *s, char **buf, size_t *len)
-{
-    *buf = s->buf;
-    *len = s->buf_len;
 }
 
 void

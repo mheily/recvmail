@@ -24,10 +24,14 @@
 
 #include "recvmail.h"
 
-static void socket_read(struct socket *);
+static ssize_t  socket_readln(char **, struct socket *);
+static void socket_free(struct socket *sock);
+static void socket_read(void *);
 static void buf_drain(struct socket *);
 static int buf_append(struct socket *sock, const char *buf, size_t len);
 static struct line * line_new(const char *buf, size_t len);
+static void _socket_cancel_read(void *arg);
+static void _socket_cancel_write(void *arg);
 
 /* The maximum length of a single line (32 MB) */
 static const size_t SOCK_LINE_MAX = (INT_MAX >> 6);
@@ -45,13 +49,15 @@ struct line {
 /* A socket buffer */
 struct socket {
     int         status;     /* 0=socket OK, -1=error condition */
+    short       poll_events; /* POLLIN | POLLOUT */
     int         fd;
-    struct watch *wd;   /* DEADWOOD */
-    dispatch_source_t ds_read, ds_write;
+    struct session      *sess;
+    struct protocol     *proto;
+    dispatch_source_t    ds_read, 
+                         ds_write;
     struct sockaddr_storage peer;
     char peername[INET6_ADDRSTRLEN];
     /* TODO: struct tls_state *tls; */
-    struct session *sess;
     STAILQ_HEAD(,line) input;
     STAILQ_HEAD(,line) output;
     struct line *input_tmp;
@@ -155,11 +161,11 @@ append_input(struct socket *sock, const char *buf, size_t len)
 }
 
 struct socket *
-socket_new(int fd, struct session *sess)
+socket_new(int fd, struct session *sess, struct protocol *proto)
 {
     struct socket *sock = NULL;
     const int bufsz = SOCK_BUF_SIZE;
-	socklen_t cli_len = sizeof(sock->peer);
+    socklen_t cli_len = sizeof(sock->peer);
     int rv;
 
     /* Set the kernel socket buffer size */
@@ -188,6 +194,7 @@ socket_new(int fd, struct session *sess)
     }
     sock->fd = fd;
     sock->sess = sess;
+    sock->proto = proto;
     STAILQ_INIT(&sock->input);
     STAILQ_INIT(&sock->output);
 
@@ -206,16 +213,25 @@ socket_new(int fd, struct session *sess)
             goto errout;
     }
 
-    /* Create dispatch sources for POLLIN and POLLOUT events.
-       These are suspended by default.
-       TODO: Error handling
-     */
     sock->ds_read = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, fd, 0, dispatch_get_main_queue());
+    if (sock->ds_read == NULL) {
+        log_errno("dispatch_source_create");
+        goto errout;
+    }
     dispatch_set_context(sock->ds_read, sock);
-    dispatch_source_set_event_handler_f(sock->ds_read, (dispatch_function_t) socket_read);
+    dispatch_source_set_event_handler_f(sock->ds_read, socket_read);
+    dispatch_source_set_cancel_handler_f(sock->ds_read, _socket_cancel_read);
+
     sock->ds_write = dispatch_source_create(DISPATCH_SOURCE_TYPE_WRITE, fd, 0, dispatch_get_main_queue());
+    if (sock->ds_write == NULL) {
+        log_errno("dispatch_source_create");
+        goto errout;
+    }
     dispatch_set_context(sock->ds_write, sock);
-    dispatch_source_set_event_handler_f(sock->ds_read, (dispatch_function_t) buf_drain);
+    dispatch_source_set_event_handler_f(sock->ds_write, (dispatch_function_t) buf_drain);
+    dispatch_source_set_cancel_handler_f(sock->ds_write, _socket_cancel_write);
+
+    socket_poll(sock, POLLIN);
 
     return (sock);
 
@@ -224,26 +240,49 @@ errout:
     return (NULL);
 }
 
+static void
+_socket_cancel(void *arg, short events)
+{
+    struct socket *sock = (struct socket *) arg;
+
+    log_debug("disabling events on socket %d", sock->fd);
+    sock->poll_events ^= events;
+    if (sock->poll_events == 0) {
+        (void) close(sock->fd);
+        if (sock->sess != NULL)
+            free(sock->sess);
+        socket_free(sock);
+    }
+}
+
+static void
+_socket_cancel_read(void *arg)
+{
+    return _socket_cancel(arg, POLLIN);
+}
+
+static void
+_socket_cancel_write(void *arg)
+{
+    return _socket_cancel(arg, POLLOUT);
+}
+
 int
 socket_close(struct socket *sock)
 {
-    if (sock->fd < 0) {
+    if (sock->status < 0) {
         log_error("attempt to close a socket multiple times");
         return (0);
     }
-    if (sock->wd != NULL) {
-        poll_remove(sock->wd);
-        sock->wd = NULL;
-    }
-    if (close(sock->fd) < 0) {
-        log_errno("close(3) of fd %d", sock->fd);
-        return (-1);
-    }
-    sock->fd = -1;
+    sock->status = -1;
+    if (sock->poll_events & POLLIN)
+            dispatch_source_cancel(sock->ds_read);
+    if (sock->poll_events & POLLOUT)
+            dispatch_source_cancel(sock->ds_write);
     return (0);
 }
 
-void
+static void
 socket_free(struct socket *sock)
 {
     struct line *n1, *n2;
@@ -252,8 +291,6 @@ socket_free(struct socket *sock)
         log_error("double free");
         return;
     }
-    if (sock->wd != NULL)
-        poll_remove(sock->wd);
     if (sock->fd >= 0)
         (void) close(sock->fd); 
 
@@ -282,7 +319,7 @@ socket_free(struct socket *sock)
     free(sock);
 }
 
-ssize_t
+static ssize_t
 socket_readln(char **dst, struct socket *sock)
 {
     struct line *x;
@@ -318,27 +355,38 @@ socket_readln(char **dst, struct socket *sock)
 }
 
 int
-socket_pollin(struct socket *sock, dispatch_function_t cb, void *udata)
+socket_poll(struct socket *sock, short events)
 {
-    /* FIXME: error handling */
-    dispatch_set_context(sock->ds_read, udata);
-    dispatch_source_set_event_handler_f(sock->ds_read, cb);
-    dispatch_resume(sock->ds_read);
+    int rv;
 
-    return (0);
-}
-
-int
-socket_poll_disable(struct socket *sock)
-{
-    if (sock->wd == NULL) {
-        log_error("cannot disable polling on this socket");
-        return (-1);
+    switch (events) {
+        case POLLIN:
+            if (sock->poll_events & POLLOUT) {
+                sock->poll_events ^= POLLOUT;
+                dispatch_suspend(sock->ds_write);
+            }
+            sock->poll_events |= POLLIN;
+            dispatch_resume(sock->ds_read);
+            log_debug("enabled POLLIN on socket %d", sock->fd);
+            rv = 0;
+            break;
+        case POLLOUT:
+            if (sock->poll_events & POLLIN) {
+                sock->poll_events ^= POLLIN;
+                dispatch_suspend(sock->ds_read);
+            }
+            sock->poll_events |= POLLOUT;
+            dispatch_resume(sock->ds_write);
+            log_debug("enabled POLLOUT on socket %d", sock->fd);
+            rv = 0;
+            break;
+        default:
+            log_error("invalid events: %d", events);
+            rv = -1;
+            break;
     }
-    log_debug("removed fd from pollset");
-    poll_remove(sock->wd);
-    sock->wd = NULL;
-    return (0);
+
+    return (rv);
 }
 
 static void
@@ -389,10 +437,14 @@ parse_lines(struct socket *sock, char *buf, size_t buf_len)
 }
 
 static void
-socket_read(struct socket *sock)
+socket_read(void *arg)
 {
+    struct socket *sock = (struct socket *) arg;
     char buf[SOCK_BUF_SIZE];
+    char *p;
     ssize_t n;
+
+    log_debug("reading from socket (fd=%d)", sock->fd);
 
 #if TODO
     if (sock->ssl != NULL)
@@ -426,7 +478,19 @@ socket_read(struct socket *sock)
     }
     log_debug("read %zu bytes", n);
 
-    return parse_lines(sock, buf, (size_t) n);
+    parse_lines(sock, buf, (size_t) n);
+    while (! STAILQ_EMPTY(&sock->input) ) {
+        n = socket_readln(&p, sock);
+        if (n < 0) {
+            socket_close(sock);
+            return;
+        }
+        sock->proto->read_hook(sock->sess, p, n);
+        if (sock->status < 0) {
+            socket_close(sock);
+            return;
+        }
+    }
 } 
 
 static int
@@ -437,7 +501,7 @@ line_send(struct socket *sock, struct line *ent)
     n = send(sock->fd, ent->buf + ent->off, ent->len, 0);
     if (n < 0) {
         if (errno == EAGAIN) {
-            socket_get_pollfd(sock)->events |= POLLOUT;
+            socket_poll(sock, POLLOUT);
             return (1);
         }
 
@@ -448,7 +512,7 @@ line_send(struct socket *sock, struct line *ent)
     if (n < ent->len) {
         ent->off += n;
         ent->len -= n;
-        socket_get_pollfd(sock)->events |= POLLOUT;
+        socket_poll(sock, POLLOUT);
         return (1);
     }
    
@@ -460,6 +524,9 @@ buf_drain(struct socket *sock)
 {
     struct line *cur, *nxt;
     int rv;
+
+    log_debug("draining output buffer for socket %d", sock->fd);
+    socket_poll(sock, POLLIN);
 
     cur = STAILQ_FIRST(&sock->output); 
     while (cur != NULL) {
@@ -476,7 +543,6 @@ buf_drain(struct socket *sock)
     }
     
     STAILQ_INIT(&sock->output);
-    socket_get_pollfd(sock)->events ^= POLLOUT;
 }
 
 static int
@@ -486,7 +552,7 @@ buf_append(struct socket *sock, const char *buf, size_t len)
 
     if ((x = line_new(buf, len)) == NULL) 
         return (-1);
-    socket_get_pollfd(sock)->events |= POLLOUT;
+    socket_poll(sock, POLLOUT);
     STAILQ_INSERT_TAIL(&sock->output, x, entry);
 
     return (0);
@@ -511,7 +577,7 @@ socket_write(struct socket *sock, const char *buf, size_t len)
     n = send(sock->fd, buf, len, 0);
     if (n < 0) {
         if (errno == EAGAIN) {
-            socket_get_pollfd(sock)->events |= POLLOUT;
+            socket_poll(sock, POLLOUT);
             return (buf_append(sock, buf, len));
         }
         /* TODO: if (errno == ECONNRESET) ... */
@@ -519,7 +585,7 @@ socket_write(struct socket *sock, const char *buf, size_t len)
         return (-1);
     }
     if (n < len) {
-        socket_get_pollfd(sock)->events |= POLLOUT;
+        socket_poll(sock, POLLOUT);
         return (buf_append(sock, buf + n, len - n));
     }
 
@@ -549,10 +615,4 @@ const char *
 socket_get_peername(const struct socket *sock)
 {
     return ((const char *) &sock->peername);
-}
-
-struct pollfd * 
-socket_get_pollfd(struct socket *sock)
-{
-    return (poll_get(sock->wd));
 }

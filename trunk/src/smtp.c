@@ -353,7 +353,7 @@ smtpd_parser(struct session *s, char *buf, size_t len)
     int rv;
     struct smtp_session *sd = smtp_session(s);
 
-    session_buffer_get(s, &buf, &len);
+    assert(s != NULL && buf != NULL);
 
     if (len == 0 || len > SMTP_LINE_MAX) {
         log_error("invalid line length %zu", len);
@@ -519,6 +519,7 @@ smtpd_parse_data(struct session *s, char *src, size_t len)
     return (-1);
 }
 
+#if DEADWOOD
 static void
 dnsbl_response_handler(struct session *s, int retval)
 {
@@ -537,6 +538,7 @@ dnsbl_response_handler(struct session *s, int retval)
         //session_resume(s);
     }
 }
+#endif
 
 static int
 smtpd_greeting(struct session *s)
@@ -546,17 +548,11 @@ smtpd_greeting(struct session *s)
 }
 
 void
-smtpd_read(struct session *s)
+smtpd_read(struct session *s, char *buf, size_t len)
 {
-    char    *buf;
-    ssize_t  len;
-
-    len = session_readln(s, &buf);
-    if (len < 0)
-        return;
-
     if (smtpd_parser(s, buf, len) < 0) {
         //FIXME: s->status = -1;
+        session_close(s);
     }
 }
 
@@ -581,6 +577,7 @@ smtpd_accept(struct session *s)
 
     session_data_set(s, sd);
 
+#if DEADWOOD
     if (use_dnsbl) {
         if (dnsbl_submit(s) < 0) {
             log_error("dnsbl_submit() failed");
@@ -590,8 +587,9 @@ smtpd_accept(struct session *s)
     } else {
         dnsbl_response_handler(s, DNSBL_NOT_FOUND);
     }
+#endif
 
-    return (0);
+    return (smtpd_greeting(s));
 }
 
 void
@@ -683,12 +681,7 @@ smtpd_init(void)
     if (create_dirs() < 0)
         return (-1);
 
-    /* Create the MDA thread */
-    if (mda_init() < 0) {
-        log_error("mda_init() failed");
-        return (-1);
-    }
-
+#if DEADWOOD
     /* Create the DNSBL thread */
     if (use_dnsbl) {
       if (dnsbl_new("zen.spamhaus.org", dnsbl_response_handler) < 0) {
@@ -696,6 +689,7 @@ smtpd_init(void)
           return (-1);
       }
     }
+#endif
 
     return (0);
 }
@@ -705,9 +699,9 @@ smtpd_shutdown(void)
 {
     //TODO: wait for MDA to complete
     //TODO: wait for DNSBL to complete
-    mda_free();
+#if DEADWOOD
     if (use_dnsbl)
         dnsbl_free();
-    //TODO: shutdown the MDA and DNSBL threads
+#endif
     return (0);
 }    

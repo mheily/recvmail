@@ -18,52 +18,20 @@
 
 #include "recvmail.h"
 
-static struct delivery_agent *mda;
-
-struct delivery_agent {
-    struct workqueue *wq;
-};
-
-static void mda_deliver(struct work *wqa, void *udata);
-
-int
-mda_init(void)
-{
-    /* TODO: eliminate this restriction */
-    if (mda != NULL) {
-        log_error("cannot have multiple MDAs per process");
-        return (-1);
-    }
-    if ((mda = calloc(1, sizeof(*mda))) == NULL)
-        return (-1);
-
-    mda->wq = workqueue_new(mda_deliver, smtp_mda_callback, mda);
-
-    return (0);
-}
-
-void
-mda_free(void)
-{
-    workqueue_free(mda->wq);
-    free(mda);
-}
-
 static void
-mda_deliver(struct work *wqa, void *udata)
+mda_deliver(void *arg)
 {
-    struct message *msg;
+    struct message *msg = (struct message *) arg;
 
-    msg = (struct message *) wqa->argv0.ptr;
     if (message_fsync(msg) < 0 ||
             maildir_deliver(msg) < 0 ||
             message_close(msg) < 0) 
     {
         message_free(msg);
-        wqa->retval = -1;
+        //FIXME:wqa->retval = -1;
     } else {
         message_free(msg);
-        wqa->retval = 0;
+        //FIXME:wqa->retval = 0;
     }
 }
 
@@ -71,11 +39,8 @@ mda_deliver(struct work *wqa, void *udata)
 int
 mda_submit(unsigned long sid, struct message *msg)
 {
-    struct work w;
-
-    w.sid = sid;
-    w.argc = 1;
-    w.argv0.ptr = msg;
-    
-    return workqueue_submit(mda->wq, w);
+    //return workqueue_submit(mda->wq, w);
+    //FIXME:STUB
+    mda_deliver(msg);
+    return (0);
 }
