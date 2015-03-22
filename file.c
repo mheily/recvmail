@@ -17,6 +17,7 @@
  */
 
 #include "recvmail.h"
+#include <limits.h>
 
 
 /*

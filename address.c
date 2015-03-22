@@ -136,10 +136,6 @@ rfc2822_addr_parse(struct rfc2822_addr * dest, const char *src)
 	char domain[64];
 	char	*p;
 	int 	i;
-	size_t	len;
-
-	/* Initialize variables */
-	len = strlen(src);
 
 	/* Ignore the SIZE parameter*/
 	if ((p = strstr(src, " SIZE=")))
