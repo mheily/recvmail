@@ -17,6 +17,9 @@
  */
 
 #include "recvmail.h"
+#include <ifaddrs.h>
+#include <net/if.h>
+
 
 /* ------------------- Private functions ----------------------- */
 
@@ -80,25 +83,18 @@ int daemonize()
  * If the process is running as root, change the UID and GID to the ID's of
  * <uid> and <gid>, respectively.
  * 
- * Also chroot(2) to another directory, if desired.
+ * Also chroot(2) to the user's home directory.
  * 
  */
 int
 drop_privileges(const char * user,
-		const char * group,
-		const char * chroot_to
+		const char * group
 		)
 {
 	struct group   *grent;
 	struct passwd  *pwent;
 	uid_t uid;
 	gid_t gid;
-
-	/* Chdir into the chroot directory */
-	if (chroot_to && (chdir(chroot_to) < 0)) {
-		log_warning("chdir(2) to `%s'", chroot_to);
-		return -1;
-	}
 
 	/* Only root is allowed to drop privileges */
 	if (getuid() > 0) {
@@ -124,7 +120,10 @@ drop_privileges(const char * user,
 	uid = pwent->pw_uid;
 
 	/* chroot */
-	if (chroot_to && (chroot(chroot_to) < 0)) 
+    log_debug("chroot to %s", pwent->pw_dir);
+	if (chdir(pwent->pw_dir) < 0)
+		err(1, "chdir(2) to %s", pwent->pw_dir);
+	if (chroot(pwent->pw_dir) < 0) 
 		err(1, "chroot(2)");
 
 	/* Set the real GID */
@@ -261,6 +260,43 @@ error:
 	free(s);
 }
 
+static void
+server_bind(struct server * srv)
+{
+    struct ifaddrs *ifa, *ifp;
+    struct sockaddr_in srv_addr;
+    char namebuf[INET_ADDRSTRLEN];
+
+    if (getifaddrs(&ifa) < 0) {
+        err(1, "getifaddrs");
+    }
+
+    /* Bind to the first configured non-loopback IPv4 interface */
+    for (ifp = ifa; ifp != NULL; ifp = ifp->ifa_next) {
+        if (ifa->ifa_addr == NULL)
+            continue;
+        if ((ifp->ifa_flags & IFF_UP) &&
+                !(ifp->ifa_flags & IFF_LOOPBACK) &&
+                (ifp->ifa_addr->sa_family == AF_INET))
+        {
+            memcpy(&srv_addr, ifp->ifa_addr, sizeof(srv_addr));
+            srv_addr.sin_family = AF_INET;
+            srv_addr.sin_port = htons(25);
+            log_debug("binding to %s on interface %s", 
+                    inet_ntop(AF_INET, &(srv_addr.sin_addr),
+                        namebuf, INET_ADDRSTRLEN),
+                    ifp->ifa_name);
+            if (bind(srv->fd, (struct sockaddr *) &srv_addr, sizeof(srv_addr)) < 0)
+                err(1, "Could not bind to the socket");
+
+            freeifaddrs(ifa);
+            return;
+        }
+    }
+
+    err(1, "did not find any interfaces to bind to");
+}
+  
 /* ------------------- Public functions ----------------------- */
 
 /*
@@ -277,16 +313,11 @@ int
 server_start(struct server * srv)
 {
 	struct event       srv_evt;
-	struct sockaddr_in srv_addr;
 	int logopt = LOG_NDELAY;
 	int             one = 1;
 	int 		i;
 
 	/* TODO: Convert NULL hooks to NOOP hooks */
-
-	/* Adjust the port number for non-privileged processes */
-	if (getuid() > 0 && srv->port < 1024) 
-		srv->port += 1000;
 
 	if (srv->daemon) {
 
@@ -299,7 +330,7 @@ server_start(struct server * srv)
 	/* Open the log file */
 	if (!srv->daemon)
 		logopt |=  LOG_PERROR;
-	openlog("", logopt, srv->log_facility);
+	openlog("recvmail", logopt, srv->log_facility);
 
 	/* Increase the allowable number of file descriptors */
 	xsetrlimit(RLIMIT_NOFILE, 50000); 
@@ -307,22 +338,15 @@ server_start(struct server * srv)
 	/* Initialize the event library */
 	(void) event_init();
 
-	/* Initialize the socket variable */
-	memset(&srv_addr, 0, sizeof(srv_addr));
-	srv_addr.sin_family = AF_INET;
-	srv_addr.sin_addr = srv->addr;
-	srv_addr.sin_port = htons(srv->port);
-
 	/* Create the socket and bind(2) to it */
 	if ((srv->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 		err(1, "Cannot create socket");
 	if (setsockopt(srv->fd, SOL_SOCKET, SO_REUSEADDR, (char *) &one, sizeof(one)) != 0)
 		err(1, "setsockopt(3)");
-	if (bind(srv->fd, (struct sockaddr *) &srv_addr, sizeof(srv_addr)) < 0)
-		err(1, "Could not bind to the socket");
+    server_bind(srv);
 
 	/* Drop privileges and chroot() to /var/mail */
-	i = drop_privileges(srv->uid, srv->gid, srv->chrootdir);
+	i = drop_privileges(srv->uid, srv->gid);
 	if (i < 0)
 		errx(1, "unable to drop privileges");
 

@@ -1,1 +1,7 @@
 [This file is a stub -- please edit me]
+
+INSTALLATION
+------------
+
+# Create a recvmail user and group
+sudo adduser --system --no-create-home --group recvmail

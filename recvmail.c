@@ -26,9 +26,8 @@ struct server smtpd = {
 	.daemon = 1,
 	.port = 25,
 	.addr.s_addr = INADDR_ANY,
-	.uid = "nobody",
-	.gid = "mail",
-	.chrootdir = DEFAULT_PREFIX,
+	.uid = "recvmail",
+	.gid = "recvmail",
 	.timeout_read = 15,
 	.timeout_write = 30,
 	.log_level = LOG_NOTICE,
@@ -44,7 +43,6 @@ struct server smtpd = {
 
 struct options OPT = {
 	.debugging = 0,
-	.prefix = DEFAULT_PREFIX,
 };
 
 /* getopt(3) variables */

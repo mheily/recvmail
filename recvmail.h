@@ -81,12 +81,6 @@
 
 /* Configuration options */
 
-#if __linux__
-# define DEFAULT_PREFIX		"/srv/mail"
-#else
-# define DEFAULT_PREFIX		"/var/recvmail"
-#endif
-
 struct options {
 	bool	debugging;
  	char	*mailname,
@@ -152,9 +146,6 @@ struct server {
 
 	/** The symbolic group-ID to setgid(2) to */
 	char *gid;
-
-	/** The directory to chroot(2) to */
-	char *chrootdir;
 
 	/** The port number to bind(2) to */
 	int port;
