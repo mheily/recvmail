@@ -1,7 +1,17 @@
-[This file is a stub -- please edit me]
-
 INSTALLATION
 ------------
 
 # Create a recvmail user and group
 sudo adduser --system --no-create-home --group recvmail
+
+# Create the mailstore
+sudo -u recvmail mkdir /home/recvmail/store
+
+# Create the spool directory
+sudo -u recvmail mkdir -p /home/recvmail/spool/{new,cur,tmp}
+
+# Create a domain
+sudo -u recvmail mkdir /home/recvmail/store/example.com
+
+# Create a mailbox
+sudo -u recvmail mkdir -p /home/recvmail/store/example.com/test/{new,cur,tmp}
