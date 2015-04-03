@@ -55,7 +55,7 @@ maildir_msg_open(struct rfc2822_msg *msg)
 	time_t          now;
 	struct tm	timeval;
 	char		timestr[64];
-	size_t          len;
+	ssize_t          len;
 	char *buf = NULL;
 
 	/* Generate the message pathname */
