@@ -2,7 +2,8 @@ INSTALLATION
 ------------
 
 # Create a recvmail user and group
-sudo adduser --system --no-create-home --group recvmail
+Linux: sudo adduser --system --no-create-home --group recvmail
+FreeBSD: pw group add recvmail ; pw user add recvmail -g recvmail -s /nonexistent -m
 
 # Create the mailstore
 sudo -u recvmail mkdir /home/recvmail/store
@@ -15,3 +16,8 @@ sudo -u recvmail mkdir /home/recvmail/store/example.com
 
 # Create a mailbox
 sudo -u recvmail mkdir -p /home/recvmail/store/example.com/test/{new,cur,tmp}
+
+TESTING
+-------
+
+printf "helo a\nmail from:<b@c.com>\nrcpt to:<test@example.com>\ndata\nSubject: hello\n\nHi\n.\nquit\n" | nc 10.0.2.15 25
