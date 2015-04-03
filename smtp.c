@@ -77,7 +77,7 @@ smtpd_rcpt(struct session *s, char *addr)
 {
 	struct rfc2822_msg *msg;
 	struct rfc2822_addr *rcpt_to;
-	int domain_ok;
+	int domain_ok, user_ok;
 
 	/* Initialize variables */
 	if ((rcpt_to = calloc(1, sizeof(*rcpt_to))) == NULL) {
@@ -103,27 +103,26 @@ smtpd_rcpt(struct session *s, char *addr)
 		return -1;
 	}
 
-	domain_ok = (domain_exists(rcpt_to->domain) == 1);
+	/* TODO: Check if the recipient is already defined in the envelope and reject duplicates */
 
-	/* Test if there were any filesystem errors */
-	if (domain_ok < 0 || rcpt_to->exists < 0) {
+	/* Check if the mailbox exists */
+	domain_ok = domain_exists(rcpt_to->domain);
+	user_ok = mailbox_exists(rcpt_to->domain, rcpt_to->user);
+
+	if (domain_ok < 0 || user_ok < 0) {
 		print_response(s, "554 Internal server error, closing connection");
 		session_close(s);
 		return 0;
 	}
 	
-#if DEADWOOD
-	// should we really care here? isnt 550 good enough??
-
 	/* If the domain does not exist, do not relay the message */
-	if (!domain_ok) {
+	if (domain_ok != 1) {
 		print_response(s, "554 Relay access denied");
 		return -1;
 	}
-#endif
 
 	/* If the mailbox does not exist, do not accept the message */
-	if (rcpt_to->exists != 1) {
+	if (user_ok != 1) {
 		print_response(s, "550 Mailbox unavailable");
 		return -1;
 	}

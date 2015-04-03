@@ -50,6 +50,13 @@
 
 #include <event.h>
 
+#ifdef HAVE_SYS_CAPABILITY_H
+#define USE_CAPSICUM 1
+#else
+#define USE_CAPSICUM 0
+#error noo
+#endif
+
 /* Logging */
 
 #define _log_all(level, format,...) syslog(level,			\
@@ -100,14 +107,11 @@ struct rfc2822_addr {
 	/** The domain portion of the address (right-hand side) */
 	char *domain;
 
-	/** If TRUE, the address exists within the mailsystem */
-	bool exists;
-
 	/** The path to the mailbox associated with the address */
 	char *path;
 };
 
-int mailbox_exists(const struct rfc2822_addr * addr);
+int mailbox_exists(char *domain, char *user);
 
 /** An RFC-2822 message */
 struct rfc2822_msg {

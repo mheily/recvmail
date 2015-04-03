@@ -19,6 +19,9 @@
 #include "recvmail.h"
 #include <ifaddrs.h>
 #include <net/if.h>
+#if USE_CAPSICUM
+#include <sys/capability.h>
+#endif
 
 
 /* ------------------- Private functions ----------------------- */
@@ -358,6 +361,11 @@ server_start(struct server * srv)
 	event_set(&srv_evt, srv->fd, EV_READ | EV_PERSIST, server_accept, srv);
 	if (event_add(&srv_evt, NULL) != 0)
 		errx(1, "event_add() failed");
+
+#if USE_CAPSICUM
+	if (cap_enter() < 0)
+		err(1, "cap_enter failed");
+#endif
 
 	/* Wait forevent, dispatching events */
 	event_dispatch();

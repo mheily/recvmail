@@ -171,9 +171,6 @@ rfc2822_addr_parse(struct rfc2822_addr * dest, const char *src)
 		return -ENOMEM;
 	}
 
-	/* Test if the mailbox exists */
-	dest->exists = (file_exists(dest->path) == 1);
-
 	return 0;
 }
 
