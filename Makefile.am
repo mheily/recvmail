@@ -20,7 +20,8 @@ sbin_PROGRAMS    = recvmail
 dist_man8_MANS   = recvmail.8
 
 recvmail_LDADD   = -levent
-recvmail_CFLAGS  = -Wall -Werror -g -O2
+recvmail_LDFLAGS = $(LIBEVENT_LIBS)
+recvmail_CFLAGS  = -Wall -Werror -g -O2 $(LIBEVENT_CFLAGS)
 recvmail_SOURCES = address.c file.c maildir.c smtp.c server.c \
 		   recvmail.c recvmail.h
 

@@ -21,7 +21,13 @@ AC_PROG_RANLIB
 AC_HEADER_DIRENT
 AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
-AC_CHECK_HEADERS([arpa/inet.h fcntl.h inttypes.h limits.h netdb.h netinet/in.h stdlib.h string.h strings.h sys/file.h sys/socket.h sys/time.h syslog.h unistd.h event.h])
+AC_CHECK_HEADERS([arpa/inet.h fcntl.h inttypes.h limits.h netdb.h netinet/in.h stdlib.h string.h strings.h sys/file.h sys/socket.h sys/time.h syslog.h unistd.h event.h sys/capability.h])
+
+# Check for the Capsicum security mechanism
+AC_CHECK_HEADER([sys/capability.h])
+
+# Require libevent
+PKG_CHECK_MODULES([LIBEVENT], [libevent > 2])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
