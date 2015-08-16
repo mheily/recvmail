@@ -22,16 +22,17 @@
 #define HOSTNAME_MAX		63
 
 /*
- * domain_exists(domain)
+ * domain_exists(chroot_fd, domain)
  *
- * Checks if <domain> exists in the mailstore. 
+ * Checks if <domain> exists in the mailstore located at <chroot_fd>
  *
- * Returns: 0 if the domain exists, -1 if it does not.
+ * Returns: 1 if the mailbox exists, 0 if it does not, or -1 if there was a system error
  *
  */
 int
-domain_exists(const char *domain)
+domain_exists(int chroot_fd, const char *domain)
 {
+	struct stat st;
 	char *path = NULL;
 	int result;
 
@@ -41,9 +42,15 @@ domain_exists(const char *domain)
 	if (asprintf(&path, "store/%s", domain) < 0)
 		return -ENOMEM;
 
-	result = file_exists(domain);
+	result = fstatat(chroot_fd, path, &st, 0);
 	free(path);
-	return result;
+
+        if (result < 0 && errno != ENOENT)
+                log_errno("fstatat(2)");
+
+	log_debug("domain %s checked; result %d", domain, result);
+
+        return (result == 0 ? 1 : 0);
 }
 
 

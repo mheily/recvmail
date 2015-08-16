@@ -111,13 +111,16 @@ struct rfc2822_addr {
 	char *path;
 };
 
-int mailbox_exists(char *domain, char *user);
+int mailbox_exists(int chroot_fd, const char *domain, const char *user);
 
 /** An RFC-2822 message */
 struct rfc2822_msg {
 
 	/** A file descriptor opened for writing the message */
 	int fd;
+
+	/** A file descriptor opened to the root of the chroot(2) jail */
+        int chroot_fd;
 
 	/** The path to the message */
 	char    *path;
@@ -192,6 +195,9 @@ struct server {
 
 	/** Sends a 'too many errors' message to a misbehaving client before closing */
 	void (*reject_hook)(struct session *);
+
+	/** A file descriptor opened to the root of the chroot(2) jail */
+        int chroot_fd;
 };
 
 /** Protocol-specific SMTP session data */
@@ -259,7 +265,7 @@ int file_exists(const char *path);
 
 #define USERNAME_MAX            63
 
-int domain_exists(const char *domain);
+int domain_exists(int chroot_fd, const char *domain);
 
 struct rfc2822_addr * rfc2822_addr_new();
 int  rfc2822_addr_parse(struct rfc2822_addr * dest, const char * src);

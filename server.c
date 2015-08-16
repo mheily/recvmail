@@ -279,12 +279,12 @@ server_bind(struct server * srv)
         if (ifa->ifa_addr == NULL)
             continue;
         if ((ifp->ifa_flags & IFF_UP) &&
-                !(ifp->ifa_flags & IFF_LOOPBACK) &&
+          // FIXME: breaks jails:      !(ifp->ifa_flags & IFF_LOOPBACK) &&
                 (ifp->ifa_addr->sa_family == AF_INET))
         {
             memcpy(&srv_addr, ifp->ifa_addr, sizeof(srv_addr));
             srv_addr.sin_family = AF_INET;
-            srv_addr.sin_port = htons(25);
+            srv_addr.sin_port = htons(srv->port);
             log_debug("binding to %s on interface %s", 
                     inet_ntop(AF_INET, &(srv_addr.sin_addr),
                         namebuf, INET_ADDRSTRLEN),
@@ -352,6 +352,13 @@ server_start(struct server * srv)
 	i = drop_privileges(srv->uid, srv->gid);
 	if (i < 0)
 		errx(1, "unable to drop privileges");
+
+        /* Open a file descriptor to the base of the chroot(2) jail.
+           This allows use of openat(2) and related syscalls.
+        */
+        srv->chroot_fd = open("/", O_RDONLY);
+        if (srv->chroot_fd < 0)  
+                err(1, "open(2)");
 
 	/* Listen for incoming connections */
 	if (listen(srv->fd, 100) < 0)

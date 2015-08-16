@@ -106,8 +106,8 @@ smtpd_rcpt(struct session *s, char *addr)
 	/* TODO: Check if the recipient is already defined in the envelope and reject duplicates */
 
 	/* Check if the mailbox exists */
-	domain_ok = domain_exists(rcpt_to->domain);
-	user_ok = mailbox_exists(rcpt_to->domain, rcpt_to->user);
+	domain_ok = domain_exists(s->srv->chroot_fd, rcpt_to->domain);
+	user_ok = mailbox_exists(s->srv->chroot_fd, rcpt_to->domain, rcpt_to->user);
 
 	if (domain_ok < 0 || user_ok < 0) {
 		print_response(s, "554 Internal server error, closing connection");
@@ -142,6 +142,8 @@ smtpd_data(struct session *s, char *arg)
 		print_response(s, "503 Error: need one or more recipients first");
 		return -1;
 	} else {
+		s->data->msg->chroot_fd = s->srv->chroot_fd;
+
 		if (maildir_msg_open(s->data->msg)) {
 			print_response(s, "421 Error spooling message");
 			session_close(s);

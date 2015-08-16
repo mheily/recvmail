@@ -66,9 +66,9 @@ maildir_msg_open(struct rfc2822_msg *msg)
 
 	/* Try to open the message file for writing */
 	/* NOTE: O_EXCL may not work on older NFS servers */
-	msg->fd = open(msg->path, O_CREAT | O_APPEND | O_WRONLY | O_EXCL, 00660);
+	msg->fd = openat(msg->chroot_fd, msg->path, O_CREAT | O_APPEND | O_WRONLY | O_EXCL, 00660);
 	if (msg->fd < 0) {
-		log_errno("open(2) of `%s'", msg->path);
+		log_errno("openat(2) of `%s'", msg->path);
 		return -1;
 	}
 
@@ -166,9 +166,9 @@ rfc2822_msg_close(struct rfc2822_msg *msg)
 	/* Move the message into the 'new/' directory */
 	if (asprintf(&path, "%s/new/%s", msg->rcpt_to[0]->path, msg->filename) < 0) 
 		goto error;
-	if (rename(msg->path, path) < 0) {
-		log_errno("rename(2) of `%s' to `%s'", msg->path, path);
-		(void) unlink(msg->path);
+	if (renameat(msg->chroot_fd, msg->path, msg->chroot_fd, path) < 0) {
+		log_errno("renameat(2) of `%s' to `%s'", msg->path, path);
+		(void) unlinkat(msg->chroot_fd, msg->path, 0);
 		goto error;
 	}
 	free(msg->path);
@@ -183,9 +183,9 @@ rfc2822_msg_close(struct rfc2822_msg *msg)
 					msg->filename) < 0) {
 			goto error;
 		}
-		if (link(msg->path, path) < 0) {
+		if (linkat(msg->chroot_fd, msg->path, msg->chroot_fd, path, 0) < 0) {
 			/* TODO: unlink previous attempts */
-			log_errno("link(2) of `%s' to `%s'", msg->path, path);
+			log_errno("linkat(2) of `%s' to `%s'", msg->path, path);
 			goto error;
 		}
 	}

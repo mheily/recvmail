@@ -16,8 +16,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdio.h>
+
+#include "recvmail.h"
+
 /*
- * mailbox_exists(domain, user)
+ * mailbox_exists(chroot_fd, domain, user)
  *
  * Test if a mailbox exists.
  *
@@ -25,20 +31,25 @@
  *
  */
 int 
-mailbox_exists(const char *domain, const char *user)
+mailbox_exists(int chroot_fd, const char *domain, const char *user)
 {
-	return 1; //FIXME-STUB
-/*
+	int result;
 	struct stat st;
-	
-	if (stat(path, &st) < 0) {
-		if ( errno != ENOENT ) {
-			log_errno("stat(2)");
-			return -1;
-		}
-		return 0;
-	} else {
-		return 1;
+	char *path;
+
+	/* Compute the path to the mailbox */
+	if (asprintf(&path, "store/%s/%s", domain, user) < 0) {
+		log_errno("asprintf");
+		return -1;
 	}
-*/
+
+	result = fstatat(chroot_fd, path, &st, 0);
+
+	if (result < 0 && errno != ENOENT)
+		log_errno("fstatat(2)");
+
+	log_debug("domain=%s user=%s result=%d path=%s", domain, user, result, path);
+	free(path);
+
+	return (result == 0 ? 1 : 0);
 }
