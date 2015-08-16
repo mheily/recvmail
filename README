@@ -11,6 +11,8 @@ On FreeBSD 10.2:
 INSTALLATION
 ------------
 
+# make install
+
 # Create a recvmail user and group
 Linux: sudo adduser --system --no-create-home --group recvmail
 FreeBSD: pw group add recvmail ; pw user add recvmail -g recvmail -s /nonexistent -m
@@ -32,6 +34,9 @@ RUNNING
 
 # To run in testing mode
 sudo ./recvmail -fv
+
+# Using the provided rc(8) script for FreeBSD
+sudo service recvmail start
 
 TESTING
 -------
