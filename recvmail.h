@@ -54,7 +54,6 @@
 #define USE_CAPSICUM 1
 #else
 #define USE_CAPSICUM 0
-#error noo
 #endif
 
 /* Logging */

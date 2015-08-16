@@ -1,3 +1,13 @@
+BUILDING
+--------
+
+On FreeBSD 10.2:
+
+  $ sudo pkg install autotools pkgconf libevent2
+  $ autoreconf -fvi
+  $ ./configure
+  $ make
+
 INSTALLATION
 ------------
 
@@ -16,6 +26,12 @@ sudo -u recvmail mkdir /home/recvmail/store/example.com
 
 # Create a mailbox
 sudo -u recvmail mkdir -p /home/recvmail/store/example.com/test/{new,cur,tmp}
+
+RUNNING
+-------
+
+# To run in testing mode
+sudo ./recvmail -fv
 
 TESTING
 -------
