@@ -279,7 +279,7 @@ server_bind(struct server * srv)
         if (ifa->ifa_addr == NULL)
             continue;
         if ((ifp->ifa_flags & IFF_UP) &&
-          // FIXME: breaks jails:      !(ifp->ifa_flags & IFF_LOOPBACK) &&
+               !(ifp->ifa_flags & IFF_LOOPBACK) &&
                 (ifp->ifa_addr->sa_family == AF_INET))
         {
             memcpy(&srv_addr, ifp->ifa_addr, sizeof(srv_addr));
